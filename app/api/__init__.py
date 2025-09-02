@@ -1,3 +1,3 @@
-from app.api.mongodb import router as mongodb_router
+from app.api.webhooks import router as webhooks_router
 
-__all__ = ["mongodb_router"]
+__all__ = ["webhooks_router"]
