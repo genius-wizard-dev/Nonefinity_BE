@@ -45,16 +45,16 @@ class QdrantSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="QDRANT_")
 
-class AuthSettings(BaseSettings):
-    AUTH_JWT_ISS: str = "http://127.0.0.1:8000"
-    AUTH_JWT_AUD: str = ""
-    AUTH_JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 14
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="AUTH_")
+class ClerkSettings(BaseSettings):
+    CLERK_SECRET_KEY: str = ""
+    JWT_KEY: str = ""
+    CLERK_WEBHOOK_SECRET: str = ""
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, AuthSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
+
+class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

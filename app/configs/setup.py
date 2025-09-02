@@ -1,12 +1,19 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette import status
+
+from app.schemas.response import ApiError, ErrorDetail
+from app.utils.api_response import JSONResponse
 from app.configs.settings import settings
+from app.core.exceptions import AppError
 from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb
 from app.models import DOCUMENT_MODELS
 from app.services import mongodb_service
-from app.api import mongodb_router
+from app.api import webhooks_router
 
 logger = get_logger(__name__)
 
@@ -34,7 +41,8 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Sentry monitoring initialized for production environment")
     elif settings.APP_ENV != "prod":
-        logger.info("Sentry monitoring disabled - not in production environment")
+        logger.info(
+            "Sentry monitoring disabled - not in production environment")
     else:
         logger.warning("Sentry DSN not configured - monitoring disabled")
     
@@ -56,17 +64,40 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Nonefinity Agent application...")
     await mongodb.disconnect()
-    
+
+
+def install_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(AppError)
+    async def app_error_handler(request: Request, exc: AppError):
+        errors = exc.errors or []
+        if exc.field:
+            errors.append({"code": exc.code, "message": exc.message, "field": exc.field})
+        body = ApiError(success=False, message=exc.message, errors=[ErrorDetail(**e) for e in errors]).model_dump(exclude_none=True)
+        return JSONResponse(content=body, status_code=exc.status_code)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        body = ApiError(success=False, message=str(exc.detail)).model_dump(exclude_none=True)
+        return JSONResponse(content=body, status_code=exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        errs = []
+        for e in exc.errors():
+            loc = ".".join(str(x) for x in e.get("loc", []) if x not in ("body",))
+            errs.append({"code": e.get("type", "validation_error"), "message": e.get("msg", ""), "field": loc or None})
+        body = ApiError(success=False, message="Validation error", errors=[ErrorDetail(**e) for e in errs]).model_dump(exclude_none=True)
+        return JSONResponse(content=body, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
 def _create_api_prefix(app_name: str) -> str:
     return f"/api/v1/{app_name}"
 
 def include_routers(app: FastAPI) -> None:
     """Include all API routers"""
-    
-    # Only include MongoDB router in development environment with debug enabled
-    if settings.APP_ENV == "dev" and settings.APP_DEBUG:
-        app.include_router(mongodb_router, prefix=_create_api_prefix("mongodb"))
-        logger.info("MongoDB router included (dev mode with debug enabled)")
+
+    app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"))
+
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application"""
@@ -77,22 +108,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
+    # Include exceptions handler
+    install_exception_handlers(app)
+
     # Include routers
     include_routers(app)
-    
-    # Add basic endpoints
-    @app.get("/")
-    def read_root():
-        logger.info("Root endpoint accessed")
-        return {"message": "Hello World", "app": settings.APP_NAME}
 
-    @app.get("/health")
-    def health_check():
-        logger.info("Health check endpoint accessed")
-        return {
-            "status": "healthy",
-            "app": settings.APP_NAME,
-            "environment": settings.APP_ENV
-        }
-    
     return app
