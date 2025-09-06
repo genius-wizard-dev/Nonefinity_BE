@@ -60,10 +60,10 @@ async def create_user(request: Request):
 
             # Pick profile image
             profile_image = (
-                (external_account.get("image_url")
-                or (external_account.get("avatar_url") if external_account else None)
-                or user_data.get("image_url") if external_account else None)
-                or user_data.get("profile_image_url")
+                (external_account.get("image_url") if external_account else None) or
+                (external_account.get("avatar_url") if external_account else None) or
+                user_data.get("image_url") or
+                user_data.get("profile_image_url")
             )
 
             create_payload = UserCreate(
@@ -92,12 +92,14 @@ async def create_user(request: Request):
             external_accounts = user_data.get("external_accounts") or []
             oauth_providers = []
             
+            # Pick oauth
             for account in external_accounts:
                 provider = account.get("provider")
                 if provider and provider.startswith("oauth_"):
                     if provider not in oauth_providers:
                         oauth_providers.append(provider)
                         
+            # Pick email
             email_entries = user_data.get("email_addresses") or []
             emails = [e.get("email_address") for e in email_entries if e.get("email_address")]
                         
@@ -115,6 +117,7 @@ async def create_user(request: Request):
             if primary_email and primary_email not in emails:
                 emails.insert(0, primary_email)
                 
+            # Pick profile image
             profile_image = None
             external_account = external_accounts[0] if external_accounts else None
             
