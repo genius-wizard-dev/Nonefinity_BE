@@ -24,6 +24,8 @@ def created(
     body = ApiResponse[Any](success=True, message=message, data=data).model_dump(mode="json", exclude_none=True)
     return JSONResponse(content=body, status_code=status.HTTP_201_CREATED, headers=headers)
 
+
+
 def no_content() -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

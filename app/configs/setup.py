@@ -12,7 +12,7 @@ from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router
+from app.api import webhooks_router, storage_router
 
 logger = get_logger(__name__)
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
     logger.info("Starting Nonefinity Agent application...")
-    
+
     # Setup logging
     setup_logging(
         level="DEBUG" if settings.APP_DEBUG else "INFO",
@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
         enable_json=settings.APP_ENV == "prod",
         log_file="logs/app.log" if settings.APP_ENV == "prod" else None
     )
-    
+
     # Initialize Sentry monitoring (only in production environment)
     if settings.SENTRY_DSN and settings.APP_ENV == "prod":
         init_sentry(
@@ -44,20 +44,20 @@ async def lifespan(app: FastAPI):
             "Sentry monitoring disabled - not in production environment")
     else:
         logger.warning("Sentry DSN not configured - monitoring disabled")
-    
+
     # Initialize MongoDB and Beanie
     try:
         await mongodb.connect(document_models=DOCUMENT_MODELS)
-        
-        
+
+
     except Exception as e:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")
         raise
-    
+
     logger.info("Application started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Nonefinity Agent application...")
     await mongodb.disconnect()
@@ -93,7 +93,8 @@ def _create_api_prefix(app_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers"""
 
-    app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"))
+    app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"), tags=["Webhooks"])
+    app.include_router(storage_router, prefix=_create_api_prefix("storage"), tags=["Storage"])
 
 
 def create_app() -> FastAPI:
@@ -104,7 +105,7 @@ def create_app() -> FastAPI:
         debug=settings.APP_DEBUG,
         lifespan=lifespan
     )
-    
+
     # Include exceptions handler
     install_exception_handlers(app)
 

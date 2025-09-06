@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 from svix.webhooks import Webhook
 
@@ -7,7 +7,7 @@ from app.consts.user_event_type import UserEventType
 from app.core.exceptions import AppError
 from app.schemas.response import ApiResponse
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.services.user import UserService
+from app.services import user_service
 from app.utils.api_response import created, no_content, ok
 from ..configs.settings import settings
 import json
@@ -16,7 +16,6 @@ router = APIRouter()
 
 @router.post("/clerk", response_model=ApiResponse[UserResponse])
 async def create_user(request: Request):
-    service = UserService()
     webhook_secret = settings.CLERK_WEBHOOK_SECRET
 
     if not webhook_secret:
@@ -86,23 +85,23 @@ async def create_user(request: Request):
                 oauth_providers=oauth_providers,
             )
 
-            created_user = await service.create_user(create_payload)
+            created_user = await user_service.create_user(create_payload)
             return created(created_user, message=f"User {user_data['id']} is created")
         elif message_type == UserEventType.USER_UPDATED.value:
             external_accounts = user_data.get("external_accounts") or []
             oauth_providers = []
-            
+
             # Pick oauth
             for account in external_accounts:
                 provider = account.get("provider")
                 if provider and provider.startswith("oauth_"):
                     if provider not in oauth_providers:
                         oauth_providers.append(provider)
-                        
+
             # Pick email
             email_entries = user_data.get("email_addresses") or []
             emails = [e.get("email_address") for e in email_entries if e.get("email_address")]
-                        
+
             primary_email = None
             primary_email_id = user_data.get("primary_email_address_id")
             if primary_email_id:
@@ -110,17 +109,17 @@ async def create_user(request: Request):
                     (e["email_address"] for e in email_entries
                     if e.get("id") == primary_email_id and e.get("email_address")), None
                 )
-                
+
             if not primary_email and emails:
                 primary_email = emails[0]
-                
+
             if primary_email and primary_email not in emails:
                 emails.insert(0, primary_email)
-                
+
             # Pick profile image
             profile_image = None
             external_account = external_accounts[0] if external_accounts else None
-            
+
             if user_data.get("has_image", False):
                 profile_image = (
                     (external_account.get("image_url") if external_account else None) or
@@ -128,11 +127,11 @@ async def create_user(request: Request):
                     user_data.get("image_url") or
                     user_data.get("profile_image_url")
                 )
-                
+
             updated_at = None
             if user_data.get("updated_at"):
                 updated_at = datetime.fromtimestamp(user_data["updated_at"] / 1000)
-                
+
             update_payload = UserUpdate(
                 first_name=user_data.get("first_name"),
                 last_name=user_data.get("last_name"),
@@ -145,12 +144,12 @@ async def create_user(request: Request):
                 banned=user_data.get("banned", False),
                 updated_at=updated_at
             )
-            
-            updated_user = await service.update_user(user_data["id"], update_payload)
-            
+
+            updated_user = await user_service.update_user(user_data["id"], update_payload)
+
             return ok(updated_user, message=f"User {user_data.get("id")} is updated")
         elif message_type == UserEventType.USER_DELETED.value:
-            await service.delete_user(user_data.get("id"))
+            await user_service.delete_user(user_data.get("id"))
             return ok(None, message=f"User {user_data['id']}  is deleted")
         else:
             return no_content()

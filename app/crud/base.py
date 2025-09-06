@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
-
+from bson import ObjectId
 from beanie import Document
 from pydantic import BaseModel
 
@@ -14,7 +14,7 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         self.model = model
 
     async def get_by_id(self, id: str, include_deleted: bool = True) -> Optional[ModelT]:
-        query = {"_id": id}
+        query = {"_id": ObjectId(id)}
         if not include_deleted and "is_deleted" in self.model.__fields__:
             query["is_deleted"] = False
         return await self.model.find_one(query)
@@ -69,7 +69,7 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         await db_obj.set(update_data)
         return db_obj
 
-    async def delete(self, db_obj: ModelT, soft_delete: bool = True) -> None:      
+    async def delete(self, db_obj: ModelT, soft_delete: bool = True) -> None:
         if soft_delete and "is_deleted" in db_obj.__fields__:
             payload = {"is_deleted": True, "deleted_at": datetime.utcnow()}
             if "updated_at" in db_obj.__fields__:
