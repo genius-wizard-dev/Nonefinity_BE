@@ -17,6 +17,7 @@ class User(TimeMixin, Document):
     banned: bool = Field(default=False, description="Banned user")
     is_oauth: bool = Field(default=False, description="Is Oauth account")
     oauth_providers: List[str] | None = Field(None, description="List of OAuth providers (e.g. google, facebook, tiktok)")
-    
+    minio_secret_key: str | None = Field(None, description="MinIO secret key for the user")
+
     class Settings:
         name = "users"
