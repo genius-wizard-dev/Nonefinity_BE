@@ -5,7 +5,7 @@ from app.models.user import User
 # Export all models for easy import
 __all__ = [
     "TimeMixin",
-    "SoftDeleteMixin"
+    "SoftDeleteMixin",
     "User"
 ]
 
