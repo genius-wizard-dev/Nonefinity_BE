@@ -21,7 +21,7 @@ class UserUpdate(BaseModel):
     first_name: str
     last_name: str
     username: str = None
-    profile_image:str = None
+    profile_image: Optional[str] = None
     emails: List[EmailStr]
     primary_email: EmailStr
     oauth_providers: Optional[List[str]] = []
