@@ -55,33 +55,6 @@ class MongoDB:
         if self.client:
             self.client.close()
             logger.info("Disconnected from MongoDB")
-    
-    async def check_connection(self) -> bool:
-        """Check if MongoDB connection is alive"""
-        try:
-            if self.client:
-                await self.client.admin.command('ping')
-                return True
-            return False
-        except Exception:
-            return False
-    
-    async def get_database_info(self) -> dict:
-        """Get basic database information"""
-        try:
-            if self.database is None:
-                return {}
-                
-            collections = await self.database.list_collection_names()
-            
-            return {
-                "database_name": self.database.name,
-                "collections": collections,
-                "collections_count": len(collections)
-            }
-        except Exception as e:
-            logger.error(f"Error getting database info: {str(e)}")
-            return {}
 
 # Global MongoDB instance
 mongodb = MongoDB()

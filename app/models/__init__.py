@@ -1,19 +1,15 @@
-from app.models.base import BaseDocument
+from app.models.time_mixin import TimeMixin
+from app.models.soft_delete_mixin import SoftDeleteMixin
 from app.models.user import User
-from app.models.product import Product, Category, ProductStatus
 
 # Export all models for easy import
 __all__ = [
-    "BaseDocument",
-    "User", 
-    "Product",
-    "Category",
-    "ProductStatus"
+    "TimeMixin",
+    "SoftDeleteMixin"
+    "User"
 ]
 
 # List of all document models for Beanie initialization
 DOCUMENT_MODELS = [
-    User,
-    Product,
-    Category
+    User
 ]
