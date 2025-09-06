@@ -138,7 +138,22 @@ class MinIOService:
     logger.info(f"Cleanup done for {user_id}")
 
 
-  def upload_file(self, user_id: str, file: UploadFile ):
+  def get_url(self, bucket_name: str, object_name: str) -> str:
+    """
+    Get presigned URL to access an object
+    """
+    try:
+      if not self.client.bucket_exists(bucket_name):
+        raise ValueError(f"Bucket {bucket_name} does not exist")
+
+      url = self.client.presigned_get_object(bucket_name=bucket_name, object_name=object_name)
+      return url
+
+    except Exception as e:
+      logger.error(f"Error getting URL for {bucket_name}/{object_name}: {e}")
+      return ""
+
+  def upload_file(self, user_id: str, file: UploadFile, object_name: str) -> bool:
     """
     Upload a file to the user's bucket
     """
@@ -148,20 +163,28 @@ class MinIOService:
 
       self.client.put_object(
         bucket_name=user_id,
-        object_name=file.filename,
+        object_name=object_name,
         data=file.file,
         length=file.size
       )
-      self.client.presigned_get_object(bucket_name=user_id, object_name=file.filename)
-
-      return {
-        "bucket": user_id,
-        "file_name": file.filename,
-        "url": self.client.presigned_get_object(bucket_name=user_id, object_name=file.filename)
-      }
+      return True
 
     except Exception as e:
       logger.error(f"Error uploading file to {user_id}: {e}")
-      raise
+      return False
 
 
+  def delete_file(self, user_id: str, file_name: str) -> bool:
+    """
+    Delete a file from the user's bucket
+    """
+    try:
+      if not self.client.bucket_exists(user_id):
+        raise ValueError(f"Bucket {user_id} does not exist")
+
+      self.client.remove_object(bucket_name=user_id, object_name=file_name)
+      return True
+
+    except Exception as e:
+      logger.error(f"Error deleting file {file_name} from {user_id}: {e}")
+      return False

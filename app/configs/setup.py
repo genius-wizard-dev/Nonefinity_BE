@@ -93,8 +93,8 @@ def _create_api_prefix(app_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers"""
 
-    app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"))
-    app.include_router(storage_router, prefix=_create_api_prefix("storage"))
+    app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"), tags=["Webhooks"])
+    app.include_router(storage_router, prefix=_create_api_prefix("storage"), tags=["Storage"])
 
 
 def create_app() -> FastAPI:
