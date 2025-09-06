@@ -1,4 +1,3 @@
-from unittest import result
 from app.services.minio_service import MinIOService
 from fastapi import UploadFile
 from app.schemas.file import FileCreate
@@ -57,7 +56,7 @@ class StorageService:
           await file_create.save()
           return file_create
 
-      except Exception as e:
+      except Exception:
         if 'file_create' in locals():
             await self.crud.delete(file_create)
         if 'unique_object_name' in locals():

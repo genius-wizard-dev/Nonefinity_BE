@@ -5,7 +5,6 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
 from app.schemas.file import FileResponse
 from app.utils.api_response import created, ok
-import mimetypes
 router = APIRouter()
 
 @router.post("/upload/file", response_model=ApiResponse[FileResponse])

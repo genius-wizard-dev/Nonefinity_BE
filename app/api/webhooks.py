@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 from svix.webhooks import Webhook
 
