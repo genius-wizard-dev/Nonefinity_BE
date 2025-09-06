@@ -53,8 +53,16 @@ class ClerkSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env")
 
+class MinioSettings(BaseSettings):
+    MINIO_URL: str = ""
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
+    MINIO_ALIAS: str = ""
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_")
+
+
+class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 
