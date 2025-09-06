@@ -12,7 +12,6 @@ from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb
 from app.models import DOCUMENT_MODELS
-from app.services import mongodb_service
 from app.api import webhooks_router
 
 logger = get_logger(__name__)
@@ -50,8 +49,6 @@ async def lifespan(app: FastAPI):
     try:
         await mongodb.connect(document_models=DOCUMENT_MODELS)
         
-        # Initialize MongoDB service
-        await mongodb_service.initialize()
         
     except Exception as e:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")

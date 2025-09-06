@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from app.crud.base import BaseCRUD
 from app.models.user import User
@@ -9,12 +9,8 @@ class UserCRUD(BaseCRUD[User, UserCreate, UserUpdate]):
     def __init__(self):
         super().__init__(User)
 
-    async def get_by_email(self, email: str, *, include_deleted: bool = False) -> Optional[User]:
-        if include_deleted:
-            return await self.model.find_one(User.email == email)
-        return await self.model.find_one(User.email == email)
+    async def get_by_email(self, emails: List[str]) -> Optional[User]:
+        return await self.model.find_one({"emails": {"$in": emails}})
 
-    async def get_by_clerk_id(self, clerk_id: str, *, include_deleted: bool = False) -> Optional[User]:
-        if include_deleted:
-            return await self.model.find_one(User.clerk_id == clerk_id)
+    async def get_by_clerk_id(self, clerk_id: str) -> Optional[User]:
         return await self.model.find_one(User.clerk_id == clerk_id)

@@ -14,7 +14,8 @@ class UserService:
             return None
         return UserResponse(
             clerk_id=user.clerk_id,
-            email=user.email,
+            emails=user.emails,
+            primary_email=user.primary_email,
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
@@ -24,18 +25,19 @@ class UserService:
             created_at=user.created_at,
             updated_at=user.updated_at,
             is_oauth=user.is_oauth,
-            oauth_provider=user.oauth_provider,
+            oauth_providers=user.oauth_providers,
         )
         
     async def create_user(self, payload: UserCreate) -> UserResponse:
-        exists = await self.crud.get_by_email(payload.email)
+        exists = await self.crud.get_by_email(payload.emails)
         if exists:
             raise ValueError("Email already registered")
         
         user = await self.crud.create(payload)
         return UserResponse(
             clerk_id=user.clerk_id,
-            email=user.email,
+            emails=user.emails,
+            primary_email=user.primary_email,
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
@@ -45,7 +47,7 @@ class UserService:
             created_at=user.created_at,
             updated_at=user.updated_at,
             is_oauth=user.is_oauth,
-            oauth_provider=user.oauth_provider,
+            oauth_providers=user.oauth_providers,
         )
         
     async def update_user(self, clerk_id: str, payload: UserUpdate) -> UserResponse:
@@ -56,7 +58,8 @@ class UserService:
         user = await self.crud.update(user, payload)
         return UserResponse(
             clerk_id=user.clerk_id,
-            email=user.email,
+            emails=user.emails,
+            primary_email=user.primary_email,
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
@@ -66,7 +69,7 @@ class UserService:
             created_at=user.created_at,
             updated_at=user.updated_at,
             is_oauth=user.is_oauth,
-            oauth_provider=user.oauth_provider,
+            oauth_providers=user.oauth_providers,
         )
         
     async def delete_user(self, clerk_id: str) -> None:
