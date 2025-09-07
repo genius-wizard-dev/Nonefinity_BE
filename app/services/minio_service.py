@@ -188,3 +188,128 @@ class MinIOService:
     except Exception as e:
       logger.error(f"Error deleting file {file_name} from {user_id}: {e}")
       return False
+
+  def create_folder(self, bucket_name: str, folder_path: str) -> bool:
+    """
+    Create a folder in MinIO by creating an empty object with folder path
+    """
+    try:
+      if not self.client.bucket_exists(bucket_name):
+        raise ValueError(f"Bucket {bucket_name} does not exist")
+
+      # MinIO creates folders by having objects with path prefixes
+      # We create an empty placeholder object to represent the folder
+      if folder_path and not folder_path.endswith('/'):
+        folder_path += '/'
+
+      # Create empty object to represent folder
+      from io import BytesIO
+      self.client.put_object(
+        bucket_name=bucket_name,
+        object_name=folder_path + '.keep',  # placeholder file
+        data=BytesIO(b''),
+        length=0
+      )
+      return True
+
+    except Exception as e:
+      logger.error(f"Error creating folder {folder_path} in {bucket_name}: {e}")
+      return False
+
+  def delete_folder(self, bucket_name: str, folder_path: str) -> bool:
+    """
+    Delete a folder and all its contents from MinIO
+    """
+    try:
+      if not self.client.bucket_exists(bucket_name):
+        raise ValueError(f"Bucket {bucket_name} does not exist")
+
+      if folder_path and not folder_path.endswith('/'):
+        folder_path += '/'
+
+      # List all objects in the folder
+      objects = self.client.list_objects(bucket_name, prefix=folder_path, recursive=True)
+
+      # Delete all objects in the folder
+      for obj in objects:
+        self.client.remove_object(bucket_name, obj.object_name)
+
+      return True
+
+    except Exception as e:
+      logger.error(f"Error deleting folder {folder_path} from {bucket_name}: {e}")
+      return False
+
+  def rename_folder(self, bucket_name: str, old_path: str, new_path: str) -> bool:
+    """
+    Rename/move a folder by copying all objects to new path and deleting old ones
+    """
+    try:
+      if not self.client.bucket_exists(bucket_name):
+        raise ValueError(f"Bucket {bucket_name} does not exist")
+
+      if old_path and not old_path.endswith('/'):
+        old_path += '/'
+      if new_path and not new_path.endswith('/'):
+        new_path += '/'
+
+      # List all objects in the old folder
+      objects = list(self.client.list_objects(bucket_name, prefix=old_path, recursive=True))
+
+      # Copy each object to new location
+      for obj in objects:
+        old_object_name = obj.object_name
+        new_object_name = old_object_name.replace(old_path, new_path, 1)
+
+        # Copy object
+        copy_source = {"Bucket": bucket_name, "Key": old_object_name}
+        self.client.copy_object(bucket_name, new_object_name, copy_source)
+
+        # Delete old object
+        self.client.remove_object(bucket_name, old_object_name)
+
+      return True
+
+    except Exception as e:
+      logger.error(f"Error renaming folder from {old_path} to {new_path} in {bucket_name}: {e}")
+      return False
+
+  def move_folder(self, bucket_name: str, old_path: str, new_path: str) -> bool:
+    """
+    Move a folder (same as rename)
+    """
+    return self.rename_folder(bucket_name, old_path, new_path)
+
+  def list_files_in_folder(self, bucket_name: str, folder_path: str = "") -> list:
+    """
+    List all files in a specific folder
+    """
+    try:
+      if not self.client.bucket_exists(bucket_name):
+        raise ValueError(f"Bucket {bucket_name} does not exist")
+
+      # Ensure folder_path format
+      if folder_path and not folder_path.endswith('/'):
+        folder_path += '/'
+      elif folder_path == "/":
+        folder_path = ""
+
+      # List objects with folder prefix, but not recursive to get only direct children
+      objects = self.client.list_objects(bucket_name, prefix=folder_path, recursive=False)
+
+      files = []
+      for obj in objects:
+        # Skip folder placeholders and only return actual files
+        if not obj.object_name.endswith('/') and not obj.object_name.endswith('.keep'):
+          files.append({
+            'object_name': obj.object_name,
+            'size': obj.size,
+            'last_modified': obj.last_modified,
+            'etag': obj.etag
+          })
+
+      return files
+
+    except Exception as e:
+      logger.error(f"Error listing files in folder {folder_path} from {bucket_name}: {e}")
+      return []

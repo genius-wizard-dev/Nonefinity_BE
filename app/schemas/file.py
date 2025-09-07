@@ -12,7 +12,7 @@ class ColumnSchema(BaseModel):
 
 
 class FileCreate(BaseModel):
-  """Schema for creating a new file"""
+  """Schema for creating a new file (internal use with all fields)"""
   owner_id: str
   bucket: str
   object_name: str
@@ -20,6 +20,7 @@ class FileCreate(BaseModel):
   file_type: str
   file_size: Optional[int] = None
   url: Optional[str] = None
+  folder_path: str = "/"
   columns: Optional[List[ColumnSchema]] = None
   tags: Optional[List[str]] = None
 
@@ -29,12 +30,12 @@ class FileUpdate(BaseModel):
   file_type: Optional[str] = None
   file_size: Optional[int] = None
   url: Optional[str] = None
+  folder_path: Optional[str] = None
   columns: Optional[List[ColumnSchema]] = None
   embedding_status: Optional[bool] = None
   qdrant_collection: Optional[str] = None
   tags: Optional[List[str]] = None
   version: Optional[int] = None
-
 
 class FileResponse(BaseModel):
   """Schema for returning file information"""
@@ -46,6 +47,7 @@ class FileResponse(BaseModel):
   file_type: str
   file_size: Optional[int]
   url: Optional[str]
+  folder_path: str
   columns: Optional[List[ColumnSchema]]
   embedding_status: bool
   qdrant_collection: Optional[str]
@@ -53,3 +55,4 @@ class FileResponse(BaseModel):
   version: int
   created_at: str
   updated_at: str
+

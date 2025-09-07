@@ -3,11 +3,12 @@ from app.schemas.file import ColumnSchema
 from beanie import Document, Indexed
 from pydantic import  Field
 from app.models.time_mixin import TimeMixin
+from app.models.soft_delete_mixin import SoftDeleteMixin
 
 
 
 
-class File(Document, TimeMixin):
+class File(Document, TimeMixin, SoftDeleteMixin):
   """File information and schema in MongoDB"""
 
   # 1. Basic file information
@@ -18,6 +19,7 @@ class File(Document, TimeMixin):
   file_type: Annotated[str, Indexed(str)] = Field(..., description="File type: csv, xlsx, pdf, json, image...")
   file_size: Optional[Annotated[int, Indexed(int)]] = Field(None, description="File size (bytes)")
   url: Optional[str] = Field(None, description="Public URL to access the file")
+  folder_path: Annotated[str, Indexed(str)] = Field(default="/", description="Folder path where file is located")
 
   # 2. Data schema (if it's a table)
   columns: Optional[List[ColumnSchema]] = Field(None, description="Column schema")
