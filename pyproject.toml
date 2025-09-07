@@ -19,4 +19,7 @@ dependencies = [
     "clerk-backend-api>=3.2.1",
     "svix>=1.75.0",
     "minio>=7.2.16",
+    "PyJWT>=2.8.0",
+    "python-jose[cryptography]>=3.3.0",
+    "requests>=2.31.0",
 ]

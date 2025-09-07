@@ -48,8 +48,9 @@ class QdrantSettings(BaseSettings):
 
 class ClerkSettings(BaseSettings):
     CLERK_SECRET_KEY: str = ""
-    JWT_KEY: str = ""
     CLERK_WEBHOOK_SECRET: str = ""
+    CLERK_ISSUER: str = ""
+    CLERK_JWKS_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 

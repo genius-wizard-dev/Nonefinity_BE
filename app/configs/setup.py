@@ -12,7 +12,7 @@ from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, storage_router
+from app.api import webhooks_router, storage_router, auth_router
 
 logger = get_logger(__name__)
 
@@ -93,6 +93,7 @@ def _create_api_prefix(app_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers"""
 
+    app.include_router(auth_router, prefix=_create_api_prefix("auth"), tags=["Auth"])
     app.include_router(webhooks_router, prefix=_create_api_prefix("webhooks"), tags=["Webhooks"])
     app.include_router(storage_router, prefix=_create_api_prefix("storage"), tags=["Storage"])
 

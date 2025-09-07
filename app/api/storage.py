@@ -1,33 +1,35 @@
-from fastapi import APIRouter,  UploadFile, HTTPException
+from fastapi import APIRouter, Depends,  UploadFile, HTTPException
 from app.services import StorageService, user_service
 from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
 from app.schemas.file import FileResponse
+from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 router = APIRouter()
 
 @router.post("/upload/file", response_model=ApiResponse[FileResponse])
-async def upload_file(file: UploadFile):
+async def upload_file(file: UploadFile, current_user = Depends(verify_token)):
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
+    if not user or not user.minio_secret_key:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
-  user_id = "68bbed17a5cc02a35ac0e0fd"
-  user = await user_service.crud.get_by_id(user_id)
-  if not user or not user.minio_secret_key:
-    raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    storage_service = StorageService(access_key=user_id, secret_key=user.minio_secret_key)
 
-  storage_service = StorageService(access_key=user_id, secret_key=user.minio_secret_key)
+    result = await storage_service.upload_file(user_id=user_id, file=file)
+    if not result:
+        raise AppError("File upload failed", status_code=HTTP_400_BAD_REQUEST)
 
-  result = await storage_service.upload_file(user_id=user_id, file=file)
-  if not result:
-    raise AppError("File upload failed", status_code=HTTP_400_BAD_REQUEST)
-
-  return created(result, message="File uploaded successfully")
+    return created(result, message="File uploaded successfully")
 
 
 @router.delete("/delete/file/{file_id}", response_model=ApiResponse[bool])
-async def delete_file(file_id: str):
-    user_id = "68bbed17a5cc02a35ac0e0fd"
-    user = await user_service.crud.get_by_id(user_id)
+async def delete_file(file_id: str, current_user = Depends(verify_token)):
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
@@ -41,9 +43,10 @@ async def delete_file(file_id: str):
 
 
 @router.get("/download/file/{file_id}", response_model=ApiResponse[str])
-async def download_file(file_id: str):
-    user_id = "68bbed17a5cc02a35ac0e0fd"
-    user = await user_service.crud.get_by_id(user_id)
+async def download_file(file_id: str, current_user = Depends(verify_token)):
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
@@ -61,9 +64,10 @@ async def download_file(file_id: str):
 
 
 @router.get("/list/files", response_model=ApiResponse[list[FileResponse]])
-async def list_files():
-    user_id = "68bbed17a5cc02a35ac0e0fd"
-    user = await user_service.crud.get_by_id(user_id)
+async def list_files(current_user = Depends(verify_token)):
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
