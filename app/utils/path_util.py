@@ -6,18 +6,18 @@ from app.core.exceptions import AppError
 
 # Root constants - chỉ có 3 root folder cố định
 RAW_ROOT = "raw"
-PROCESS_ROOT = "process"
-KNOWLEDGE_ROOT = "knowledge"
+PROCESSED_ROOT = "processed"
+DATA_ROOT = "data"
 
-APIType = Literal["upload", "process", "knowledge"]
+APIType = Literal["upload", "processed", "data"]
 
 
 def get_root_for_api(api_type: APIType) -> str:
     """Trả về root folder tương ứng với loại API"""
     mapping = {
         "upload": RAW_ROOT,
-        "process": PROCESS_ROOT,
-        "knowledge": KNOWLEDGE_ROOT,
+        "processed": PROCESSED_ROOT,
+        "data": DATA_ROOT,
     }
     if api_type not in mapping:  # type: ignore[truthy-bool]
         raise AppError(
@@ -60,8 +60,8 @@ def get_object_path(root_type: str, filename: str) -> str:
 
 __all__ = [
     "RAW_ROOT",
-    "PROCESS_ROOT",
-    "KNOWLEDGE_ROOT",
+    "PROCESSED_ROOT",
+    "DATA_ROOT",
     "get_root_for_api",
     "validate_api_access",
     "get_object_path",

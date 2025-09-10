@@ -27,6 +27,7 @@ class File(Document, TimeMixin):
 
   # 4. Administration & versioning
   version: int = Field(default=1, description="File/schema version")
+  version_ids: Optional[List[str]] = Field(default_factory=list, description="Danh sách các ID của version")
 
   class Settings:
     name = "files"   # collection name in MongoDB

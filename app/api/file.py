@@ -4,6 +4,7 @@ from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
 from app.schemas.file import FileResponse, FileUpdate
+from app.schemas.file_version import FileVersionResponse
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from typing import Optional, List
@@ -175,16 +176,28 @@ async def batch_delete_files(
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
-    results = {"successful": [], "failed": []}
-
-    for file_id in file_ids:
-        try:
-            success = await file_service.delete_file(user_id, file_id)
-            if success:
-                results["successful"].append(file_id)
-            else:
-                results["failed"].append({"file_id": file_id, "error": "Deletion failed"})
-        except Exception as e:
-            results["failed"].append({"file_id": file_id, "error": str(e)})
+    results = await file_service.batch_delete_files(user_id, file_ids)
 
     return ok(data=results, message=f"Batch deletion completed. {len(results['successful'])} successful, {len(results['failed'])} failed")
+
+
+@router.get("/{file_id}/versions", response_model=ApiResponse[List[FileVersionResponse]])
+async def get_file_versions(
+    file_id: str,
+    current_user = Depends(verify_token)
+):
+    """Lấy tất cả versions của một file"""
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
+    if not user:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+
+    file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+    try:
+        versions = await file_service.get_file_versions(user_id, file_id)
+        return ok(data=versions, message="File versions retrieved successfully")
+    except Exception as e:
+        raise AppError(f"Failed to get file versions: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+

@@ -23,6 +23,7 @@ class FileCreate(BaseModel):
   url: Optional[str] = None
   columns: Optional[List[ColumnSchema]] = None
   tags: Optional[List[str]] = None
+  version_ids: Optional[List[str]] = None
 
 class FileUpdate(BaseModel):
   """Schema for updating an existing file"""
@@ -34,6 +35,7 @@ class FileUpdate(BaseModel):
   qdrant_collection: Optional[str] = None
   tags: Optional[List[str]] = None
   version: Optional[int] = None
+  version_ids: Optional[List[str]] = None
 
 class FileResponse(BaseModel):
   """Schema for returning file information"""
@@ -50,6 +52,7 @@ class FileResponse(BaseModel):
   qdrant_collection: Optional[str]
   tags: Optional[List[str]]
   version: int
+  version_ids: Optional[List[str]]
   created_at: str
   updated_at: str
 

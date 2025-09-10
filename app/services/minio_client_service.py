@@ -83,6 +83,26 @@ class MinIOClientService:
             logger.error(f"Error uploading file to {bucket_name}: {e}")
             return False
 
+    def upload_bytes(self, bucket_name: str, object_name: str, data: bytes, content_type: str = "application/octet-stream") -> bool:
+        """Upload bytes data to bucket"""
+        try:
+            if not self.client.bucket_exists(bucket_name):
+                raise ValueError(f"Bucket {bucket_name} does not exist")
+
+            data_stream = BytesIO(data)
+            self.client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=data_stream,
+                length=len(data),
+                content_type=content_type
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error uploading bytes to {bucket_name}/{object_name}: {e}")
+            return False
+
     def delete_file(self, bucket_name: str, file_name: str) -> bool:
         """Delete a file from bucket"""
         try:
