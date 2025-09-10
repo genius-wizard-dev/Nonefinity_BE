@@ -18,7 +18,7 @@ class MinIOAdminService:
         self.admin = MinioAdmin(
             endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
             credentials=StaticProvider(settings.MINIO_ACCESS_KEY, settings.MINIO_SECRET_KEY),
-            secure=settings.MINIO_URL.startswith("https://")
+            secure=settings.MINIO_SSL
         )
         self._minio_client = MinIOClientService(
             access_key=settings.MINIO_ACCESS_KEY,

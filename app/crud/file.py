@@ -12,27 +12,14 @@ class FileCRUD(BaseCRUD[File, FileCreate, FileUpdate]):
         """Get file by object name"""
         return await self.model.find_one({
             "owner_id": owner_id,
-            "object_name": object_name,
-            "deleted_at": None
+            "object_name": object_name
         })
-
-    async def get_files_in_folder(self, owner_id: str, folder_path: str, include_deleted: bool = False) -> List[File]:
-        """Get all files in a specific folder"""
-        query = {
-            "owner_id": owner_id,
-            "folder_path": folder_path
-        }
-        if not include_deleted:
-            query["deleted_at"] = None
-
-        return await self.model.find(query).to_list()
 
     async def search_files_by_name(self, owner_id: str, search_term: str, limit: int = 50) -> List[File]:
         """Search files by name pattern"""
         query = {
             "owner_id": owner_id,
-            "file_name": {"$regex": search_term, "$options": "i"},
-            "deleted_at": None
+            "file_name": {"$regex": search_term, "$options": "i"}
         }
         return await self.model.find(query).limit(limit).to_list()
 
@@ -40,28 +27,21 @@ class FileCRUD(BaseCRUD[File, FileCreate, FileUpdate]):
         """Get files by file type"""
         query = {
             "owner_id": owner_id,
-            "file_type": {"$regex": f"^{file_type}", "$options": "i"},
-            "deleted_at": None
+            "file_type": {"$regex": f"^{file_type}", "$options": "i"}
         }
         return await self.model.find(query).limit(limit).to_list()
 
-    async def count_files_in_folder(self, owner_id: str, folder_path: str) -> int:
-        """Count files in a specific folder"""
-        query = {
-            "owner_id": owner_id,
-            "folder_path": folder_path,
-            "deleted_at": None
-        }
+    async def count_files(self, owner_id: str) -> int:
+        """Count all files for user"""
+        query = {"owner_id": owner_id}
         return await self.model.find(query).count()
 
-    async def get_total_size_in_folder(self, owner_id: str, folder_path: str) -> int:
-        """Get total size of files in a folder"""
+    async def get_total_size(self, owner_id: str) -> int:
+        """Get total size of all files for user"""
         pipeline = [
             {
                 "$match": {
                     "owner_id": owner_id,
-                    "folder_path": folder_path,
-                    "deleted_at": None,
                     "file_size": {"$exists": True, "$ne": None}
                 }
             },

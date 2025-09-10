@@ -14,7 +14,7 @@ class MinIOClientService:
             endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
             access_key=access_key,
             secret_key=secret_key,
-            secure=settings.MINIO_URL.startswith("https://")
+            secure=settings.MINIO_SSL
         )
 
     def bucket_exists(self, bucket_name: str) -> bool:

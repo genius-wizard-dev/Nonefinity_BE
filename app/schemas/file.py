@@ -17,10 +17,10 @@ class FileCreate(BaseModel):
   bucket: str
   object_name: str
   file_name: str
+  file_ext: str
   file_type: str
   file_size: Optional[int] = None
   url: Optional[str] = None
-  folder_path: str = "/"
   columns: Optional[List[ColumnSchema]] = None
   tags: Optional[List[str]] = None
 
@@ -30,9 +30,7 @@ class FileUpdate(BaseModel):
   file_type: Optional[str] = None
   file_size: Optional[int] = None
   url: Optional[str] = None
-  folder_path: Optional[str] = None
   columns: Optional[List[ColumnSchema]] = None
-  embedding_status: Optional[bool] = None
   qdrant_collection: Optional[str] = None
   tags: Optional[List[str]] = None
   version: Optional[int] = None
@@ -44,12 +42,11 @@ class FileResponse(BaseModel):
   bucket: str
   object_name: str
   file_name: str
+  file_ext: str
   file_type: str
   file_size: Optional[int]
   url: Optional[str]
-  folder_path: str
   columns: Optional[List[ColumnSchema]]
-  embedding_status: bool
   qdrant_collection: Optional[str]
   tags: Optional[List[str]]
   version: int
