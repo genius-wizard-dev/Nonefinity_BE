@@ -2,7 +2,7 @@ from typing import Optional
 
 from app.crud.user import UserCRUD
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.services.minio_service import MinIOService
+from app.services.minio_admin_service import  minio_admin_service
 from app.utils import generate_secret_key
 from app.utils import get_logger
 from clerk_backend_api import Clerk
@@ -42,7 +42,7 @@ class UserService:
         try:
             user = await self.crud.create(payload)
             secret_key = generate_secret_key()
-            minio_service = MinIOService()
+            minio_service = minio_admin_service
             minio_service.create_user(str(user.id), secret_key)
             user.minio_secret_key = secret_key
             await user.save()

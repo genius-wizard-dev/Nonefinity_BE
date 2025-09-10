@@ -60,7 +60,13 @@ class MinioSettings(BaseSettings):
     MINIO_SECRET_KEY: str = ""
     MINIO_ALIAS: str = ""
 
+
+    @property
+    def MINIO_SSL(self) -> bool:
+        return self.MINIO_URL.startswith("https://")
+
     model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_")
+
 
 
 class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings):
