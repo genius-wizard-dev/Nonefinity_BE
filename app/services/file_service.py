@@ -1,4 +1,4 @@
-from app.services.minio_service import MinIOService
+from app.services.minio_client_service import MinIOClientService
 from fastapi import UploadFile
 from app.schemas.file import FileCreate, FileUpdate
 from app.crud.file import FileCRUD
@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 class FileService:
     def __init__(self, access_key: str, secret_key: str, crud: Optional[FileCRUD] = None):
-        self._minio_service = MinIOService(access_key=access_key, secret_key=secret_key)
+        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
         self.crud = crud or FileCRUD()
 
     def _generate_unique_filename(self, original_filename: str) -> str:
@@ -37,8 +37,8 @@ class FileService:
             if not file.filename:
                 raise AppError("File name is required")
 
-            if file.size and file.size > 100 * 1024 * 1024:  # 100MB limit
-                raise AppError("File size exceeds 100MB limit")
+            if file.size and file.size > 10 * 1024 * 1024:  # 10MB limit
+                raise AppError("File size exceeds 10MB limit")
 
             # Validate folder path format
             if not folder_path.startswith('/'):
@@ -83,8 +83,8 @@ class FileService:
             logger.info(f"Created database record for file: {file_create.id}")
 
             # Upload to MinIO
-            upload_success = self._minio_service.upload_file(
-                user_id=user_id,
+            upload_success = self._minio_client.upload_file(
+                bucket_name=user_id,
                 file=file,
                 object_name=full_object_path
             )
@@ -94,7 +94,7 @@ class FileService:
                 raise AppError("Failed to upload file to storage")
 
             # Generate presigned URL and update record
-            url = self._minio_service.get_url(bucket_name=user_id, object_name=full_object_path)
+            url = self._minio_client.get_url(bucket_name=user_id, object_name=full_object_path)
             if url:
                 update_data = FileUpdate(url=url)
                 await self.crud.update(file_create, obj_in=update_data)
@@ -115,7 +115,7 @@ class FileService:
 
             if full_object_path:
                 try:
-                    self._minio_service.delete_file(user_id=user_id, file_name=full_object_path)
+                    self._minio_client.delete_file(user_id=user_id, file_name=full_object_path)
                     logger.info(f"Rolled back MinIO object: {full_object_path}")
                 except Exception as cleanup_error:
                     logger.error(f"Failed to cleanup MinIO object: {cleanup_error}")
@@ -140,7 +140,7 @@ class FileService:
                 raise AppError("Unauthorized: Cannot delete file")
 
             # Delete from MinIO first
-            minio_deleted = self._minio_service.delete_file(user_id=user_id, file_name=file.object_name)
+            minio_deleted = self._minio_client.delete_file(user_id=user_id, file_name=file.object_name)
             if not minio_deleted:
                 logger.error(f"Failed to delete file from MinIO: {file.object_name}")
                 raise AppError("Failed to delete file from storage")
@@ -169,7 +169,7 @@ class FileService:
         List files in a specific folder from both database and MinIO
         """
         # Get files from MinIO
-        minio_files = self._minio_service.list_files_in_folder(user_id, folder_path)
+        minio_files = self._minio_client.list_files_in_folder(user_id, folder_path)
 
         # Get files from database for additional metadata
         db_files = await self.list_files(user_id, folder_path)
@@ -186,7 +186,7 @@ class FileService:
                 'size': minio_file['size'],
                 'last_modified': minio_file['last_modified'],
                 'file_type': db_file.file_type if db_file else 'unknown',
-                'url': self._minio_service.get_url(user_id, minio_file['object_name']) if db_file else None,
+                'url': self._minio_client.get_url(user_id, minio_file['object_name']) if db_file else None,
                 'id': str(db_file.id) if db_file else None
             }
             result.append(file_info)
@@ -226,8 +226,8 @@ class FileService:
             copy_source = {"Bucket": user_id, "Key": old_object_name}
 
             try:
-                self._minio_service.client.copy_object(user_id, new_object_name, copy_source)
-                self._minio_service.client.remove_object(user_id, old_object_name)
+                self._minio_client.client.copy_object(user_id, new_object_name, copy_source)
+                self._minio_client.client.remove_object(user_id, old_object_name)
             except Exception as e:
                 logger.error(f"Failed to move file in MinIO: {e}")
                 raise AppError("Failed to move file in storage")
@@ -276,7 +276,7 @@ class FileService:
             # Copy in MinIO
             copy_source = {"Bucket": user_id, "Key": original_file.object_name}
             try:
-                self._minio_service.client.copy_object(user_id, new_object_name, copy_source)
+                self._minio_client.client.copy_object(user_id, new_object_name, copy_source)
             except Exception as e:
                 logger.error(f"Failed to copy file in MinIO: {e}")
                 raise AppError("Failed to copy file in storage")
@@ -295,7 +295,7 @@ class FileService:
             new_file = await self.crud.create(obj_in=new_file_data)
 
             # Generate URL for new file
-            url = self._minio_service.get_url(bucket_name=user_id, object_name=new_object_name)
+            url = self._minio_client.get_url(bucket_name=user_id, object_name=new_object_name)
             if url:
                 update_data = FileUpdate(url=url)
                 await self.crud.update(new_file, obj_in=update_data)

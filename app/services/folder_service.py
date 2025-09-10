@@ -1,5 +1,5 @@
 from app.crud.folder import FolderCRUD
-from app.services.minio_service import MinIOService
+from app.services.minio_client_service import MinIOClientService
 from app.schemas import FolderCreate, FolderResponse, FolderUpdate
 
 from app.core.exceptions import AppError
@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 class FolderService:
     def __init__(self, access_key: str, secret_key: str, crud: Optional[FolderCRUD] = None):
         self.crud = crud or FolderCRUD()
-        self._minio_service = MinIOService(access_key=access_key, secret_key=secret_key)
+        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
 
     async def create_folder(self, user_id: str, folder_name: str, parent_path: str) -> FolderResponse:
         """Create folder with comprehensive validation and error handling"""
@@ -54,7 +54,7 @@ class FolderService:
 
             # Create folder in MinIO
             minio_folder_path = folder_path.lstrip('/') + '/' if folder_path != '/' else ''
-            folder_created = self._minio_service.create_folder(bucket_name=user_id, folder_path=minio_folder_path)
+            folder_created = self._minio_client.create_folder(bucket_name=user_id, folder_path=minio_folder_path)
             if not folder_created:
                 logger.error(f"Failed to create folder in MinIO: {minio_folder_path}")
                 raise AppError("Failed to create folder in storage")
@@ -76,7 +76,7 @@ class FolderService:
             # Rollback MinIO folder creation if it was created
             if minio_folder_path:
                 try:
-                    self._minio_service.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
+                    self._minio_client.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
                     logger.info(f"Rolled back MinIO folder: {minio_folder_path}")
                 except Exception as cleanup_error:
                     logger.error(f"Failed to cleanup MinIO folder: {cleanup_error}")
@@ -85,7 +85,7 @@ class FolderService:
             # Rollback MinIO folder creation if it was created
             if minio_folder_path:
                 try:
-                    self._minio_service.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
+                    self._minio_client.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
                     logger.info(f"Rolled back MinIO folder: {minio_folder_path}")
                 except Exception as cleanup_error:
                     logger.error(f"Failed to cleanup MinIO folder: {cleanup_error}")
@@ -105,7 +105,7 @@ class FolderService:
 
         # Delete from MinIO
         minio_folder_path = folder.folder_path.lstrip('/') + '/' if folder.folder_path != '/' else ''
-        minio_deleted = self._minio_service.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
+        minio_deleted = self._minio_client.delete_folder(bucket_name=user_id, folder_path=minio_folder_path)
         if not minio_deleted:
             raise AppError("Failed to delete folder from storage", status_code=HTTP_400_BAD_REQUEST)
 
@@ -141,7 +141,7 @@ class FolderService:
         old_minio_path = old_path.lstrip('/') + '/' if old_path != '/' else ''
         new_minio_path = new_path.lstrip('/') + '/' if new_path != '/' else ''
 
-        renamed = self._minio_service.rename_folder(bucket_name=user_id, old_path=old_minio_path, new_path=new_minio_path)
+        renamed = self._minio_client.rename_folder(bucket_name=user_id, old_path=old_minio_path, new_path=new_minio_path)
         if not renamed:
             raise AppError("Failed to rename folder in storage", status_code=HTTP_400_BAD_REQUEST)
 
@@ -153,7 +153,7 @@ class FolderService:
             return folder
         except Exception:
             # Rollback: rename back in MinIO
-            self._minio_service.rename_folder(bucket_name=user_id, old_path=new_minio_path, new_path=old_minio_path)
+            self._minio_client.rename_folder(bucket_name=user_id, old_path=new_minio_path, new_path=old_minio_path)
             raise
 
     async def move_folder(self, user_id: str, folder_id: str, new_parent_path: str) -> FolderResponse:
@@ -177,7 +177,7 @@ class FolderService:
         old_minio_path = old_path.lstrip('/') + '/' if old_path != '/' else ''
         new_minio_path = new_folder_path.lstrip('/') + '/' if new_folder_path != '/' else ''
 
-        moved = self._minio_service.move_folder(bucket_name=user_id, old_path=old_minio_path, new_path=new_minio_path)
+        moved = self._minio_client.move_folder(bucket_name=user_id, old_path=old_minio_path, new_path=new_minio_path)
         if not moved:
             raise AppError("Failed to move folder in storage", status_code=HTTP_400_BAD_REQUEST)
 
@@ -189,7 +189,7 @@ class FolderService:
             return folder
         except Exception:
             # Rollback: move back in MinIO
-            self._minio_service.move_folder(bucket_name=user_id, old_path=new_minio_path, new_path=old_minio_path)
+            self._minio_client.move_folder(bucket_name=user_id, old_path=new_minio_path, new_path=old_minio_path)
             raise
 
     async def check_folder_has_files(self, user_id: str, folder_path: str) -> bool:

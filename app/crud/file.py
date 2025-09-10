@@ -73,7 +73,7 @@ class FileCRUD(BaseCRUD[File, FileCreate, FileUpdate]):
             }
         ]
 
-        result = await self.model.aggregate(pipeline).to_list()
+        result = await self.model.get_pymongo_collection().aggregate(pipeline).to_list()
         return result[0]["total_size"] if result else 0
 
 

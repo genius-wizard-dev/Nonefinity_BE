@@ -205,7 +205,7 @@ async def get_file_types(current_user = Depends(verify_token)):
     ]
 
     from app.models.file import File
-    result = await File.aggregate(pipeline).to_list()
+    result = await File.get_pymongo_collection().aggregate(pipeline).to_list()
     file_types = [item["_id"] for item in result if item["_id"]]
 
     return ok(data=file_types, message="File types retrieved successfully")
