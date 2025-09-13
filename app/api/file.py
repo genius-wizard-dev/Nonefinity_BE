@@ -4,7 +4,6 @@ from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
 from app.schemas.file import FileResponse, FileUpdate
-from app.schemas.file_version import FileVersionResponse
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from typing import Optional, List
@@ -13,7 +12,12 @@ router = APIRouter()
 
 @router.post("/upload", response_model=ApiResponse[FileResponse])
 async def upload_file(file: UploadFile, current_user = Depends(verify_token)):
-    """Upload file to raw/ folder"""
+    """Upload file to raw/ folder
+
+    Args:
+        file: File to upload
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     if not user or not user.minio_secret_key:
@@ -29,7 +33,12 @@ async def upload_file(file: UploadFile, current_user = Depends(verify_token)):
 
 @router.delete("/{file_id}", response_model=ApiResponse[bool])
 async def delete_file(file_id: str, current_user = Depends(verify_token)):
-    """Delete file from raw/ folder"""
+    """Delete file from raw/ folder
+
+    Args:
+        file_id: File ID
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -47,7 +56,11 @@ async def delete_file(file_id: str, current_user = Depends(verify_token)):
 
 @router.get("/list", response_model=ApiResponse[list[FileResponse]])
 async def list_files(current_user = Depends(verify_token)):
-    """List all files in raw/ folder"""
+    """List all files in raw/ folder
+
+    Args:
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -64,7 +77,13 @@ async def list_files(current_user = Depends(verify_token)):
 
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
-    """Rename file in raw/ folder"""
+    """Rename file in raw/ folder
+
+    Args:
+        file_id: File ID
+        new_name: New name
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -88,7 +107,14 @@ async def search_files(
     limit: int = Query(50, ge=1, le=100, description="Number of results to return"),
     current_user = Depends(verify_token)
 ):
-    """Search files by name in raw/ folder"""
+    """Search files by name in raw/ folder
+
+    Args:
+        q: Search term
+        file_type: Filter by file type
+        limit: Number of results to return
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -110,7 +136,11 @@ async def search_files(
 
 @router.get("/stats", response_model=ApiResponse[dict])
 async def get_file_stats(current_user = Depends(verify_token)):
-    """Get file statistics for raw/ folder"""
+    """Get file statistics for raw/ folder
+
+    Args:
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -141,7 +171,11 @@ async def get_file_stats(current_user = Depends(verify_token)):
 
 @router.get("/types", response_model=ApiResponse[List[str]])
 async def get_file_types(current_user = Depends(verify_token)):
-    """Get all unique file types in raw/ folder"""
+    """Get all unique file types in raw/ folder
+
+    Args:
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -167,7 +201,12 @@ async def batch_delete_files(
     file_ids: List[str],
     current_user = Depends(verify_token)
 ):
-    """Delete multiple files at once from raw/ folder"""
+    """Delete multiple files at once from raw/ folder
+
+    Args:
+        file_ids: List of file IDs to delete
+        current_user: Current user
+    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -181,23 +220,4 @@ async def batch_delete_files(
     return ok(data=results, message=f"Batch deletion completed. {len(results['successful'])} successful, {len(results['failed'])} failed")
 
 
-@router.get("/{file_id}/versions", response_model=ApiResponse[List[FileVersionResponse]])
-async def get_file_versions(
-    file_id: str,
-    current_user = Depends(verify_token)
-):
-    """Lấy tất cả versions của một file"""
-    clerk_id = current_user.get("sub")
-    user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
-
-    file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
-
-    try:
-        versions = await file_service.get_file_versions(user_id, file_id)
-        return ok(data=versions, message="File versions retrieved successfully")
-    except Exception as e:
-        raise AppError(f"Failed to get file versions: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
 

@@ -1,6 +1,7 @@
 import pandas as pd
 import io
-from typing import Optional
+import chardet
+from typing import Optional, List
 from app.utils import get_logger
 from app.databases.duckdb import DuckDB
 
@@ -11,28 +12,60 @@ class DuckDBService:
     """Service for handling file conversions using DuckDB"""
 
     @staticmethod
+    def get_connection(access_key: str, secret_key: str):
+        """Get DuckDB connection with MinIO configuration"""
+        return DuckDB(access_key=access_key, secret_key=secret_key)
+
+    @staticmethod
     async def convert_to_parquet(file_content: bytes, file_ext: str) -> Optional[bytes]:
         """
         Convert CSV/Excel file to Parquet format using pandas
 
         Args:
-            file_content: Nội dung file dạng bytes
-            file_ext: Extension của file (.csv, .xlsx, .xls)
+            file_content: File content as bytes
+            file_ext: File extension (.csv, .xlsx, .xls)
 
         Returns:
-            Parquet file content as bytes hoặc None nếu lỗi
+            Parquet file content as bytes or None if error
         """
         try:
             logger.info(f"Converting file with extension {file_ext} to Parquet")
 
-            # Đọc file content vào DataFrame
+            # Read file content into DataFrame
             file_buffer = io.BytesIO(file_content)
 
             if file_ext.lower() == ".csv":
-                # Đọc CSV
-                df = pd.read_csv(file_buffer, encoding='utf-8')
+                # Detect encoding before reading CSV
+                file_buffer.seek(0)
+                raw_data = file_buffer.read()
+                detected_encoding = chardet.detect(raw_data)['encoding']
+
+                # Fallback to utf-8 if detection fails
+                encoding = detected_encoding if detected_encoding else 'utf-8'
+                logger.info(f"Detected encoding: {encoding}")
+
+                # Reset buffer and read CSV with detected encoding
+                file_buffer = io.BytesIO(raw_data)
+                try:
+                    df = pd.read_csv(file_buffer, encoding=encoding)
+                except UnicodeDecodeError:
+                    # Try with other common encodings
+                    logger.warning(f"Failed to read with {encoding}, trying alternative encodings")
+                    for alt_encoding in ['utf-16', 'latin-1', 'cp1252', 'iso-8859-1']:
+                        try:
+                            file_buffer = io.BytesIO(raw_data)
+                            df = pd.read_csv(file_buffer, encoding=alt_encoding)
+                            logger.info(f"Successfully read CSV with encoding: {alt_encoding}")
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+                    else:
+                        # If all encodings fail, try with errors='ignore'
+                        file_buffer = io.BytesIO(raw_data)
+                        df = pd.read_csv(file_buffer, encoding='utf-8', errors='ignore')
+                        logger.warning("Read CSV with UTF-8 and ignored errors")
             elif file_ext.lower() in [".xlsx", ".xls"]:
-                # Đọc Excel
+                # Read Excel
                 df = pd.read_excel(file_buffer, engine='openpyxl' if file_ext.lower() == ".xlsx" else 'xlrd')
             else:
                 logger.error(f"Unsupported file extension for conversion: {file_ext}")
@@ -51,86 +84,109 @@ class DuckDBService:
             return None
 
     @staticmethod
-    async def convert_csv_to_parquet_with_duckdb(
-        user_id: str,
+    async def convert_csv_to_parquet(
+        source_s3_path: str,
+        parquet_s3_path: str,
         access_key: str,
-        secret_key: str,
-        csv_s3_path: str,
-        parquet_s3_path: str
+        secret_key: str
     ) -> bool:
         """
-        Convert CSV từ MinIO sang Parquet sử dụng DuckDB
+        Convert CSV to Parquet for dataset system
 
         Args:
-            user_id: ID của user (dùng làm bucket name)
+            source_s3_path: Full S3 path to source CSV (s3://bucket/raw/file.csv)
+            parquet_s3_path: Full S3 path to target Parquet (s3://bucket/data/folder/data.parquet)
             access_key: MinIO access key
             secret_key: MinIO secret key
-            csv_s3_path: Đường dẫn CSV trong MinIO (ví dụ: raw/abc123.csv)
-            parquet_s3_path: Đường dẫn Parquet muốn lưu (ví dụ: process/abc123/001.parquet)
 
         Returns:
-            True nếu convert thành công, False nếu lỗi
+            True if conversion successful, False otherwise
         """
         try:
-            logger.info(f"Converting CSV to Parquet using DuckDB: {csv_s3_path} -> {parquet_s3_path}")
+            logger.info(f"Converting CSV to Parquet: {source_s3_path} -> {parquet_s3_path}")
 
-            # Tạo kết nối DuckDB với MinIO
             with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
-                # Tạo full S3 path
-                csv_full_path = f"s3://{user_id}/{csv_s3_path}"
-                parquet_full_path = f"s3://{user_id}/{parquet_s3_path}"
+                # Try different encodings for CSV
+                encodings_to_try = ['UTF-8', 'UTF-16', 'LATIN-1', 'CP1252', 'ISO-8859-1']
 
-                # Đọc CSV và ghi ra Parquet
-                sql_query = f"""
-                COPY (
-                    SELECT *
-                    FROM read_csv_auto('{csv_full_path}')
-                ) TO '{parquet_full_path}' (FORMAT PARQUET);
-                """
+                for encoding in encodings_to_try:
+                    try:
+                        logger.info(f"Trying to read CSV with encoding: {encoding}")
 
-                duckdb_conn.execute(sql_query)
+                        sql_query = f"""
+                        COPY (
+                            SELECT *
+                            FROM read_csv_auto('{source_s3_path}', encoding='{encoding}', ignore_errors=true)
+                        ) TO '{parquet_s3_path}' (FORMAT PARQUET);
+                        """
 
-                logger.info(f"Successfully converted CSV to Parquet: {parquet_full_path}")
-                return True
+                        duckdb_conn.execute(sql_query)
+                        logger.info(f"Successfully converted CSV to Parquet with encoding {encoding}")
+                        return True
+
+                    except Exception as encoding_error:
+                        logger.warning(f"Failed with encoding {encoding}: {str(encoding_error)}")
+                        continue
+
+                # Final attempt with ignore_errors and all_varchar
+                logger.warning("All encodings failed, trying with ignore_errors=true and all_varchar=true")
+                try:
+                    sql_query = f"""
+                    COPY (
+                        SELECT *
+                        FROM read_csv_auto('{source_s3_path}', ignore_errors=true, all_varchar=true)
+                    ) TO '{parquet_s3_path}' (FORMAT PARQUET);
+                    """
+
+                    duckdb_conn.execute(sql_query)
+                    logger.info("Successfully converted CSV to Parquet with ignore_errors=true")
+                    return True
+
+                except Exception as final_error:
+                    logger.error(f"Final attempt failed: {str(final_error)}")
+                    return False
 
         except Exception as e:
-            logger.error(f"Failed to convert CSV to Parquet with DuckDB: {str(e)}")
+            logger.error(f"Failed to convert CSV to Parquet: {str(e)}")
             return False
 
     @staticmethod
-    async def convert_excel_to_parquet_with_duckdb(
+    async def convert_excel_to_parquet(
         user_id: str,
-        excel_s3_path: str,
+        excel_object_name: str,
         parquet_s3_path: str,
         minio_client
     ) -> bool:
         """
-        Convert Excel từ MinIO sang Parquet (Excel cần download về trước vì DuckDB không đọc trực tiếp)
+        Convert Excel to Parquet for dataset system
 
         Args:
-            user_id: ID của user (bucket name)
-            excel_s3_path: Đường dẫn Excel trong MinIO
-            parquet_s3_path: Đường dẫn Parquet muốn lưu
-            minio_client: MinIO client để download file
+            user_id: User ID (bucket name)
+            excel_object_name: Excel file object name in MinIO
+            parquet_s3_path: Full S3 path to target Parquet
+            minio_client: MinIO client for file operations
 
         Returns:
-            True nếu convert thành công, False nếu lỗi
+            True if conversion successful, False otherwise
         """
         try:
-            logger.info(f"Converting Excel to Parquet: {excel_s3_path} -> {parquet_s3_path}")
+            logger.info(f"Converting Excel to Parquet: {excel_object_name} -> {parquet_s3_path}")
 
-            # Download Excel file từ MinIO
-            excel_object = minio_client.client.get_object(user_id, excel_s3_path)
+            # Download Excel file from MinIO
+            excel_object = minio_client.client.get_object(user_id, excel_object_name)
             excel_content = excel_object.read()
 
             # Convert Excel to Parquet using pandas
             parquet_content = await DuckDBService.convert_to_parquet(excel_content, ".xlsx")
 
             if parquet_content:
-                # Upload Parquet back to MinIO
+                # Extract parquet object name from S3 path
+                parquet_object_name = parquet_s3_path.replace(f"s3://{user_id}/", "")
+
+                # Upload Parquet to MinIO
                 upload_success = minio_client.upload_bytes(
                     bucket_name=user_id,
-                    object_name=parquet_s3_path,
+                    object_name=parquet_object_name,
                     data=parquet_content,
                     content_type="application/octet-stream"
                 )
@@ -142,7 +198,7 @@ class DuckDBService:
                     logger.error(f"Failed to upload Parquet file: {parquet_s3_path}")
                     return False
             else:
-                logger.error(f"Failed to convert Excel content to Parquet")
+                logger.error("Failed to convert Excel content to Parquet")
                 return False
 
         except Exception as e:
@@ -150,34 +206,32 @@ class DuckDBService:
             return False
 
     @staticmethod
-    def get_parquet_object_name(original_object_name: str, unique_filename: str, version: int = 1) -> str:
+    def get_data_from_parquet(
+        parquet_s3_path: str,
+        start_row: int,
+        limit: int,
+        access_key: str,
+        secret_key: str
+    ) -> List[dict]:
         """
-        Tạo object name cho file Parquet trong thư mục process/
+        Get data from Parquet file for dataset system
 
         Args:
-            original_object_name: Tên object gốc (ví dụ: raw/abc123.csv)
-            unique_filename: Chuỗi unique 6 ký tự (ví dụ: "abc123")
-            version: Số version (mặc định là 1)
+            parquet_s3_path: Full S3 path to Parquet file
+            start_row: Starting row (offset)
+            limit: Number of rows to return
+            access_key: MinIO access key
+            secret_key: MinIO secret key
 
         Returns:
-            Object name cho Parquet (ví dụ: process/abc123/001.parquet)
+            List of dictionaries containing the data
         """
-        # Format version number với 3 chữ số (001, 002, 003...)
-        version_str = f"{version:03d}"
+        try:
+            with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
+                sql_query = f"SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT {limit} OFFSET {start_row}"
+                df = duckdb_conn.query(sql_query)
+                return df.to_dict(orient='records')
+        except Exception as e:
+            logger.error(f"Failed to get data from parquet: {str(e)}")
+            return []
 
-        return f"process/{unique_filename}/{version_str}.parquet"
-
-    @staticmethod
-    def get_version_parquet_path(unique_filename: str, version: int) -> str:
-        """
-        Tạo path cho Parquet version khi chỉnh sửa
-
-        Args:
-            unique_filename: Chuỗi unique 6 ký tự (ví dụ: b161b6)
-            version: Số version
-
-        Returns:
-            Path cho Parquet version (ví dụ: process/b161b6/003.parquet)
-        """
-        version_str = f"{version:03d}"
-        return f"process/{unique_filename}/{version_str}.parquet"
