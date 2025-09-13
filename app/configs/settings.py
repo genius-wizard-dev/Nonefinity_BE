@@ -27,7 +27,8 @@ class MongoSettings(BaseSettings):
             return f"mongodb://{self.MONGO_HOST}:{self.MONGO_PORT}"
 
 class RedisSettings(BaseSettings):
-    REDIS_URL: str = ""
+    REDIS_HOST: str = ""
+    REDIS_PORT: int = 6379
     REDIS_PWD: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_")

@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 class FileService:
     def __init__(self, access_key: str, secret_key: str, crud: Optional[FileCRUD] = None):
-        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
+        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key, use_pool=True)
         self.crud = crud or FileCRUD()
         self.access_key = access_key
         self.secret_key = secret_key

@@ -18,7 +18,7 @@ class Dataset(Document, TimeMixin):
     bucket: Annotated[str, Indexed(str)] = Field(..., description="Bucket name in MinIO")
     file_path: Annotated[str, Indexed(str)] = Field(..., description="File path in MinIO (data/{filename}.parquet)")
     # Schema information
-    schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
+    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
 
     # Statistics
     total_rows: Optional[int] = Field(None, description="Total number of data rows")
