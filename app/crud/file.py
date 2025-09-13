@@ -8,11 +8,11 @@ class FileCRUD(BaseCRUD[File, FileCreate, FileUpdate]):
     def __init__(self):
         super().__init__(File)
 
-    async def get_by_object_name(self, owner_id: str, object_name: str) -> Optional[File]:
-        """Get file by object name"""
+    async def get_by_file_path(self, owner_id: str, file_path: str) -> Optional[File]:
+        """Get file by file path"""
         return await self.model.find_one({
             "owner_id": owner_id,
-            "object_name": object_name
+            "file_path": file_path
         })
 
     async def search_files_by_name(self, owner_id: str, search_term: str, limit: int = 50) -> List[File]:

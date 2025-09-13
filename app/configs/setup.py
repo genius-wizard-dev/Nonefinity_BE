@@ -14,7 +14,7 @@ from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb, init_duckdb_extensions
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router
+from app.api import webhooks_router, auth_router, file_router, dataset_router
 
 logger = get_logger(__name__)
 
@@ -175,7 +175,8 @@ def include_routers(app: FastAPI) -> None:
     routers_config = [
         (auth_router, "auth", ["Authentication"]),
         (webhooks_router, "webhooks", ["Webhooks"]),
-        (file_router, "file", ["File Management"])
+        (file_router, "file", ["File Management"]),
+        (dataset_router, "dataset", ["Dataset Management"])
     ]
 
     for router, prefix_name, tags in routers_config:

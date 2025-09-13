@@ -2,7 +2,7 @@ from app.models.time_mixin import TimeMixin
 from app.models.soft_delete_mixin import SoftDeleteMixin
 from app.models.user import User
 from app.models.file import File
-from app.models.file_version import FileVersion
+from app.models.dataset import Dataset
 
 # Export all models for easy import
 __all__ = [
@@ -10,12 +10,12 @@ __all__ = [
     "SoftDeleteMixin",
     "User",
     "File",
-    "FileVersion"
+    "Dataset"
 ]
 
 # List of all document models for Beanie initialization
 DOCUMENT_MODELS = [
     User,
     File,
-    FileVersion
+    Dataset
 ]
