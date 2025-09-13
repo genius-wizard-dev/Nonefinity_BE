@@ -104,7 +104,7 @@ class DuckDBService:
         try:
             logger.info(f"Converting CSV to Parquet: {source_s3_path} -> {parquet_s3_path}")
 
-            with DuckDB(access_key=access_key, secret_key=secret_key, reuse_connection=True) as duckdb_conn:
+            with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
                 # Try different encodings for CSV
                 encodings_to_try = ['UTF-8', 'UTF-16', 'LATIN-1', 'CP1252', 'ISO-8859-1']
 
@@ -227,7 +227,7 @@ class DuckDBService:
         """
         try:
             # Sử dụng connection pool để tái sử dụng kết nối
-            with DuckDB(access_key=access_key, secret_key=secret_key, reuse_connection=True) as duckdb_conn:
+            with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
                 sql_query = f"SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT {limit} OFFSET {offset}"
                 df = duckdb_conn.query(sql_query)
                 return df.to_dict(orient='records')

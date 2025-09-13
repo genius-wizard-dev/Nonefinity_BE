@@ -18,12 +18,12 @@ class DatasetService:
     """Service for handling dataset operations and file conversions"""
 
     def __init__(self, access_key: str, secret_key: str):
-        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key, use_pool=True)
+        self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
         self.file_crud = FileCRUD()
         self.access_key = access_key
         self.secret_key = secret_key
-        # Create persistent DuckDB connection to reuse
-        self._duckdb_conn = DuckDB(access_key=access_key, secret_key=secret_key, reuse_connection=True)
+        # Create DuckDB connection - no more pooling
+        self._duckdb_conn = DuckDB(access_key=access_key, secret_key=secret_key)
 
     def _extract_unique_name_from_file_path(self, file_path: str) -> str:
         """Extract unique name from raw file path to use for parquet"""

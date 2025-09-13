@@ -1,6 +1,4 @@
 from minio import Minio
-import threading
-from typing import Dict
 from app.configs.settings import settings
 from app.utils import get_logger
 from fastapi import UploadFile
@@ -9,77 +7,24 @@ from io import BytesIO
 logger = get_logger(__name__)
 
 
-class MinIOClientPool:
-    """Connection pool for reusing MinIO clients"""
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._clients = {}
-                    cls._instance._client_lock = threading.Lock()
-        return cls._instance
-
-    def get_client(self, access_key: str, secret_key: str) -> Minio:
-        """Get a MinIO client from the pool, create a new one if it doesn't exist"""
-        client_key = f"{access_key}:{secret_key}"
-
-        with self._client_lock:
-            if client_key not in self._clients:
-                logger.info(f"Create a new MinIO client for key: {client_key[:20]}...")
-                client = Minio(
-                    endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
-                    access_key=access_key,
-                    secret_key=secret_key,
-                    secure=settings.MINIO_SSL
-                )
-                self._clients[client_key] = client
-            else:
-                logger.debug(f"Reuse MinIO client for key: {client_key[:20]}...")
-
-        return self._clients[client_key]
-
-    def close_client(self, access_key: str, secret_key: str):
-        """Close a specific MinIO client"""
-        client_key = f"{access_key}:{secret_key}"
-
-        with self._client_lock:
-            if client_key in self._clients:
-                # MinIO client doesn't need explicit close, just remove from pool
-                del self._clients[client_key]
-                logger.info(f"Removed MinIO client: {client_key[:20]}...")
-
-    def close_all_clients(self):
-        """Close all MinIO clients"""
-        with self._client_lock:
-            self._clients.clear()
-            logger.info("Removed all MinIO clients from pool")
-
-
-# Global client pool instance
-minio_client_pool = MinIOClientPool()
-
-
 class MinIOClientService:
-    def __init__(self, access_key: str, secret_key: str, use_pool: bool = True):
+    def __init__(self, access_key: str, secret_key: str):
+        """
+        Create a new MinIO client for each instance.
+        No more client pooling to avoid RAM issues.
+        """
         self.access_key = access_key
         self.secret_key = secret_key
-        self.use_pool = use_pool
 
-        if use_pool:
-            # Use client pool for reusing connections
-            self.client = minio_client_pool.get_client(access_key, secret_key)
-        else:
-            # Create a new client like before
-            self.client = Minio(
-                endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
-                access_key=access_key,
-                secret_key=secret_key,
-                secure=settings.MINIO_SSL
-            )
+        logger.debug(f"Creating new MinIO client for user: {access_key[:10]}...")
+
+        # Always create a new client
+        self.client = Minio(
+            endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=settings.MINIO_SSL
+        )
 
     def bucket_exists(self, bucket_name: str) -> bool:
         """Check if bucket exists"""

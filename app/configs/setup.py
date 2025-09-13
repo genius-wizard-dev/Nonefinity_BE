@@ -13,8 +13,7 @@ from app.core.exceptions import AppError
 from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
 from app.databases import mongodb, init_duckdb_extensions
-from app.databases.duckdb import connection_pool
-from app.services.minio_client_service import minio_client_pool
+# Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
 from app.api import webhooks_router, auth_router, file_router, dataset_router
 
@@ -98,10 +97,7 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Nonefinity Agent application...")
         try:
             await mongodb.disconnect()
-            # Close all DuckDB connections in pool
-            connection_pool.close_all_connections()
-            # Close all MinIO clients in pool
-            minio_client_pool.close_all_clients()
+            # No more connection pools to close - connections are created and closed per request
             logger.info("Application shutdown completed successfully")
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}")
