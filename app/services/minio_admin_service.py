@@ -104,7 +104,10 @@ class MinIOAdminService:
             self.admin.policy_remove(policy_name)
 
             # Remove bucket (if empty) using admin client
-            admin_client = MinIOClientService()
+            admin_client = MinIOClientService(
+                access_key=settings.MINIO_ACCESS_KEY,
+                secret_key=settings.MINIO_SECRET_KEY
+            )
             if admin_client.bucket_exists(user_id):
                 objects = list(admin_client.list_objects(user_id, recursive=True))
                 if not objects:  # only delete if bucket is empty

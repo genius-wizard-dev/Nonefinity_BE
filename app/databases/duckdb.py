@@ -1,6 +1,7 @@
+
 import duckdb
-from app.configs.settings import settings
 from app.utils import get_logger
+from app.databases.duckdb_manager import get_instance_manager
 
 logger = get_logger(__name__)
 
@@ -13,37 +14,46 @@ def init_duckdb_extensions():
     con.execute("INSTALL httpfs;")
     con.close()
 
-
 class DuckDB:
-    def __init__(self, access_key: str, secret_key: str):
-        self.con = duckdb.connect(database=":memory:")
-        self.con.execute("LOAD httpfs;")
+    def __init__(self, user_id: str, access_key: str, secret_key: str):
+        """
+        Use cached DuckDB instance from instance manager.
+        Instance will be automatically managed with TTL and cleanup worker.
+        """
+        self.user_id = user_id
+        self.access_key = access_key
+        self.secret_key = secret_key
 
-        # Cấu hình S3/MinIO theo đúng format
-        # Loại bỏ http:// hoặc https:// từ endpoint
-        endpoint = settings.MINIO_URL.replace("http://", "").replace("https://", "")
-        self.con.execute(f"SET s3_endpoint='{endpoint}';")
-        self.con.execute(f"SET s3_access_key_id='{access_key}';")
-        self.con.execute(f"SET s3_secret_access_key='{secret_key}';")
-        ssl_flag = "true" if settings.MINIO_SSL else "false"
-        self.con.execute(f"SET s3_use_ssl={ssl_flag};")
-        self.con.execute("SET s3_url_style='path';")
+        logger.debug(f"Getting DuckDB instance for user: {user_id}")
+
+        # Get cached instance from manager
+        manager = get_instance_manager()
+        self.instance = manager.get_instance(user_id, access_key, secret_key)
+        self.con = self.instance.con
 
     def query(self, sql: str):
-        logger.info(f"Executing SQL: {sql}")
+        """Execute query and update TTL"""
+        logger.info(f"Executing SQL query for user {self.user_id}: {sql}")
+        self.instance.update_last_used()  # Reset TTL
         return self.con.execute(sql).df()
 
     def execute(self, sql: str):
-        """Return DuckDB relation for chaining instead of Pandas df"""
-        logger.debug(f"Executing raw SQL: {sql}")
+        """Execute SQL command and update TTL"""
+        logger.debug(f"Executing SQL command for user {self.user_id}: {sql}")
+        self.instance.update_last_used()  # Reset TTL
         return self.con.execute(sql)
 
     def close(self):
-        self.con.close()
+        """
+        Do not close connection because it is managed by instance manager.
+        Instance will be automatically cleaned up after TTL.
+        """
+        logger.debug(f"DuckDB instance for user {self.user_id} will be automatically cleaned up after TTL")
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        # Do not close connection, only log
+        logger.debug(f"Context exit for DuckDB instance user {self.user_id}")
 

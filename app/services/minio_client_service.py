@@ -9,7 +9,16 @@ logger = get_logger(__name__)
 
 class MinIOClientService:
     def __init__(self, access_key: str, secret_key: str):
-        # S3 client (bucket, object…)
+        """
+        Create a new MinIO client for each instance.
+        No more client pooling to avoid RAM issues.
+        """
+        self.access_key = access_key
+        self.secret_key = secret_key
+
+        logger.debug(f"Creating new MinIO client for user: {access_key[:10]}...")
+
+        # Always create a new client
         self.client = Minio(
             endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
             access_key=access_key,

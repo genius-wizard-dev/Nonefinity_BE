@@ -21,7 +21,7 @@ class DatasetCreate(DatasetBase):
     owner_id: str = Field(..., description="User/tenant who owns the dataset")
     bucket: str = Field(..., description="Bucket name in MinIO")
     file_path: str = Field(..., description="File path in MinIO (data/{filename}.parquet)")
-    schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
+    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
     total_rows: Optional[int] = Field(None, description="Total number of data rows")
     file_size: Optional[int] = Field(None, description="Parquet file size (bytes)")
     source_file_id: Optional[str] = Field(None, description="ID of the source file that was converted")
@@ -31,7 +31,7 @@ class DatasetUpdate(BaseModel):
     """Schema for updating Dataset"""
     name: Optional[str] = Field(None, description="Dataset name")
     description: Optional[str] = Field(None, description="Dataset description")
-    schema: Optional[List[Dict[str, Any]]] = Field(None, description="Dataset schema in JSON format")
+    data_schema: Optional[List[Dict[str, Any]]] = Field(None, description="Dataset schema in JSON format")
 
 
 class DatasetResponse(DatasetBase):
@@ -40,7 +40,7 @@ class DatasetResponse(DatasetBase):
     owner_id: str = Field(..., description="User/tenant who owns the dataset")
     bucket: str = Field(..., description="Bucket name in MinIO")
     file_path: str = Field(..., description="File path in MinIO (data/{filename}.parquet)")
-    schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
+    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
     total_rows: Optional[int] = Field(None, description="Total number of data rows")
     file_size: Optional[int] = Field(None, description="Parquet file size (bytes)")
     source_file_id: Optional[str] = Field(None, description="ID of the source file that was converted")
@@ -70,4 +70,4 @@ class DatasetDataResponse(BaseModel):
     """Schema for dataset data response"""
     data: List[Dict[str, Any]] = Field(..., description="Dataset data")
     total_rows: int = Field(..., description="Total number of rows")
-    schema: List[Dict[str, Any]] = Field(..., description="Dataset schema")
+    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema")

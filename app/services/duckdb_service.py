@@ -10,11 +10,10 @@ logger = get_logger(__name__)
 
 class DuckDBService:
     """Service for handling file conversions using DuckDB"""
-
     @staticmethod
-    def get_connection(access_key: str, secret_key: str):
-        """Get DuckDB connection with MinIO configuration"""
-        return DuckDB(access_key=access_key, secret_key=secret_key)
+    def get_connection(user_id: str, access_key: str, secret_key: str):
+        """Get cached DuckDB connection with MinIO configuration"""
+        return DuckDB(user_id=user_id, access_key=access_key, secret_key=secret_key)
 
     @staticmethod
     async def convert_to_parquet(file_content: bytes, file_ext: str) -> Optional[bytes]:
@@ -85,6 +84,7 @@ class DuckDBService:
 
     @staticmethod
     async def convert_csv_to_parquet(
+        user_id: str,
         source_s3_path: str,
         parquet_s3_path: str,
         access_key: str,
@@ -94,6 +94,7 @@ class DuckDBService:
         Convert CSV to Parquet for dataset system
 
         Args:
+            user_id: User ID để lấy cached DuckDB instance
             source_s3_path: Full S3 path to source CSV (s3://bucket/raw/file.csv)
             parquet_s3_path: Full S3 path to target Parquet (s3://bucket/data/folder/data.parquet)
             access_key: MinIO access key
@@ -105,7 +106,7 @@ class DuckDBService:
         try:
             logger.info(f"Converting CSV to Parquet: {source_s3_path} -> {parquet_s3_path}")
 
-            with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
+            with DuckDB(user_id=user_id, access_key=access_key, secret_key=secret_key) as duckdb_conn:
                 # Try different encodings for CSV
                 encodings_to_try = ['UTF-8', 'UTF-16', 'LATIN-1', 'CP1252', 'ISO-8859-1']
 
@@ -207,8 +208,9 @@ class DuckDBService:
 
     @staticmethod
     def get_data_from_parquet(
+        user_id: str,
         parquet_s3_path: str,
-        start_row: int,
+        offset: int,
         limit: int,
         access_key: str,
         secret_key: str
@@ -217,8 +219,9 @@ class DuckDBService:
         Get data from Parquet file for dataset system
 
         Args:
+            user_id: User ID để lấy cached DuckDB instance
             parquet_s3_path: Full S3 path to Parquet file
-            start_row: Starting row (offset)
+            offset: Starting row (offset)
             limit: Number of rows to return
             access_key: MinIO access key
             secret_key: MinIO secret key
@@ -227,8 +230,9 @@ class DuckDBService:
             List of dictionaries containing the data
         """
         try:
-            with DuckDB(access_key=access_key, secret_key=secret_key) as duckdb_conn:
-                sql_query = f"SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT {limit} OFFSET {start_row}"
+            # Sử dụng cached instance để tái sử dụng kết nối
+            with DuckDB(user_id=user_id, access_key=access_key, secret_key=secret_key) as duckdb_conn:
+                sql_query = f"SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT {limit} OFFSET {offset}"
                 df = duckdb_conn.query(sql_query)
                 return df.to_dict(orient='records')
         except Exception as e:

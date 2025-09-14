@@ -8,7 +8,6 @@ from app.core.exceptions import AppError
 from app.utils import get_logger
 from app.utils.file_classifier import FileClassifier
 from typing import Optional, List, Dict, Any
-import uuid
 import os
 
 logger = get_logger(__name__)
@@ -17,11 +16,13 @@ logger = get_logger(__name__)
 class DatasetService:
     """Service for handling dataset operations and file conversions"""
 
-    def __init__(self, access_key: str, secret_key: str):
+    def __init__(self, user_id: str, access_key: str, secret_key: str):
         self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
         self.file_crud = FileCRUD()
+        self.user_id = user_id
         self.access_key = access_key
         self.secret_key = secret_key
+        self._duckdb_conn = DuckDB(user_id=user_id, access_key=access_key, secret_key=secret_key)
 
     def _extract_unique_name_from_file_path(self, file_path: str) -> str:
         """Extract unique name from raw file path to use for parquet"""
@@ -34,54 +35,52 @@ class DatasetService:
     def _detect_schema_from_parquet(self, parquet_s3_path: str) -> List[Dict[str, Any]]:
         """Detect schema from parquet file using DuckDB"""
         try:
-            with DuckDB(access_key=self.access_key, secret_key=self.secret_key) as conn:
-                # Get schema information
-                schema_query = f"DESCRIBE SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT 1"
-                schema_result = conn.execute(schema_query).fetchall()
+            # Use persistent connection
+            schema_query = f"DESCRIBE SELECT * FROM read_parquet('{parquet_s3_path}') LIMIT 1"
+            schema_result = self._duckdb_conn.execute(schema_query).fetchall()
 
-                schema = []
-                for row in schema_result:
-                    column_name = row[0]
-                    column_type = row[1]
+            schema = []
+            for row in schema_result:
+                column_name = row[0]
+                column_type = row[1]
 
-                    # Map DuckDB types to more user-friendly types
-                    type_mapping = {
-                        'VARCHAR': 'string',
-                        'INTEGER': 'integer',
-                        'BIGINT': 'integer',
-                        'DOUBLE': 'float',
-                        'BOOLEAN': 'boolean',
-                        'DATE': 'date',
-                        'TIMESTAMP': 'datetime'
-                    }
+                # Map DuckDB types to more user-friendly types (string, integer, float, boolean, date, datetime)
+                type_mapping = {
+                    'VARCHAR': 'string',
+                    'INTEGER': 'integer',
+                    'BIGINT': 'integer',
+                    'DOUBLE': 'float',
+                    'BOOLEAN': 'boolean',
+                    'DATE': 'date',
+                    'TIMESTAMP': 'datetime'
+                }
 
-                    friendly_type = type_mapping.get(column_type.upper(), column_type.lower())
+                friendly_type = type_mapping.get(column_type.upper(), column_type.lower())
 
-                    schema.append({
-                        "name": column_name,
-                        "type": friendly_type,
-                        "desc": None  # Will be filled by user later if needed
-                    })
+                schema.append({
+                    "name": column_name,
+                    "type": friendly_type,
+                    "desc": None  # Will be filled by user later if needed (description)
+                })
 
-                return schema
+            return schema
 
         except Exception as e:
             logger.error(f"Failed to detect schema from parquet: {str(e)}")
-            # Return empty schema if detection fails
+            # Return empty schema if detection fails (empty list)
             return []
 
     def _get_parquet_stats(self, parquet_s3_path: str) -> Dict[str, Any]:
         """Get statistics from parquet file"""
         try:
-            with DuckDB(access_key=self.access_key, secret_key=self.secret_key) as conn:
-                # Get row count
-                count_query = f"SELECT COUNT(*) FROM read_parquet('{parquet_s3_path}')"
-                row_count = conn.execute(count_query).fetchone()[0]
+            # Use persistent connection
+            count_query = f"SELECT COUNT(*) FROM read_parquet('{parquet_s3_path}')"
+            row_count = self._duckdb_conn.execute(count_query).fetchone()[0]
 
-                return {
-                    "total_rows": row_count,
-                    "file_size": None  # Will be filled from MinIO separately
-                }
+            return {
+                "total_rows": row_count,
+                "file_size": None  # Will be filled from MinIO separately (file size)
+            }
 
         except Exception as e:
             logger.error(f"Failed to get parquet stats: {str(e)}")
@@ -103,9 +102,8 @@ class DatasetService:
         dataset_name: str,
         description: Optional[str] = None
     ) -> Optional[DatasetCreate]:
-        """Import CSV/Excel file to dataset with parquet in data/{folder}/"""
+        """Import CSV/Excel file to dataset with parquet in data/{folder}/ (data/{filename}.parquet)"""
         dataset_create = None
-        dataset_folder = None
         parquet_object_name = None
 
         try:
@@ -142,6 +140,7 @@ class DatasetService:
             conversion_success = False
             if file.file_ext.lower() == ".csv":
                 conversion_success = await DuckDBService.convert_csv_to_parquet(
+                    user_id=self.user_id,
                     source_s3_path=source_s3_path,
                     parquet_s3_path=parquet_s3_path,
                     access_key=self.access_key,
@@ -177,7 +176,7 @@ class DatasetService:
                 owner_id=user_id,
                 bucket=user_id,
                 file_path=parquet_object_name,  # data/{filename}.parquet
-                schema=schema,
+                data_schema=schema,
                 total_rows=stats.get("total_rows"),
                 file_size=parquet_file_size,  # Get actual file size from MinIO
                 source_file_id=file_id
@@ -212,7 +211,7 @@ class DatasetService:
                     logger.error(error_msg)
                     rollback_errors.append(error_msg)
 
-            # Note: No need to delete folder since we're using direct file path
+            # Note: No need to delete folder since we're using direct file path (data/{filename}.parquet)
 
             # 3. Delete database record
             if dataset_create:
@@ -265,7 +264,7 @@ class DatasetService:
                 logger.error(error_msg)
                 deletion_errors.append(error_msg)
 
-            # Note: No need to delete folder since we're using direct file path
+            # Note: No need to delete folder since we're using direct file path (data/{filename}.parquet)
 
             # Delete database record
             try:
@@ -294,7 +293,7 @@ class DatasetService:
         self,
         user_id: str,
         dataset_id: str,
-        start_row: int = 0,
+        offset: int = 0,
         limit: int = 100
     ) -> Dict[str, Any]:
         """Get data from dataset parquet file"""
@@ -303,13 +302,14 @@ class DatasetService:
             if not dataset or dataset.owner_id != user_id:
                 raise AppError("Dataset not found or unauthorized")
 
-            # Create full parquet path (file_path is now the full path)
+            # Create full parquet path (file_path is now the full path) (data/{filename}.parquet)
             parquet_s3_path = f"s3://{user_id}/{dataset.file_path}"
 
             # Get data using DuckDB
             data = DuckDBService.get_data_from_parquet(
+                user_id=self.user_id,
                 parquet_s3_path=parquet_s3_path,
-                start_row=start_row,
+                offset=offset,
                 limit=limit,
                 access_key=self.access_key,
                 secret_key=self.secret_key
@@ -318,7 +318,7 @@ class DatasetService:
             return {
                 "data": data,
                 "total_rows": dataset.total_rows or 0,
-                "schema": dataset.schema
+                "schema": dataset.data_schema
             }
 
         except Exception as e:
@@ -341,7 +341,7 @@ class DatasetService:
             if not dataset or dataset.owner_id != user_id:
                 raise AppError("Dataset not found or unauthorized")
 
-            update_data = DatasetUpdate(schema=new_schema)
+            update_data = DatasetUpdate(data_schema=new_schema)
             updated_dataset = await dataset_crud.update(dataset, obj_in=update_data)
 
             logger.info(f"Updated dataset schema: {dataset_id}")
@@ -354,3 +354,14 @@ class DatasetService:
     async def get_dataset_stats(self, user_id: str) -> Dict[str, Any]:
         """Get dataset statistics for user"""
         return await dataset_crud.get_stats_by_owner(user_id)
+
+    def close_connection(self):
+        """Close DuckDB connection when not needed"""
+        if hasattr(self, '_duckdb_conn'):
+            self._duckdb_conn.close()
+
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        self.close_connection()
+
+

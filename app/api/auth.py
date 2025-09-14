@@ -36,4 +36,4 @@ async def create_token(clerk_id: str):
 
 @router.get("/verify-token")
 async def protected_route(user = Depends(verify_token)):
-    return ok(data=user, message=f"Get current user successfully")
+    return ok(data=user, message="Get current user successfully")

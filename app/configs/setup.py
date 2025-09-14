@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -12,9 +11,10 @@ from app.configs.settings import settings
 from app.core.exceptions import AppError
 from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
-from app.databases import mongodb, init_duckdb_extensions
+from app.databases import mongodb, init_duckdb_extensions, init_instance_manager, shutdown_instance_manager
+# Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, dataset_router
+from app.api import webhooks_router, auth_router, file_router, dataset_router, duckdb_router
 
 logger = get_logger(__name__)
 
@@ -72,6 +72,17 @@ async def _setup_databases() -> None:
         logger.error(f"Failed to initialize DuckDB extensions: {str(e)}")
         raise
 
+    # Initialize DuckDB instance manager
+    try:
+        init_instance_manager(
+            instance_ttl=settings.DUCKDB_INSTANCE_TTL,
+            cleanup_interval=settings.DUCKDB_CLEANUP_INTERVAL
+        )
+        logger.info("DuckDB instance manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize DuckDB instance manager: {str(e)}")
+        raise
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -96,6 +107,9 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Nonefinity Agent application...")
         try:
             await mongodb.disconnect()
+            # Shutdown DuckDB instance manager
+            shutdown_instance_manager()
+            # No more connection pools to close - connections are created and closed per request
             logger.info("Application shutdown completed successfully")
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}")
@@ -176,7 +190,8 @@ def include_routers(app: FastAPI) -> None:
         (auth_router, "auth", ["Authentication"]),
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
-        (dataset_router, "dataset", ["Dataset Management"])
+        (dataset_router, "dataset", ["Dataset Management"]),
+        (duckdb_router, "duckdb", ["DuckDB Management"])
     ]
 
     for router, prefix_name, tags in routers_config:
