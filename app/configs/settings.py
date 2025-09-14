@@ -69,8 +69,16 @@ class MinioSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_")
 
 
+class DuckDBSettings(BaseSettings):
+    DUCKDB_TEMP_FOLDER: str
+    DUCKDB_INSTANCE_TTL: int = 600
+    DUCKDB_CLEANUP_INTERVAL: int = 300
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="DUCKDB_")
+
+
+
+class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

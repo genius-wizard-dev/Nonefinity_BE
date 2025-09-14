@@ -35,7 +35,7 @@ async def convert_file_to_dataset(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         result = await dataset_service.convert_file_to_dataset(
@@ -69,7 +69,7 @@ async def list_datasets(current_user=Depends(verify_token)):
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         datasets = await dataset_service.list_datasets(user_id)
@@ -100,7 +100,7 @@ async def get_dataset_data(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         data = await dataset_service.get_dataset_data(
@@ -135,7 +135,7 @@ async def delete_dataset(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         success = await dataset_service.delete_dataset(user_id=user_id, dataset_id=dataset_id)
@@ -170,7 +170,7 @@ async def update_dataset_schema(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         updated_dataset = await dataset_service.update_dataset_schema(
@@ -203,7 +203,7 @@ async def get_dataset_stats(current_user=Depends(verify_token)):
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
     user_id = str(user.id)
-    dataset_service = DatasetService(access_key=user_id, secret_key=user.minio_secret_key)
+    dataset_service = DatasetService(user_id=user_id, access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
         stats = await dataset_service.get_dataset_stats(user_id)

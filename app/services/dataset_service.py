@@ -8,7 +8,6 @@ from app.core.exceptions import AppError
 from app.utils import get_logger
 from app.utils.file_classifier import FileClassifier
 from typing import Optional, List, Dict, Any
-import uuid
 import os
 
 logger = get_logger(__name__)
@@ -17,13 +16,13 @@ logger = get_logger(__name__)
 class DatasetService:
     """Service for handling dataset operations and file conversions"""
 
-    def __init__(self, access_key: str, secret_key: str):
+    def __init__(self, user_id: str, access_key: str, secret_key: str):
         self._minio_client = MinIOClientService(access_key=access_key, secret_key=secret_key)
         self.file_crud = FileCRUD()
+        self.user_id = user_id
         self.access_key = access_key
         self.secret_key = secret_key
-        # Create DuckDB connection - no more pooling
-        self._duckdb_conn = DuckDB(access_key=access_key, secret_key=secret_key)
+        self._duckdb_conn = DuckDB(user_id=user_id, access_key=access_key, secret_key=secret_key)
 
     def _extract_unique_name_from_file_path(self, file_path: str) -> str:
         """Extract unique name from raw file path to use for parquet"""
@@ -105,7 +104,6 @@ class DatasetService:
     ) -> Optional[DatasetCreate]:
         """Import CSV/Excel file to dataset with parquet in data/{folder}/ (data/{filename}.parquet)"""
         dataset_create = None
-        dataset_folder = None
         parquet_object_name = None
 
         try:
@@ -142,6 +140,7 @@ class DatasetService:
             conversion_success = False
             if file.file_ext.lower() == ".csv":
                 conversion_success = await DuckDBService.convert_csv_to_parquet(
+                    user_id=self.user_id,
                     source_s3_path=source_s3_path,
                     parquet_s3_path=parquet_s3_path,
                     access_key=self.access_key,
@@ -308,6 +307,7 @@ class DatasetService:
 
             # Get data using DuckDB
             data = DuckDBService.get_data_from_parquet(
+                user_id=self.user_id,
                 parquet_s3_path=parquet_s3_path,
                 offset=offset,
                 limit=limit,

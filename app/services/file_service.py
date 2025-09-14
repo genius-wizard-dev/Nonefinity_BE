@@ -32,7 +32,6 @@ class FileService:
     async def upload_file(self, user_id: str, file: UploadFile) -> Optional[FileCreate]:
         """Upload file to raw/ folder only - simplified version"""
         file_create = None
-        object_name = None
 
         try:
             logger.info(f"Starting file upload for user {user_id}, file: {file.filename}")
