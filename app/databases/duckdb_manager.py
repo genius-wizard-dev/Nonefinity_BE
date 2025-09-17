@@ -26,31 +26,69 @@ class DuckDBInstance:
         self._initialize_connection()
 
     def _initialize_connection(self):
-        """Initialize DuckDB connection with S3/MinIO settings"""
-        try:
-            logger.info(f"Initializing DuckDB instance for user: {self.user_id}")
+      """Initialize DuckDB connection with S3/MinIO settings"""
+      try:
+          logger.info("Initializing DuckDB instance for user: %s", self.user_id)
 
-            # Create connection with database file to store data temporarily
-            self.con = duckdb.connect(database=self.db_path)
+          # --- Connect DuckDB ---
+          self.con = duckdb.connect(database=self.db_path)
 
-            # Install and load httpfs extension
-            self.con.execute("INSTALL httpfs;")
-            self.con.execute("LOAD httpfs;")
+          # --- Install & load extensions ---
+          extensions = ["aws", "httpfs", "parquet", "ducklake", "postgres"]
+          for ext in extensions:
+              self.con.execute(f"INSTALL {ext};")
+              self.con.execute(f"LOAD {ext};")
 
-            # Configure S3/MinIO settings for data storage temporarily  
-            endpoint = settings.MINIO_URL.replace("http://", "").replace("https://", "")
-            self.con.execute(f"SET s3_endpoint='{endpoint}';")
-            self.con.execute(f"SET s3_access_key_id='{self.access_key}';")
-            self.con.execute(f"SET s3_secret_access_key='{self.secret_key}';")
-            ssl_flag = "true" if settings.MINIO_SSL else "false"
-            self.con.execute(f"SET s3_use_ssl={ssl_flag};")
-            self.con.execute("SET s3_url_style='path';")
+          # --- S3 secret cho từng user ---
+          endpoint = settings.MINIO_URL.replace("http://", "").replace("https://", "")
+          ssl_flag = "true" if settings.MINIO_SSL else "false"
+          self.con.execute(f"""
+              CREATE OR REPLACE SECRET (
+                  TYPE s3,
+                  PROVIDER config,
+                  KEY_ID '{self.access_key}',
+                  SECRET '{self.secret_key}',
+                  ENDPOINT '{endpoint}',
+                  USE_SSL {ssl_flag},
+                  URL_STYLE path
+              );
+          """)
 
-            logger.info(f"DuckDB instance initialized successfully for user: {self.user_id}")
+          # --- Postgres secret dùng chung ---
+          self.con.execute(f"""
+              CREATE OR REPLACE SECRET(
+                  TYPE postgres,
+                  HOST '{settings.POSTGRES_HOST}',
+                  PORT {settings.POSTGRES_PORT},
+                  DATABASE '{settings.POSTGRES_DB}',
+                  USER '{settings.POSTGRES_USER}',
+                  PASSWORD '{settings.POSTGRES_PASSWORD}'
+              );
+          """)
 
-        except Exception as e:
-            logger.error(f"Error initializing DuckDB instance for user {self.user_id}: {str(e)}")
-            raise
+          # --- Attach DuckLake catalog riêng cho user ---
+          self.catalog_name = f"catalog_{self.user_id}"
+          self.data_path = f"s3://{self.user_id}/data/"
+
+          # Detach catalog nếu đã tồn tại trước đó
+          try:
+              self.con.execute(f'DETACH CATALOG "{self.catalog_name}";')
+              logger.debug(f"Detached existing catalog: {self.catalog_name}")
+          except Exception:
+              pass
+
+          self.con.execute(f"""
+              ATTACH 'ducklake:postgres:' AS "{self.catalog_name}" (
+                DATA_PATH '{self.data_path}'
+              );
+          """)
+
+          logger.info("DuckDB instance initialized successfully for user: %s", self.user_id)
+
+      except Exception as e:
+          logger.error("Error initializing DuckDB instance for user %s: %s", self.user_id, str(e))
+          raise
+
 
     def update_last_used(self):
         """Update last used time to reset TTL"""
@@ -65,6 +103,15 @@ class DuckDBInstance:
         """Close connection and delete database file"""
         try:
             if hasattr(self, 'con') and self.con:
+                # Detach catalog trước khi đóng connection
+                try:
+                    if hasattr(self, 'catalog_name'):
+                        self.con.execute(f'DETACH "{self.catalog_name}";')
+                        logger.debug(f"Detached catalog {self.catalog_name} before closing")
+                except Exception:
+                    # Bỏ qua lỗi detach
+                    pass
+
                 self.con.close()
                 logger.debug(f"Closed DuckDB connection for user: {self.user_id}")
 

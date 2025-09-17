@@ -77,8 +77,16 @@ class DuckDBSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="DUCKDB_")
 
 
+class PostgresSettings(BaseSettings):
+    POSTGRES_HOST: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
+
+class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

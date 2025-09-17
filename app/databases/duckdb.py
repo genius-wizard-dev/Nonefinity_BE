@@ -1,18 +1,8 @@
 
-import duckdb
 from app.utils import get_logger
 from app.databases.duckdb_manager import get_instance_manager
 
 logger = get_logger(__name__)
-
-
-def init_duckdb_extensions():
-    """
-    Install the necessary DuckDB extensions (only need to run once when app starts).
-    """
-    con = duckdb.connect(database=":memory:")
-    con.execute("INSTALL httpfs;")
-    con.close()
 
 class DuckDB:
     def __init__(self, user_id: str, access_key: str, secret_key: str):
@@ -25,7 +15,6 @@ class DuckDB:
         self.secret_key = secret_key
 
         logger.debug(f"Getting DuckDB instance for user: {user_id}")
-
         # Get cached instance from manager
         manager = get_instance_manager()
         self.instance = manager.get_instance(user_id, access_key, secret_key)
