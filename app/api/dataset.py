@@ -27,8 +27,6 @@ async def get_user_and_service(current_user):
     return user_id, dataset_service
 
 
-
-
 @router.post("/convert")
 async def convert(
     file_id: str = Form(...),
@@ -102,4 +100,23 @@ async def delete_dataset(
 
     except Exception as e:
         logger.error(f"Delete dataset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/{dataset_id}/data")
+async def get_dataset_data(
+    dataset_id: str,
+    current_user = Depends(verify_token),
+    skip: int = Query(0),
+    limit: int = Query(100)
+):
+    """Get dataset data by ID"""
+    try:
+        user_id, dataset_service = await get_user_and_service(current_user)
+        result = await dataset_service.get_dataset_data(user_id, dataset_id, skip, limit)
+        return ok(data=result, message="Dataset data retrieved successfully")
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    except Exception as e:
+        logger.error(f"Get dataset data failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

@@ -82,6 +82,9 @@ class DuckDBInstance:
                 DATA_PATH '{self.data_path}'
               );
           """)
+          self.con.execute(f"""
+                           SET SCHEMA '{self.catalog_name}';
+          """)
 
           logger.info("DuckDB instance initialized successfully for user: %s", self.user_id)
 
