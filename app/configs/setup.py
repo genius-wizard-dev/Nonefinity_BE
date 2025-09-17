@@ -187,12 +187,15 @@ def _create_api_prefix(endpoint_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers with proper configuration"""
     routers_config = [
-        (auth_router, "auth", ["Authentication"]),
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
         (dataset_router, "dataset", ["Dataset Management"]),
-        (duckdb_router, "duckdb", ["DuckDB Management"])
     ]
+    if settings.APP_ENV == "dev":
+      routers_config.extend([
+          (auth_router, "auth", ["Authentication"]),
+          (duckdb_router, "duckdb", ["DuckDB Management"])
+      ])
 
     for router, prefix_name, tags in routers_config:
         app.include_router(
