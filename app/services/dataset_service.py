@@ -77,10 +77,10 @@ class DatasetService:
     async def convert_csv_to_dataset(self, user_id: str, file_path: str, dataset_name: str, description: str):
         try:
             with self.duckdb as db:
-                catalog_name = db.instance.catalog_name
+
                 # Create table in DuckLake
-                db.execute(f"CREATE TABLE {catalog_name}.{dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}', ignore_errors=true)")
-                db_info = db.execute(f"DESCRIBE {catalog_name}.{dataset_name}").df()
+                db.execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}', ignore_errors=true)")
+                db_info = db.execute(f"DESCRIBE {dataset_name}").df()
                 column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
                 return column_schemas
         except Exception as e:
@@ -98,10 +98,8 @@ class DatasetService:
     async def get_list_dataset(self, user_id: str, skip: int = 0, limit: int = 100):
       return await self.crud.get_by_owner(user_id, skip, limit)
 
-
     async def get_dataset(self, user_id: str, dataset_id: str):
       return await self.crud.get_by_owner_and_id(user_id, dataset_id)
-
 
     async def delete_dataset(self, user_id: str, dataset_id: str):
       dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
@@ -110,7 +108,7 @@ class DatasetService:
 
       try:
         with self.duckdb as db:
-          db.execute(f"DROP TABLE {db.instance.catalog_name}.{dataset.name}")
+          db.execute(f"DROP TABLE {dataset.name}")
           logger.info(f"Deleted dataset: {dataset.name} for user {user_id}")
       except Exception as e:
         logger.error(f"Error when deleting dataset for user {user_id}: {str(e)}")
@@ -118,3 +116,29 @@ class DatasetService:
 
       await self.crud.delete(dataset)
       return True
+
+
+    async def get_dataset_data(self, user_id: str, dataset_id: str, skip: int = 0, limit: int = 100):
+      dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
+      if not dataset:
+        raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+      try:
+        with self.duckdb as db:
+          data = db.execute(f"SELECT * FROM {dataset.name} LIMIT {limit} OFFSET {skip}").df()
+          if data.empty:
+            return {
+              "data": [],
+              "total_rows": 0,
+              "offset": skip,
+              "limit": limit
+            }
+          return {
+            "data": data.to_dict(orient="records"),
+            "total_rows": data.shape[0],
+            "offset": skip,
+            "limit": limit
+          }
+      except Exception as e:
+        logger.error(f"Error when getting dataset data for user {user_id}: {str(e)}")
+        raise AppError(f"Error when getting dataset data: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
