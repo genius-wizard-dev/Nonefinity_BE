@@ -69,7 +69,7 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         await db_obj.set(update_data)
         return db_obj
 
-    async def delete(self, db_obj: ModelT, soft_delete: bool = True) -> None:
+    async def soft_delete(self, db_obj: ModelT, soft_delete: bool = True) -> None:
         if soft_delete and "is_deleted" in db_obj.__fields__:
             payload = {"is_deleted": True, "deleted_at": datetime.utcnow()}
             if "updated_at" in db_obj.__fields__:
@@ -77,3 +77,6 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
             await db_obj.set(payload)
         else:
             await db_obj.delete()
+
+    async def delete(self, db_obj: ModelT) -> None:
+        await db_obj.delete()

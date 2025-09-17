@@ -1,73 +1,94 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 
 
-class ColumnSchemaBase(BaseModel):
-    """Base schema for column definition"""
-    name: str = Field(..., description="Column name")
-    type: str = Field(..., description="Data type (string, integer, float, boolean, date, etc.)")
+class DataSchemaField(BaseModel):
+    """Schema field for dataset table"""
+    column_name: str = Field(..., description="Column name")
+    column_type: str = Field(..., description="Data type (string, integer, float, boolean, etc.)")
     desc: Optional[str] = Field(None, description="Column description")
+
+    @validator('column_type')
+    def validate_type(cls, v):
+        valid_types = [
+            'string', 'varchar', 'text',
+            'integer', 'bigint', 'smallint', 'tinyint',
+            'float', 'double', 'decimal', 'numeric',
+            'boolean', 'bool',
+            'date', 'timestamp', 'datetime',
+            'json', 'array', 'struct'
+        ]
+        if v.lower() not in valid_types:
+            raise ValueError(f"Invalid data type. Must be one of: {', '.join(valid_types)}")
+        return v.lower()
 
 
 class DatasetBase(BaseModel):
     """Base schema for Dataset"""
-    name: str = Field(..., description="Dataset name")
+    name: str = Field(..., min_length=1, max_length=255, description="Dataset name")
     description: Optional[str] = Field(None, description="Dataset description")
+    data_schema: List[DataSchemaField] = Field(..., min_items=1, description="Table schema")
+
+    @validator('name')
+    def validate_name(cls, v):
+        if not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip()
 
 
 class DatasetCreate(DatasetBase):
-    """Schema for creating Dataset"""
-    owner_id: str = Field(..., description="User/tenant who owns the dataset")
-    bucket: str = Field(..., description="Bucket name in MinIO")
-    file_path: str = Field(..., description="File path in MinIO (data/{filename}.parquet)")
-    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
-    total_rows: Optional[int] = Field(None, description="Total number of data rows")
-    file_size: Optional[int] = Field(None, description="Parquet file size (bytes)")
-    source_file_id: Optional[str] = Field(None, description="ID of the source file that was converted")
+    """Schema for creating dataset"""
+    pass
 
 
 class DatasetUpdate(BaseModel):
-    """Schema for updating Dataset"""
-    name: Optional[str] = Field(None, description="Dataset name")
-    description: Optional[str] = Field(None, description="Dataset description")
-    data_schema: Optional[List[Dict[str, Any]]] = Field(None, description="Dataset schema in JSON format")
+    """Schema for updating dataset"""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None)
+    data_schema: Optional[List[DataSchemaField]] = Field(None, min_items=1)
+
+    @validator('name')
+    def validate_name(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip() if v else v
 
 
-class DatasetResponse(DatasetBase):
+class Dataset(DatasetBase):
     """Schema for Dataset response"""
-    id: str = Field(..., description="Dataset ID")
-    owner_id: str = Field(..., description="User/tenant who owns the dataset")
-    bucket: str = Field(..., description="Bucket name in MinIO")
-    file_path: str = Field(..., description="File path in MinIO (data/{filename}.parquet)")
-    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema in JSON format")
-    total_rows: Optional[int] = Field(None, description="Total number of data rows")
-    file_size: Optional[int] = Field(None, description="Parquet file size (bytes)")
-    source_file_id: Optional[str] = Field(None, description="ID of the source file that was converted")
-    created_at: datetime = Field(..., description="Creation time")
-    updated_at: datetime = Field(..., description="Last update time")
+    id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
 
 
-class DatasetStats(BaseModel):
-    """Schema for dataset statistics"""
-    total_datasets: int = Field(..., description="Total number of datasets")
-    total_size: int = Field(..., description="Total size (bytes)")
-    total_size_mb: float = Field(..., description="Total size (MB)")
-    total_rows: int = Field(..., description="Total number of data rows")
+class DatasetList(BaseModel):
+    """Schema for dataset list response"""
+    datasets: List[Dataset]
+    total: int
+    page: int
+    size: int
 
 
-class FileToDatasetRequest(BaseModel):
-    """Schema for file to dataset conversion request"""
-    file_id: str = Field(..., description="ID of the file to convert")
-    dataset_name: str = Field(..., description="Name of the dataset to create")
-    description: Optional[str] = Field(None, description="Dataset description")
-
-
-class DatasetDataResponse(BaseModel):
+class DatasetData(BaseModel):
     """Schema for dataset data response"""
-    data: List[Dict[str, Any]] = Field(..., description="Dataset data")
-    total_rows: int = Field(..., description="Total number of rows")
-    data_schema: List[Dict[str, Any]] = Field(..., description="Dataset schema")
+    data: List[Dict[str, Any]]
+    total_rows: Optional[int] = None
+    offset: int
+    limit: int
+
+
+class FileUploadRequest(BaseModel):
+    """Schema for file upload request"""
+    dataset_name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None)
+
+    @validator('dataset_name')
+    def validate_dataset_name(cls, v):
+        if not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip()

@@ -11,10 +11,10 @@ from app.configs.settings import settings
 from app.core.exceptions import AppError
 from app.utils import setup_logging, get_logger
 from app.middlewares import init_sentry
-from app.databases import mongodb, init_duckdb_extensions, init_instance_manager, shutdown_instance_manager
+from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, dataset_router, duckdb_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router
 
 logger = get_logger(__name__)
 
@@ -64,13 +64,6 @@ async def _setup_databases() -> None:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")
         raise
 
-    # Initialize DuckDB extensions
-    try:
-        init_duckdb_extensions()
-        logger.info("DuckDB extensions initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize DuckDB extensions: {str(e)}")
-        raise
 
     # Initialize DuckDB instance manager
     try:
@@ -189,12 +182,12 @@ def include_routers(app: FastAPI) -> None:
     routers_config = [
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
-        (dataset_router, "dataset", ["Dataset Management"]),
-    ]
+        ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
           (auth_router, "auth", ["Authentication"]),
-          (duckdb_router, "duckdb", ["DuckDB Management"])
+          (duckdb_router, "duckdb", ["DuckDB Management"]),
+          (dataset_router, "datasets", ["Dataset Management"])
       ])
 
     for router, prefix_name, tags in routers_config:
