@@ -172,7 +172,7 @@ class FileService:
 
             # Delete record from database (hard delete)
             try:
-                await self.crud.delete(file, soft_delete=False)
+                await self.crud.delete(file)
                 logger.info(f"Deleted file record from database: {file_id}")
             except Exception as e:
                 error_msg = f"Failed to delete file record from database: {str(e)}"

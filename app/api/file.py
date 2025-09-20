@@ -3,7 +3,7 @@ from app.services import FileService, user_service
 from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
-from app.schemas.file import FileResponse, FileUpdate
+from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from typing import Optional, List
@@ -198,13 +198,13 @@ async def get_file_types(current_user = Depends(verify_token)):
 
 @router.post("/batch/delete", response_model=ApiResponse[dict])
 async def batch_delete_files(
-    file_ids: List[str],
+    request: BatchDeleteRequest,
     current_user = Depends(verify_token)
 ):
     """Delete multiple files at once from raw/ folder
 
     Args:
-        file_ids: List of file IDs to delete
+        request: Batch delete request containing file IDs
         current_user: Current user
     """
     clerk_id = current_user.get("sub")
@@ -215,9 +215,8 @@ async def batch_delete_files(
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
-    results = await file_service.batch_delete_files(user_id, file_ids)
+    results = await file_service.batch_delete_files(user_id, request.file_ids)
 
     return ok(data=results, message=f"Batch deletion completed. {len(results['successful'])} successful, {len(results['failed'])} failed")
-
 
 

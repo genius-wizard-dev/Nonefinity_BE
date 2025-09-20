@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -40,3 +40,7 @@ class FileResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class BatchDeleteRequest(BaseModel):
+    """Schema for batch delete request"""
+    file_ids: List[str] = Field(..., description="List of file IDs to delete")
