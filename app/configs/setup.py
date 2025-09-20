@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette import status
 
@@ -163,6 +164,18 @@ async def _handle_validation_error(request: Request, exc: RequestValidationError
     )
 
 
+def install_cors_middleware(app: FastAPI) -> None:
+    """Install CORS middleware for the application"""
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=settings.CORS_CREDENTIALS,
+        allow_methods=settings.CORS_METHODS,
+        allow_headers=settings.CORS_HEADERS,
+    )
+    logger.info("CORS middleware installed successfully")
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     """Install all exception handlers for the application"""
     app.exception_handler(AppError)(_handle_app_error)
@@ -212,6 +225,9 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
     )
+
+    # Install CORS middleware
+    install_cors_middleware(app)
 
     # Install exception handlers
     install_exception_handlers(app)

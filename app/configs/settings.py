@@ -10,6 +10,14 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
+class CORSSettings(BaseSettings):
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_CREDENTIALS: bool = True
+    CORS_METHODS: list[str] = ["*"]
+    CORS_HEADERS: list[str] = ["*"]
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="CORS_")
+
 class MongoSettings(BaseSettings):
     MONGO_HOST: str = ""
     MONGO_PORT: int = 27017
@@ -86,7 +94,7 @@ class PostgresSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings):
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 
