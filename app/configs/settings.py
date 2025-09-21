@@ -94,7 +94,18 @@ class PostgresSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
 
-class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings):
+
+class CredentialSettings(BaseSettings):
+    CREDENTIAL_SECRET_KEY: str
+    CREDENTIAL_ENCRYPTION_SALT: str
+    CREDENTIAL_KDF_ITERATIONS: int = 100000
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="CREDENTIAL_")
+
+
+
+
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 
