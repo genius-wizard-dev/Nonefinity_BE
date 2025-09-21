@@ -41,6 +41,37 @@ class RedisSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_")
 
+class CelerySettings(BaseSettings):
+    CELERY_BROKER_URL: str = ""
+    CELERY_RESULT_BACKEND: str = ""
+    CELERY_TASK_SERIALIZER: str = "json"
+    CELERY_ACCEPT_CONTENT: list[str] = ["json"]
+    CELERY_RESULT_SERIALIZER: str = "json"
+    CELERY_TIMEZONE: str = "UTC"
+    CELERY_ENABLE_UTC: bool = True
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="CELERY_")
+
+    @property
+    def get_broker_url(self) -> str:
+        if self.CELERY_BROKER_URL:
+            return self.CELERY_BROKER_URL
+        # Fallback to Redis settings
+        from app.configs.settings import settings
+        if settings.REDIS_PWD:
+            return f"redis://:{settings.REDIS_PWD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+        return f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+
+    @property
+    def get_result_backend(self) -> str:
+        if self.CELERY_RESULT_BACKEND:
+            return self.CELERY_RESULT_BACKEND
+        # Fallback to Redis settings
+        from app.configs.settings import settings
+        if settings.REDIS_PWD:
+            return f"redis://:{settings.REDIS_PWD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/1"
+        return f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/1"
+
 class SentrySettings(BaseSettings):
     SENTRY_DSN: str | None = None
     SENTRY_TRACES_SAMPLE_RATE: float = 0.2
@@ -50,7 +81,10 @@ class SentrySettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SENTRY_")
 
 class QdrantSettings(BaseSettings):
-    QDRANT_URL: str = ""
+    QDRANT_HOST: str
+    QDRANT_PORT: int
+    QDRANT_API_KEY: str | None = None
+    QDRANT_COLLECTION: str
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="QDRANT_")
 
@@ -95,6 +129,7 @@ class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
 
 
+
 class CredentialSettings(BaseSettings):
     CREDENTIAL_SECRET_KEY: str
     CREDENTIAL_ENCRYPTION_SALT: str
@@ -105,7 +140,7 @@ class CredentialSettings(BaseSettings):
 
 
 
-class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

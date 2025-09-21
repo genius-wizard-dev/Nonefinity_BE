@@ -32,7 +32,7 @@ async def get_owner_and_service(current_user):
 @router.post("")
 async def create_credential(
     name: str = Form(...),
-    provider: str = Form(...),
+    provider_id: str = Form(...),
     api_key: str = Form(...),
     base_url: Optional[str] = Form(None),
     current_user = Depends(verify_token)
@@ -43,7 +43,7 @@ async def create_credential(
 
         credential_data = CredentialCreate(
             name=name,
-            provider=provider,
+            provider_id=provider_id,
             api_key=api_key,
             base_url=base_url
         )
@@ -158,31 +158,6 @@ async def delete_credential(
         logger.error(f"Error deleting credential: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete credential")
 
-
-@router.post("/test")
-async def test_credential(
-    credential_id: Optional[str] = Form(None),
-    provider_name: Optional[str] = Form(None),
-    api_key: Optional[str] = Form(None),
-    base_url: Optional[str] = Form(None),
-    current_user = Depends(verify_token)
-):
-    """Test a credential by making an API call"""
-    try:
-        owner_id, credential_service = await get_owner_and_service(current_user)
-
-        result = await credential_service.test_credential(
-            owner_id=owner_id if credential_id else None,
-            credential_id=credential_id,
-            provider_name=provider_name,
-            api_key=api_key,
-            base_url=base_url
-        )
-
-        return ok(data=result, message="Credential test completed")
-    except Exception as e:
-        logger.error(f"Error testing credential: {e}")
-        raise HTTPException(status_code=500, detail="Failed to test credential")
 
 
 @router.get("/provider/{provider_name}")

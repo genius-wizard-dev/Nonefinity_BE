@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, validator
 class CredentialBase(BaseModel):
     """Base schema for Credential"""
     name: str = Field(..., min_length=1, max_length=100, description="Credential name")
-    provider: str = Field(..., description="AI provider identifier")
+    provider_id: str = Field(..., description="AI provider ID")
     api_key: str = Field(..., min_length=1, description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL (overrides provider default)")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -54,7 +54,8 @@ class Credential(BaseModel):
     """Schema for Credential response"""
     id: str
     name: str
-    provider: str
+    provider_id: str
+    provider_name: Optional[str] = None
     base_url: Optional[str] = None
     additional_headers: Optional[Dict[str, str]] = None
     is_active: bool

@@ -111,7 +111,7 @@ class ProviderService:
     async def get_all_providers(active_only: bool = True) -> List[Provider]:
         """Get all providers from database with optimized queries"""
         if active_only:
-            providers = await Provider.find(Provider.is_active).to_list()
+            providers = await Provider.find({"is_active": True}).to_list()
         else:
             providers = await Provider.find_all().to_list()
 
@@ -121,24 +121,35 @@ class ProviderService:
     @staticmethod
     async def get_provider_by_name(provider_name: str, active_only: bool = True) -> Provider:
         """Get a specific provider by name with enhanced error handling"""
-        query_conditions = [Provider.provider == provider_name]
+        query = {"provider": provider_name}
         if active_only:
-            query_conditions.append(Provider.is_active)
+            query["is_active"] = True
 
-        provider = await Provider.find_one(*query_conditions)
+        provider = await Provider.find_one(query)
         if not provider:
             status_msg = "not found or inactive" if active_only else "not found"
             raise ValueError(f"Provider '{provider_name}' {status_msg}")
         return provider
 
     @staticmethod
+    async def get_provider_by_id(provider_id: str, active_only: bool = True) -> Optional[Provider]:
+        """Get a specific provider by ID"""
+        from bson import ObjectId
+        query = {"_id": ObjectId(provider_id)}
+        if active_only:
+            query["is_active"] = True
+
+        provider = await Provider.find_one(query)
+        return provider
+
+    @staticmethod
     async def get_providers_by_task(task_type: str, active_only: bool = True) -> List[Provider]:
         """Get providers that support a specific task type"""
-        query_conditions = [Provider.support.in_([task_type])]
+        query = {"support": {"$in": [task_type]}}
         if active_only:
-            query_conditions.append(Provider.is_active)
+            query["is_active"] = True
 
-        providers = await Provider.find(*query_conditions).to_list()
+        providers = await Provider.find(query).to_list()
         logger.debug(f"Found {len(providers)} providers supporting '{task_type}' task")
         return providers
 

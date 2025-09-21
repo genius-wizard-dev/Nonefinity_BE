@@ -4,14 +4,13 @@ from pydantic import Field
 from pymongo import IndexModel
 
 from app.models.time_mixin import TimeMixin
-from app.models.soft_delete_mixin import SoftDeleteMixin
 
 
-class Credential(TimeMixin, SoftDeleteMixin, Document):
+class Credential(TimeMixin, Document):
     """User credential model for AI providers"""
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
     name: str = Field(..., min_length=1, max_length=100, description="Credential name")
-    provider: Annotated[str, Indexed()] = Field(..., description="AI provider identifier")
+    provider_id: Annotated[str, Indexed()] = Field(..., description="AI provider ID")
     api_key: str = Field(..., description="Encrypted API key")
     base_url: Optional[str] = Field(None, description="Custom base URL (overrides provider default)")
     additional_headers: Optional[dict] = Field(default=None, description="Additional headers for API calls")
@@ -21,6 +20,6 @@ class Credential(TimeMixin, SoftDeleteMixin, Document):
         name = "credentials"
         indexes = [
             IndexModel([("owner_id", 1), ("name", 1)], unique=True),
-            IndexModel([("owner_id", 1), ("provider", 1)]),
+            IndexModel([("owner_id", 1), ("provider_id", 1)]),
             IndexModel([("owner_id", 1), ("is_deleted", 1)])
         ]

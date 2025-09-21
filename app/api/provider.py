@@ -32,7 +32,26 @@ async def get_providers_by_task(
     """Get providers that support a specific task type"""
     try:
         providers = await ProviderService.get_providers_by_task(task_type, active_only)
-        provider_responses = [ProviderResponse.from_orm(provider) for provider in providers]
+        provider_responses = [
+            ProviderResponse(
+                id=str(provider.id),
+                provider=provider.provider,
+                name=provider.name,
+                description=provider.description,
+                base_url=provider.base_url,
+                logo_url=provider.logo_url,
+                docs_url=provider.docs_url,
+                api_key_header=provider.api_key_header,
+                api_key_prefix=provider.api_key_prefix,
+                is_active=provider.is_active,
+                support=provider.support,
+                tasks=provider.tasks,
+                tags=provider.tags,
+                created_at=provider.created_at,
+                updated_at=provider.updated_at
+            )
+            for provider in providers
+        ]
         result = ProviderList(providers=provider_responses, total=len(provider_responses))
         return ok(data=result, message=f"Providers supporting '{task_type}' retrieved successfully")
     except Exception as e:
@@ -48,7 +67,23 @@ async def get_provider_details(
     """Get detailed information about a specific provider"""
     try:
         provider = await ProviderService.get_provider_by_name(provider_name, active_only)
-        result = ProviderResponse.from_orm(provider)
+        result = ProviderResponse(
+            id=str(provider.id),
+            provider=provider.provider,
+            name=provider.name,
+            description=provider.description,
+            base_url=provider.base_url,
+            logo_url=provider.logo_url,
+            docs_url=provider.docs_url,
+            api_key_header=provider.api_key_header,
+            api_key_prefix=provider.api_key_prefix,
+            is_active=provider.is_active,
+            support=provider.support,
+            tasks=provider.tasks,
+            tags=provider.tags,
+            created_at=provider.created_at,
+            updated_at=provider.updated_at
+        )
         return ok(data=result, message=f"Provider '{provider_name}' retrieved successfully")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

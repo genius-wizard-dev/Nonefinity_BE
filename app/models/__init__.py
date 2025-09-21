@@ -5,6 +5,7 @@ from app.models.file import File
 from app.models.dataset import Dataset
 from app.models.provider import Provider, ProviderTaskConfig
 from app.models.credential import Credential
+from app.models.model import Model
 
 # Export all models for easy import
 __all__ = [
@@ -15,7 +16,8 @@ __all__ = [
     "Dataset",
     "Provider",
     "ProviderTaskConfig",
-    "Credential"
+    "Credential",
+    "Model"
 ]
 
 # List of all document models for Beanie initialization
@@ -25,5 +27,6 @@ DOCUMENT_MODELS = [
     Dataset,
     Provider,
     ProviderTaskConfig,
-    Credential
+    Credential,
+    Model
 ]

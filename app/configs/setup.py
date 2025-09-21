@@ -15,7 +15,7 @@ from app.middlewares import init_sentry
 from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router, embedding_router, model_router
 
 logger = get_logger(__name__)
 
@@ -203,14 +203,16 @@ def include_routers(app: FastAPI) -> None:
     routers_config = [
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
+        (embedding_router, "embedding", ["Vector Embedding"]),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
           (auth_router, "auth", ["Authentication"]),
           (duckdb_router, "duckdb", ["DuckDB Management"]),
           (dataset_router, "datasets", ["Dataset Management"]),
-          (credential_router, "credentials", ["Credential Management"]),
-          (provider_router, "providers", ["AI Provider Management"])
+          (credential_router, "credentials", ["AI Credential Management"]),
+          (provider_router, "providers", ["AI Provider Management"]),
+          (model_router, "models", ["AI Model Management"])
       ])
 
     for router, prefix_name, tags in routers_config:
