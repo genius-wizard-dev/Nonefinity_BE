@@ -15,7 +15,7 @@ from app.middlewares import init_sentry
 from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router
 
 logger = get_logger(__name__)
 
@@ -65,6 +65,14 @@ async def _setup_databases() -> None:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")
         raise
 
+    # Initialize AI providers from YAML
+    try:
+        from app.services.provider_service import ProviderService
+        count = await ProviderService.initialize_providers()
+        logger.info(f"AI providers initialized successfully ({count} providers processed)")
+    except Exception as e:
+        logger.error(f"Failed to initialize AI providers: {str(e)}")
+        # Don't raise - this is not critical for app startup
 
     # Initialize DuckDB instance manager
     try:
@@ -200,7 +208,9 @@ def include_routers(app: FastAPI) -> None:
       routers_config.extend([
           (auth_router, "auth", ["Authentication"]),
           (duckdb_router, "duckdb", ["DuckDB Management"]),
-          (dataset_router, "datasets", ["Dataset Management"])
+          (dataset_router, "datasets", ["Dataset Management"]),
+          (credential_router, "credentials", ["Credential Management"]),
+          (provider_router, "providers", ["AI Provider Management"])
       ])
 
     for router, prefix_name, tags in routers_config:
