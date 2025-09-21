@@ -10,6 +10,14 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
+class CORSSettings(BaseSettings):
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_CREDENTIALS: bool = True
+    CORS_METHODS: list[str] = ["*"]
+    CORS_HEADERS: list[str] = ["*"]
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="CORS_")
+
 class MongoSettings(BaseSettings):
     MONGO_HOST: str = ""
     MONGO_PORT: int = 27017
@@ -27,7 +35,8 @@ class MongoSettings(BaseSettings):
             return f"mongodb://{self.MONGO_HOST}:{self.MONGO_PORT}"
 
 class RedisSettings(BaseSettings):
-    REDIS_URL: str = ""
+    REDIS_HOST: str = ""
+    REDIS_PORT: int = 6379
     REDIS_PWD: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_")
@@ -48,8 +57,9 @@ class QdrantSettings(BaseSettings):
 
 class ClerkSettings(BaseSettings):
     CLERK_SECRET_KEY: str = ""
-    JWT_KEY: str = ""
     CLERK_WEBHOOK_SECRET: str = ""
+    CLERK_ISSUER: str = ""
+    CLERK_JWKS_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -59,10 +69,43 @@ class MinioSettings(BaseSettings):
     MINIO_SECRET_KEY: str = ""
     MINIO_ALIAS: str = ""
 
+
+    @property
+    def MINIO_SSL(self) -> bool:
+        return self.MINIO_URL.startswith("https://")
+
     model_config = SettingsConfigDict(env_file=".env", env_prefix="MINIO_")
 
 
-class Settings(AppSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings):
+class DuckDBSettings(BaseSettings):
+    DUCKDB_TEMP_FOLDER: str
+    DUCKDB_INSTANCE_TTL: int = 600
+    DUCKDB_CLEANUP_INTERVAL: int = 300
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="DUCKDB_")
+
+
+class PostgresSettings(BaseSettings):
+    POSTGRES_HOST: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
+
+
+class CredentialSettings(BaseSettings):
+    CREDENTIAL_SECRET_KEY: str
+    CREDENTIAL_ENCRYPTION_SALT: str
+    CREDENTIAL_KDF_ITERATIONS: int = 100000
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="CREDENTIAL_")
+
+
+
+
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

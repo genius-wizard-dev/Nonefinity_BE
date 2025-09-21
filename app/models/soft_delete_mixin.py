@@ -1,10 +1,9 @@
 from datetime import datetime
 from typing import Optional
-from beanie import Document
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 
-class SoftDeleteMixin(Document):
+class SoftDeleteMixin(BaseModel):
     is_deleted: bool = Field(
         default=False, description="Soft delete flag"
     )
