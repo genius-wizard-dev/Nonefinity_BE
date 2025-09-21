@@ -3,7 +3,8 @@ from app.models.soft_delete_mixin import SoftDeleteMixin
 from app.models.user import User
 from app.models.file import File
 from app.models.dataset import Dataset
-from app.models.credential import Provider, Credential
+from app.models.provider import Provider, ProviderTaskConfig
+from app.models.credential import Credential
 
 # Export all models for easy import
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "File",
     "Dataset",
     "Provider",
+    "ProviderTaskConfig",
     "Credential"
 ]
 
@@ -22,5 +24,6 @@ DOCUMENT_MODELS = [
     File,
     Dataset,
     Provider,
+    ProviderTaskConfig,
     Credential
 ]

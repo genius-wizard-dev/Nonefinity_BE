@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field, validator
 
 
 class CredentialBase(BaseModel):
     """Base schema for Credential"""
     name: str = Field(..., min_length=1, max_length=100, description="Credential name")
-    provider_name: str = Field(..., description="AI provider identifier")
+    provider: str = Field(..., description="AI provider identifier")
     api_key: str = Field(..., min_length=1, description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL (overrides provider default)")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -54,7 +54,7 @@ class Credential(BaseModel):
     """Schema for Credential response"""
     id: str
     name: str
-    provider_name: str
+    provider: str
     base_url: Optional[str] = None
     additional_headers: Optional[Dict[str, str]] = None
     is_active: bool
@@ -78,32 +78,10 @@ class CredentialList(BaseModel):
     size: int
 
 
-class ProviderResponse(BaseModel):
-    """Response schema for Provider - simplified"""
-    id: str
-    provider_name: str
-    name: str
-    base_url: str
-    api_key_header: str
-    api_key_prefix: str
-    is_active: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
-
-class ProviderList(BaseModel):
-    """Schema for provider list response"""
-    providers: List[ProviderResponse]
-    total: int
-
-
 class CredentialTestRequest(BaseModel):
     """Request schema for testing a credential"""
     credential_id: Optional[str] = Field(None, description="Credential ID to test")
-    provider_name: Optional[str] = Field(None, description="Provider name for ad-hoc testing")
+    provider: Optional[str] = Field(None, description="Provider name for ad-hoc testing")
     api_key: Optional[str] = Field(None, description="API key for ad-hoc testing")
     base_url: Optional[str] = Field(None, description="Custom base URL for testing")
 

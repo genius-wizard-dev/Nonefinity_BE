@@ -1,9 +1,8 @@
 import base64
-import asyncio
 import aiohttp
 import secrets
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -12,10 +11,10 @@ from cryptography.fernet import InvalidToken
 from app.crud.credential import CredentialCRUD
 from app.schemas.credential import (
     CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
-    CredentialList, ProviderResponse, ProviderList
+    CredentialList
 )
+from app.schemas.provider import ProviderResponse, ProviderList
 from app.services.provider_service import ProviderService
-from app.models.credential import Provider
 from app.configs.settings import settings
 from app.core.exceptions import AppError
 from app.utils import get_logger
@@ -38,11 +37,11 @@ class CredentialService:
             iterations = settings.CREDENTIAL_KDF_ITERATIONS
 
             # Log security info (without exposing sensitive data)
-            logger.info(f"🔐 Initializing credential encryption system")
+            logger.info("🔐 Initializing credential encryption system")
             logger.info(f"   • KDF iterations: {iterations:,}")
             logger.info(f"   • Secret key length: {len(secret_key)} characters")
             logger.info(f"   • Salt length: {len(salt)} bytes")
-            logger.info(f"   • Algorithm: PBKDF2-SHA256 + Fernet")
+            logger.info("   • Algorithm: PBKDF2-SHA256 + Fernet")
 
             # Derive encryption key using PBKDF2
             kdf = PBKDF2HMAC(
@@ -170,7 +169,7 @@ class CredentialService:
         return Credential(
             id=str(db_credential.id),
             name=db_credential.name,
-            provider_name=db_credential.provider_name,
+            provider=db_credential.provider,
             base_url=db_credential.base_url,
             additional_headers=db_credential.additional_headers,
             is_active=db_credential.is_active,
@@ -187,7 +186,7 @@ class CredentialService:
             Credential(
                 id=str(cred.id),
                 name=cred.name,
-                provider_name=cred.provider_name,
+                provider=cred.provider,
                 base_url=cred.base_url,
                 additional_headers=cred.additional_headers,
                 is_active=cred.is_active,
@@ -217,7 +216,7 @@ class CredentialService:
         return CredentialDetail(
             id=str(db_credential.id),
             name=db_credential.name,
-            provider_name=db_credential.provider_name,
+            provider=db_credential.provider,
             base_url=db_credential.base_url,
             additional_headers=db_credential.additional_headers,
             is_active=db_credential.is_active,
@@ -242,7 +241,7 @@ class CredentialService:
         return Credential(
             id=str(updated_credential.id),
             name=updated_credential.name,
-            provider_name=updated_credential.provider_name,
+            provider=updated_credential.provider,
             base_url=updated_credential.base_url,
             additional_headers=updated_credential.additional_headers,
             is_active=updated_credential.is_active,
@@ -266,12 +265,18 @@ class CredentialService:
         provider_list = [
             ProviderResponse(
                 id=str(provider.id),
-                provider_name=provider.provider_name,
+                provider=provider.provider,
                 name=provider.name,
+                description=provider.description,
                 base_url=provider.base_url,
+                logo_url=provider.logo_url,
+                docs_url=provider.docs_url,
                 api_key_header=provider.api_key_header,
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
+                support=provider.support,
+                tasks=provider.tasks,
+                tags=provider.tags,
                 created_at=provider.created_at,
                 updated_at=provider.updated_at
             )
@@ -287,7 +292,7 @@ class CredentialService:
         self,
         owner_id: Optional[str] = None,
         credential_id: Optional[str] = None,
-        provider_name: Optional[str] = None,
+        provider: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -306,18 +311,18 @@ class CredentialService:
                     }
 
                 test_api_key = self._decrypt_api_key(db_credential.api_key)
-                test_provider = await ProviderService.get_provider_by_name(db_credential.provider_name)
+                test_provider = await ProviderService.get_provider_by_name(db_credential.provider)
                 test_base_url = db_credential.base_url or test_provider.base_url
             else:
                 # Ad-hoc testing
-                if not provider_name or not api_key:
+                if not provider or not api_key:
                     return {
                         'is_valid': False,
                         'message': 'Missing required parameters',
                         'error_details': 'Provider name and API key are required'
                     }
 
-                test_provider = await ProviderService.get_provider_by_name(provider_name)
+                test_provider = await ProviderService.get_provider_by_name(provider)
                 test_api_key = api_key
                 test_base_url = base_url or test_provider.base_url
 

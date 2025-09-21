@@ -10,15 +10,15 @@ Usage:
 import asyncio
 import sys
 from pathlib import Path
+from app.databases.mongodb import mongodb
+from app.models import DOCUMENT_MODELS
+from app.services.provider_service import ProviderService
+from app.utils.logging import get_logger
 
 # Add the project root to the Python path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.databases.mongodb import mongodb
-from app.models import DOCUMENT_MODELS
-from app.services.provider_service import ProviderService
-from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

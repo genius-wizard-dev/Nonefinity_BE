@@ -3,8 +3,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from typing import Optional
 
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate, CredentialTestRequest,
-    EncryptionHealthResponse, SecureKeyResponse
+    CredentialCreate, CredentialUpdate
 )
 from app.services.credential_service import CredentialService
 from app.services import user_service
@@ -33,7 +32,7 @@ async def get_owner_and_service(current_user):
 @router.post("")
 async def create_credential(
     name: str = Form(...),
-    provider_name: str = Form(...),
+    provider: str = Form(...),
     api_key: str = Form(...),
     base_url: Optional[str] = Form(None),
     current_user = Depends(verify_token)
@@ -44,7 +43,7 @@ async def create_credential(
 
         credential_data = CredentialCreate(
             name=name,
-            provider_name=provider_name,
+            provider=provider,
             api_key=api_key,
             base_url=base_url
         )
