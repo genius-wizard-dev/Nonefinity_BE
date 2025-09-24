@@ -1,12 +1,13 @@
-from typing import List, Optional, Dict, Any
-from bson import ObjectId
+from typing import Optional, Dict, Any
 
 from app.crud.model import ModelCRUD
 from app.crud.credential import CredentialCRUD
 from app.models.model import Model, ModelType
 from app.schemas.model import ModelCreate, ModelUpdate, ModelResponse, ModelStats
 from app.core.exceptions import AppError
+from app.utils.logging import get_logger
 
+logger = get_logger(__name__)
 
 class ModelService:
     def __init__(self):
@@ -41,11 +42,7 @@ class ModelService:
                     await self.crud.set_default_model(owner_id, str(existing_default.id), model_data.type)
 
             # Create the model
-            create_data = model_data.model_copy()
-            create_data_dict = create_data.model_dump()
-            create_data_dict["owner_id"] = owner_id
-
-            model = await self.crud.create(ModelCreate(**create_data_dict))
+            model = await self.crud.create_with_owner(owner_id, model_data)
 
             # If this is set as default, update it
             if model_data.is_default:
@@ -74,15 +71,18 @@ class ModelService:
         try:
             if model_type:
                 models = await self.crud.get_by_type(owner_id, model_type)
+                logger.debug(f"Models retrieved successfully: {models}")
             elif credential_id:
                 models = await self.crud.get_by_credential(owner_id, credential_id)
+                logger.debug(f"Models retrieved successfully: {models}")
             elif active_only:
                 models = await self.crud.get_active_models(owner_id)
+                logger.debug(f"Models retrieved successfully: {models}")
             else:
                 models = await self.crud.get_by_owner(owner_id, skip, limit)
-
+                logger.debug(f"Models retrieved successfully: {models}")
             # Apply additional filtering if needed
-            if active_only and not credential_id and not model_type:
+            if active_only:
                 models = [m for m in models if m.is_active]
 
             # Apply pagination for filtered results
@@ -92,7 +92,7 @@ class ModelService:
                 models = models[skip:skip + limit] if limit > 0 else models[skip:]
 
             model_responses = [self._to_response(model) for model in models]
-
+            logger.debug(f"Models retrieved successfully: {model_responses}")
             return {
                 "models": model_responses,
                 "total": total,

@@ -8,37 +8,33 @@ from pydantic import BaseModel, Field, validator
 
 class EmbeddingRequest(BaseModel):
     """Schema for embedding request"""
+    model_id: str = Field(..., description="AI model identifier from database")
+    file_id: str = Field(..., description="File identifier to process")
 
-    user_id: str = Field(..., description="User identifier")
-    file_id: str = Field(..., description="File identifier")
-    chunks: List[str] = Field(..., description="List of text chunks to embed", min_items=1)
-    split_config: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Configuration for text splitting"
-    )
-    provider: str = Field(..., description="AI provider (e.g., 'openai')")
-    model_id: str = Field(..., description="Model identifier")
-    credential: Dict[str, str] = Field(..., description="Provider credentials")
 
-    @validator('chunks')
-    def validate_chunks(cls, v):
-        if not v:
-            raise ValueError("At least one chunk is required")
-        return v
+
+
+class SearchRequest(BaseModel):
+    """Schema for similarity search request"""
+
+    credential_id: str = Field(..., description="Credential identifier for API key")
+    query_text: str = Field(..., description="Text to search for", min_length=1)
+    provider: str = Field(default="openai", description="AI provider (e.g., 'openai')")
+    model_id: str = Field(default="text-embedding-ada-002", description="Model identifier")
+    file_id: Optional[str] = Field(None, description="Optional filter by file")
+    limit: int = Field(default=5, description="Number of results to return", ge=1, le=100)
+
+    @validator('query_text')
+    def validate_query_text(cls, v):
+        if not v.strip():
+            raise ValueError("Query text cannot be empty")
+        return v.strip()
 
     @validator('provider')
     def validate_provider(cls, v):
         if v.lower() not in ['openai']:
             raise ValueError("Only 'openai' provider is currently supported")
         return v.lower()
-
-    @validator('credential')
-    def validate_credential(cls, v, values):
-        provider = values.get('provider', '').lower()
-        if provider == 'openai':
-            if 'api_key' not in v or not v['api_key']:
-                raise ValueError("API key is required for OpenAI provider")
-        return v
 
 
 class BatchEmbeddingRequest(BaseModel):

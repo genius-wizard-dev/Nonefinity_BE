@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette import status
-
+from scalar_fastapi import get_scalar_api_reference
 from app.schemas.response import ApiError, ErrorDetail
 from app.utils.api_response import JSONResponse
 from app.configs.settings import settings
@@ -214,6 +214,14 @@ def include_routers(app: FastAPI) -> None:
           (provider_router, "providers", ["AI Provider Management"]),
           (model_router, "models", ["AI Model Management"])
       ])
+      @app.get("/scalar", include_in_schema=False)
+      async def scalar_html():
+        return get_scalar_api_reference(
+            # Your OpenAPI document
+            openapi_url=app.openapi_url,
+            # Avoid CORS issues (optional)
+            scalar_proxy_url="https://proxy.scalar.com",
+        )
 
     for router, prefix_name, tags in routers_config:
         app.include_router(
@@ -221,6 +229,7 @@ def include_routers(app: FastAPI) -> None:
             prefix=_create_api_prefix(prefix_name),
             tags=tags
         )
+
 
     logger.info(f"Included {len(routers_config)} API routers successfully")
 
@@ -237,6 +246,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
     )
+
 
     # Install CORS middleware
     install_cors_middleware(app)

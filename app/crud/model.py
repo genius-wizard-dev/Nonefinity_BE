@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from bson import ObjectId
 
 from app.crud.base import BaseCRUD
@@ -126,6 +126,19 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
             return False
         except Exception:
             return False
+
+    async def create_with_owner(self, owner_id: str, obj_in: ModelCreate) -> Model:
+        """Create model with owner"""
+        data = obj_in.model_dump()
+        data["owner_id"] = owner_id
+
+        if "is_deleted" in self.model.__fields__:
+            data.setdefault("is_deleted", False)
+            data.setdefault("deleted_at", None)
+
+        db_obj = self.model(**data)
+        await db_obj.insert()
+        return db_obj
 
     async def get_active_models(
         self,

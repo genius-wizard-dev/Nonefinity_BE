@@ -1,5 +1,5 @@
 """
-Celery client utility for connecting to external task systems
+Celery client utility for connecting to external AI Tasks System
 """
 
 from typing import Dict, Any, Optional
@@ -12,97 +12,155 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-class CeleryClientManager:
-    """Manager for Celery client connections to external systems"""
+class AITasksClient:
+    """Client for interacting with external AI Tasks System"""
 
-    _clients: Dict[str, Celery] = {}
-
-    @classmethod
-    def get_client(cls, client_name: str = "default") -> Celery:
+    def __init__(self, app_name: str = "ai_tasks_client"):
         """
-        Get or create a Celery client instance
+        Initialize AI tasks client
 
         Args:
-            client_name: Name of the client (for multiple external systems)
-
-        Returns:
-            Celery client instance
+            app_name: Name of the client application
         """
+        self.app_name = app_name
+        self._celery_app = None
+        self._initialize_client()
 
-        if client_name not in cls._clients:
-            cls._clients[client_name] = cls._create_client(client_name)
-            logger.info(f"Created Celery client: {client_name}")
+        logger.info(f"Initialized AI Tasks Client: {app_name}")
 
-        return cls._clients[client_name]
+    def _initialize_client(self):
+        """Initialize the Celery client connection"""
+        try:
+            # Create Celery client
+            self._celery_app = Celery(
+                self.app_name,
+                broker=settings.get_broker_url,
+                backend=settings.get_result_backend,
+            )
 
-    @classmethod
-    def _create_client(cls, client_name: str) -> Celery:
-        """
-        Create a new Celery client instance
+            # Configure client to match external system
+            self._celery_app.conf.update(
+                task_serializer=settings.CELERY_TASK_SERIALIZER,
+                accept_content=settings.CELERY_ACCEPT_CONTENT,
+                result_serializer=settings.CELERY_RESULT_SERIALIZER,
+                timezone=settings.CELERY_TIMEZONE,
+                enable_utc=settings.CELERY_ENABLE_UTC,
+                result_expires=3600,  # Results expire after 1 hour
+                task_ignore_result=False,
+                task_track_started=True,
+            )
 
-        Args:
-            client_name: Name of the client
+            logger.debug(f"Configured AI Tasks Celery client: {self.app_name}")
 
-        Returns:
-            Configured Celery client
-        """
-
-        # Create Celery client
-        celery_client = Celery(
-            f"{client_name}_client",
-            broker=settings.get_broker_url,
-            backend=settings.get_result_backend,
-        )
-
-        # Configure client to match external system
-        celery_client.conf.update(
-            task_serializer=settings.CELERY_TASK_SERIALIZER,
-            accept_content=settings.CELERY_ACCEPT_CONTENT,
-            result_serializer=settings.CELERY_RESULT_SERIALIZER,
-            timezone=settings.CELERY_TIMEZONE,
-            enable_utc=settings.CELERY_ENABLE_UTC,
-            result_expires=3600,  # Results expire after 1 hour
-            task_ignore_result=False,
-            task_track_started=True,
-        )
-
-        logger.debug(f"Configured Celery client: {client_name}")
-        return celery_client
-
-    @classmethod
-    def close_all_clients(cls):
-        """Close all Celery client connections"""
-        for client_name, client in cls._clients.items():
-            try:
-                client.close()
-                logger.info(f"Closed Celery client: {client_name}")
-            except Exception as e:
-                logger.error(f"Error closing Celery client {client_name}: {e}")
-
-        cls._clients.clear()
-
-
-class TaskResultClient:
-    """
-    Generic client for getting task results from external Celery systems
-    """
-
-    def __init__(self, client_name: str = "default"):
-        """
-        Initialize task result client
-
-        Args:
-            client_name: Name of the Celery client to use
-        """
-        self.client_name = client_name
-        self._celery_client: Optional[Celery] = None
+        except Exception as e:
+            logger.error(f"Failed to initialize AI Tasks client: {e}")
+            raise
 
     @property
-    def celery_client(self) -> Celery:
-        """Get the Celery client instance (lazy loading)"""
-        if self._celery_client is None:
-            self._celery_client = CeleryClientManager.get_client(self.client_name)
-        return self._celery_client
+    def celery_app(self) -> Celery:
+        """Get the Celery app instance (lazy loading)"""
+        if self._celery_app is None:
+            self._initialize_client()
+        return self._celery_app
+
+    def create_embedding_task(
+        self,
+        user_id: str,
+        file_id: str = None,
+        provider: str = "openai",
+        model_id: str = "text-embedding-ada-002",
+        credential: Dict[str, Any] = None
+    ) -> str:
+        """
+        Create an embedding task
+
+        Args:
+            user_id: User identifier
+            file_id: File identifier (if processing file from storage)
+            provider: Embedding provider (openai, huggingface)
+            model_id: Model identifier
+            credential: Dictionary containing API keys
+
+        Returns:
+            Task ID
+        """
+        try:
+            logger.info(
+                f"Creating embedding task for user {user_id}, provider {provider}, "
+                f"model {model_id}, chunks count: 0"
+            )
+
+            # Send task to queue
+            result = self.celery_app.send_task(
+                'tasks.embedding.run_embedding',
+                kwargs={
+                    'user_id': user_id,
+                    'file_id': file_id,
+                    'provider': provider,
+                    'model_id': model_id,
+                    'credential': credential or {}
+                },
+                queue='embeddings'
+            )
+
+            logger.info(f"Embedding task created with ID: {result.id}")
+            return result.id
+
+        except Exception as e:
+            logger.error(f"Error creating embedding task: {e}")
+            raise
+
+    def search_embeddings(
+        self,
+        query_text: str,
+        provider: str,
+        model_id: str,
+        credential: Dict[str, Any],
+        user_id: str = None,
+        file_id: str = None,
+        limit: int = 5
+    ) -> str:
+        """
+        Search for similar embeddings
+
+        Args:
+            query_text: Text to search for
+            provider: Embedding provider
+            model_id: Model identifier
+            credential: Dictionary containing API keys
+            user_id: Optional filter by user
+            file_id: Optional filter by file
+            limit: Number of results to return
+
+        Returns:
+            Task ID
+        """
+        try:
+            logger.info(
+                f"Creating search task for query length {len(query_text)}, "
+                f"provider {provider}, model {model_id}, limit {limit}"
+            )
+
+            result = self.celery_app.send_task(
+                'ai.embeddings.tasks.search_similar',
+                kwargs={
+                    'query_text': query_text,
+                    'provider': provider,
+                    'model_id': model_id,
+                    'credential': credential,
+                    'user_id': user_id,
+                    'file_id': file_id,
+                    'limit': limit
+                },
+                queue='embeddings'
+            )
+
+            logger.info(f"Search task created with ID: {result.id}")
+            return result.id
+
+        except Exception as e:
+            logger.error(f"Error creating search task: {e}")
+            raise
 
     def get_task_status(self, task_id: str) -> Dict[str, Any]:
         """
@@ -118,7 +176,7 @@ class TaskResultClient:
         try:
             logger.debug(f"Getting status for task: {task_id}")
 
-            result = AsyncResult(task_id, app=self.celery_client)
+            result = AsyncResult(task_id, app=self.celery_app)
 
             response = {
                 "task_id": task_id,
@@ -180,7 +238,7 @@ class TaskResultClient:
         try:
             logger.debug(f"Getting result for task: {task_id}")
 
-            result = AsyncResult(task_id, app=self.celery_client)
+            result = AsyncResult(task_id, app=self.celery_app)
 
             response = {
                 "task_id": task_id,
@@ -228,7 +286,7 @@ class TaskResultClient:
         try:
             logger.info(f"Waiting for task {task_id} to complete (timeout: {timeout}s)")
 
-            result = AsyncResult(task_id, app=self.celery_client)
+            result = AsyncResult(task_id, app=self.celery_app)
 
             # Wait for completion
             final_result = result.get(timeout=timeout)
@@ -269,7 +327,7 @@ class TaskResultClient:
         try:
             logger.info(f"Cancelling task: {task_id}")
 
-            result = AsyncResult(task_id, app=self.celery_client)
+            result = AsyncResult(task_id, app=self.celery_app)
             result.revoke(terminate=True)
 
             return {
@@ -298,7 +356,7 @@ class TaskResultClient:
             logger.debug("Getting active tasks information")
 
             # Get active tasks from Celery
-            inspect = self.celery_client.control.inspect()
+            inspect = self.celery_app.control.inspect()
             active_tasks = inspect.active()
 
             if not active_tasks:
@@ -326,5 +384,5 @@ class TaskResultClient:
 
 
 # Singleton instances for common use cases
-embedding_client = TaskResultClient("embedding")
-default_client = TaskResultClient("default")
+embedding_client = AITasksClient("embedding_client")
+default_client = AITasksClient("default_client")

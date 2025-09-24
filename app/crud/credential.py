@@ -1,8 +1,6 @@
 from typing import List, Optional
-from bson import ObjectId
 from app.crud.base import BaseCRUD
 from app.models.credential import Credential
-from app.models.provider import Provider
 from app.schemas.credential import CredentialCreate, CredentialUpdate
 from app.utils import get_logger
 
