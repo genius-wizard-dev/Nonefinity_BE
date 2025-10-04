@@ -1,9 +1,8 @@
 import base64
-import asyncio
 import aiohttp
 import secrets
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -12,10 +11,10 @@ from cryptography.fernet import InvalidToken
 from app.crud.credential import CredentialCRUD
 from app.schemas.credential import (
     CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
-    CredentialList, ProviderResponse, ProviderList
+    CredentialList
 )
+from app.schemas.provider import ProviderResponse, ProviderList
 from app.services.provider_service import ProviderService
-from app.models.credential import Provider
 from app.configs.settings import settings
 from app.core.exceptions import AppError
 from app.utils import get_logger
@@ -38,11 +37,11 @@ class CredentialService:
             iterations = settings.CREDENTIAL_KDF_ITERATIONS
 
             # Log security info (without exposing sensitive data)
-            logger.info(f"🔐 Initializing credential encryption system")
+            logger.info("🔐 Initializing credential encryption system")
             logger.info(f"   • KDF iterations: {iterations:,}")
             logger.info(f"   • Secret key length: {len(secret_key)} characters")
             logger.info(f"   • Salt length: {len(salt)} bytes")
-            logger.info(f"   • Algorithm: PBKDF2-SHA256 + Fernet")
+            logger.info("   • Algorithm: PBKDF2-SHA256 + Fernet")
 
             # Derive encryption key using PBKDF2
             kdf = PBKDF2HMAC(
@@ -160,17 +159,42 @@ class CredentialService:
             }
 
     async def create_credential(self, owner_id: str, credential_data: CredentialCreate) -> Credential:
-        """Create a new credential"""
+        """Create a new credential with API key validation"""
+        # Get provider information first for validation
+        provider = await ProviderService.get_provider_by_id(credential_data.provider_id)
+        if not provider:
+            raise ValueError(f"Provider with ID '{credential_data.provider_id}' not found or inactive")
+
+        # Auto-fill base_url from provider if not provided
+        if not credential_data.base_url:
+            credential_data.base_url = provider.base_url
+
+        # Test the API key before creating the credential
+        test_result = await self.verify_credential(
+            provider=provider.provider,
+            api_key=credential_data.api_key,
+            base_url=credential_data.base_url
+        )
+
+        if not test_result.get('is_valid', False):
+            error_msg = test_result.get('message', 'Invalid API key')
+            error_details = test_result.get('error_details', '')
+            full_error = f"{error_msg}. {error_details}" if error_details else error_msg
+            raise ValueError(f"API key validation failed: {full_error}")
+
         # Encrypt the API key before saving
         encrypted_data = credential_data.model_copy()
         encrypted_data.api_key = self._encrypt_api_key(credential_data.api_key)
 
         db_credential = await self.crud.create_with_owner(owner_id, encrypted_data)
 
+        logger.info(f"Successfully created and validated credential: {db_credential.id} for provider: {provider.name}")
+
         return Credential(
             id=str(db_credential.id),
             name=db_credential.name,
-            provider_name=db_credential.provider_name,
+            provider_id=db_credential.provider_id,
+            provider_name=provider.name if provider else None,
             base_url=db_credential.base_url,
             additional_headers=db_credential.additional_headers,
             is_active=db_credential.is_active,
@@ -183,19 +207,22 @@ class CredentialService:
         credentials = await self.crud.get_by_owner_id(owner_id, skip, limit)
         total = await self.crud.count_by_owner(owner_id)
 
-        credential_list = [
-            Credential(
+        credential_list = []
+        for cred in credentials:
+            # Get provider information
+            provider = await ProviderService.get_provider_by_id(cred.provider_id)
+
+            credential_list.append(Credential(
                 id=str(cred.id),
                 name=cred.name,
-                provider_name=cred.provider_name,
+                provider_id=cred.provider_id,
+                provider_name=provider.name if provider else None,
                 base_url=cred.base_url,
                 additional_headers=cred.additional_headers,
                 is_active=cred.is_active,
                 created_at=cred.created_at,
                 updated_at=cred.updated_at
-            )
-            for cred in credentials
-        ]
+            ))
 
         return CredentialList(
             credentials=credential_list,
@@ -210,6 +237,9 @@ class CredentialService:
         if not db_credential:
             return None
 
+        # Get provider information
+        provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
+
         # Decrypt and mask the API key
         decrypted_key = self._decrypt_api_key(db_credential.api_key)
         masked_key = self._mask_api_key(decrypted_key)
@@ -217,7 +247,8 @@ class CredentialService:
         return CredentialDetail(
             id=str(db_credential.id),
             name=db_credential.name,
-            provider_name=db_credential.provider_name,
+            provider_id=db_credential.provider_id,
+            provider_name=provider.name if provider else None,
             base_url=db_credential.base_url,
             additional_headers=db_credential.additional_headers,
             is_active=db_credential.is_active,
@@ -242,7 +273,7 @@ class CredentialService:
         return Credential(
             id=str(updated_credential.id),
             name=updated_credential.name,
-            provider_name=updated_credential.provider_name,
+            provider=updated_credential.provider,
             base_url=updated_credential.base_url,
             additional_headers=updated_credential.additional_headers,
             is_active=updated_credential.is_active,
@@ -266,12 +297,18 @@ class CredentialService:
         provider_list = [
             ProviderResponse(
                 id=str(provider.id),
-                provider_name=provider.provider_name,
+                provider=provider.provider,
                 name=provider.name,
+                description=provider.description,
                 base_url=provider.base_url,
+                logo_url=provider.logo_url,
+                docs_url=provider.docs_url,
                 api_key_header=provider.api_key_header,
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
+                support=provider.support,
+                tasks=provider.tasks,
+                tags=provider.tags,
                 created_at=provider.created_at,
                 updated_at=provider.updated_at
             )
@@ -283,11 +320,11 @@ class CredentialService:
             total=len(provider_list)
         )
 
-    async def test_credential(
+    async def verify_credential(
         self,
         owner_id: Optional[str] = None,
         credential_id: Optional[str] = None,
-        provider_name: Optional[str] = None,
+        provider: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -306,24 +343,24 @@ class CredentialService:
                     }
 
                 test_api_key = self._decrypt_api_key(db_credential.api_key)
-                test_provider = await ProviderService.get_provider_by_name(db_credential.provider_name)
-                test_base_url = db_credential.base_url or test_provider.base_url
+                verify_provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
+                test_base_url = db_credential.base_url or verify_provider.base_url
             else:
                 # Ad-hoc testing
-                if not provider_name or not api_key:
+                if not provider or not api_key:
                     return {
                         'is_valid': False,
                         'message': 'Missing required parameters',
                         'error_details': 'Provider name and API key are required'
                     }
 
-                test_provider = await ProviderService.get_provider_by_name(provider_name)
+                verify_provider = await ProviderService.get_provider_by_name(provider)
                 test_api_key = api_key
-                test_base_url = base_url or test_provider.base_url
+                test_base_url = base_url or verify_provider.base_url
 
             # Prepare test request
             headers = {
-                test_provider.api_key_header: f"{test_provider.api_key_prefix} {test_api_key}".strip(),
+                verify_provider.api_key_header: f"{verify_provider.api_key_prefix} {test_api_key}".strip(),
                 'Content-Type': 'application/json'
             }
 

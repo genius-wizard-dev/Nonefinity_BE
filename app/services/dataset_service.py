@@ -1,17 +1,9 @@
-import pandas as pd
-import io
-import chardet
-import os
-from typing import Optional, List, Dict, Any
-from fastapi import UploadFile
 from app.utils import get_logger
 from app.databases.duckdb import DuckDB
-from app.services.minio_client_service import MinIOClientService
 from app.crud.dataset import DatasetCRUD
 from app.crud.file import FileCRUD
-from app.schemas.dataset import DatasetCreate, DatasetUpdate, DataSchemaField
+from app.schemas.dataset import DatasetCreate
 from app.core.exceptions import AppError
-from app.services import user_service
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 
 

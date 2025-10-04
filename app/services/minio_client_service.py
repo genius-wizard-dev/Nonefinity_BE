@@ -3,6 +3,7 @@ from app.configs.settings import settings
 from app.utils import get_logger
 from fastapi import UploadFile
 from io import BytesIO
+from datetime import timedelta
 
 logger = get_logger(__name__)
 
@@ -61,13 +62,59 @@ class MinIOClientService:
             logger.error(f"Error removing object {object_name} from {bucket_name}: {e}")
             return False
 
-    def get_url(self, bucket_name: str, object_name: str) -> str:
-        """Get presigned URL to access an object"""
+    def get_upload_url(self, bucket_name: str, object_name: str, expires_minutes: int = 10) -> str:
+        """Get presigned URL for uploading an object
+
+        Args:
+            bucket_name: Bucket name
+            object_name: Object name
+            expires_minutes: URL expiry time in minutes
+        """
         try:
             if not self.client.bucket_exists(bucket_name):
                 raise ValueError(f"Bucket {bucket_name} does not exist")
 
-            url = self.client.presigned_get_object(bucket_name=bucket_name, object_name=object_name)
+            url = self.client.presigned_put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                expires=timedelta(minutes=expires_minutes)
+            )
+            return url
+
+        except Exception as e:
+            logger.error(f"Error getting upload URL for {bucket_name}/{object_name}: {e}")
+            return ""
+
+    def get_url(self, bucket_name: str, object_name: str, download_filename: str = None, single_use: bool = True) -> str:
+        """Get presigned URL to access an object with custom filename
+
+        Args:
+            bucket_name: Bucket name
+            object_name: Object name
+            download_filename: Custom filename for download
+            single_use: If True, URL expires in 1 minute for single use
+        """
+        try:
+            if not self.client.bucket_exists(bucket_name):
+                raise ValueError(f"Bucket {bucket_name} does not exist")
+
+            # Set up response headers for proper filename
+            response_headers = {}
+            if download_filename:
+                response_headers["response-content-disposition"] = f'attachment; filename="{download_filename}"'
+
+            # Set expiry time based on single_use flag
+            if single_use:
+                expires_time = timedelta(minutes=1)  # 1 minute for single use
+            else:
+                expires_time = timedelta(minutes=10)  # 10 minutes for normal use
+
+            url = self.client.presigned_get_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                expires=expires_time,
+                response_headers=response_headers
+            )
             return url
 
         except Exception as e:

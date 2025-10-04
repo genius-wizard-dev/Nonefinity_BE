@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing import Optional
 
-from app.schemas.dataset import DatasetUpdate
 from app.services.dataset_service import DatasetService
 from app.services import user_service
 from app.core.exceptions import AppError

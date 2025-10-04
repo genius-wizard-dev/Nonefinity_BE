@@ -1,6 +1,6 @@
 from typing import List, Optional
 from app.crud.base import BaseCRUD
-from app.models.credential import Credential, Provider
+from app.models.credential import Credential
 from app.schemas.credential import CredentialCreate, CredentialUpdate
 from app.utils import get_logger
 
@@ -36,14 +36,6 @@ class CredentialCRUD(BaseCRUD[Credential, CredentialCreate, CredentialUpdate]):
 
     async def create_with_owner(self, owner_id: str, obj_in: CredentialCreate) -> Credential:
         """Create credential with owner_id"""
-        # Verify provider exists and is active
-        provider = await Provider.find_one(
-            Provider.provider_name == obj_in.provider_name,
-            Provider.is_active == True
-        )
-        if not provider:
-            raise ValueError(f"Provider '{obj_in.provider_name}' not found or inactive")
-
         # Check for duplicate name
         existing = await self.get_by_owner_and_name(owner_id, obj_in.name)
         if existing:
@@ -59,10 +51,10 @@ class CredentialCRUD(BaseCRUD[Credential, CredentialCreate, CredentialUpdate]):
         logger.info(f"Created credential: {db_obj.id} for owner: {owner_id}")
         return db_obj
 
-    async def get_by_provider(self, owner_id: str, provider_name: str) -> List[Credential]:
-        """Get credentials by provider"""
+    async def get_by_provider(self, owner_id: str, provider_id: str) -> List[Credential]:
+        """Get credentials by provider ID"""
         return await self.list(
-            filter_={"owner_id": owner_id, "provider_name": provider_name},
+            filter_={"owner_id": owner_id, "provider_id": provider_id},
             include_deleted=False
         )
 

@@ -18,15 +18,49 @@ class FileService:
         self.access_key = access_key
         self.secret_key = secret_key
 
-    def _generate_unique_filename(self, original_filename: str) -> str:
+    def _generate_unique_filename(self, original_filename: str) -> tuple:
         """Generate unique filename while preserving extension"""
         if not original_filename:
-            return str(uuid.uuid4())[:6]
+            return str(uuid.uuid4())[:6], ""
 
         name, ext = os.path.splitext(original_filename)
         # Generate 6-character random string instead of long UUID
         unique_name = str(uuid.uuid4()).replace('-', '')[:6]
         return unique_name, ext
+
+    async def _generate_unique_display_name(self, user_id: str, original_filename: str) -> str:
+        """Generate unique display name with number suffix if exists"""
+        if not original_filename:
+            return str(uuid.uuid4())[:6]
+
+        name, ext = os.path.splitext(original_filename)
+
+        # Check if file with same name exists
+        existing_files = await self.crud.list({
+            "owner_id": user_id,
+            "file_name": name,
+            "file_ext": ext
+        })
+
+        if not existing_files:
+            return name
+
+        # Find the highest number suffix
+        max_number = 0
+        for file in existing_files:
+            if file.file_name == name:
+                max_number = max(max_number, 0)
+            elif file.file_name.startswith(f"{name}(") and file.file_name.endswith(")"):
+                try:
+                    # Extract number from filename like "document(1)"
+                    number_part = file.file_name[len(name)+1:-1]
+                    if number_part.isdigit():
+                        max_number = max(max_number, int(number_part))
+                except:
+                    continue
+
+        # Return name with next number
+        return f"{name}({max_number + 1})"
 
 
     async def upload_file(self, user_id: str, file: UploadFile) -> Optional[FileCreate]:
@@ -83,11 +117,7 @@ class FileService:
                 logger.error(f"MinIO upload failed for file: {file_path}")
                 raise AppError("Failed to upload file to storage")
 
-            # Generate presigned URL and update record
-            url = self._minio_client.get_url(bucket_name=user_id, object_name=file_path)
-            if url:
-                final_update = FileUpdate(url=url)
-                await self.crud.update(file_create, obj_in=final_update)
+
 
             logger.info(f"File upload completed successfully: {file_create.id}")
             return file_create
@@ -258,4 +288,121 @@ class FileService:
 
         logger.info(f"Batch deletion completed: {len(results['successful'])} successful, {len(results['failed'])} failed")
         return results
+
+    async def get_upload_url(self, user_id: str, file_name: str, file_type: str) -> dict:
+        """Get presigned upload URL for file
+
+        Args:
+            user_id: User ID
+            file_name: Original file name
+            file_type: File MIME type
+
+        Returns:
+            Dict with upload_url, object_name, expires_in
+        """
+        try:
+            # Generate unique object name
+            original_name, original_ext = os.path.splitext(file_name)
+            unique_filename, file_ext = self._generate_unique_filename(file_name)
+            object_name = f"raw/{unique_filename}{file_ext}"
+
+            # Get presigned upload URL
+            upload_url = self._minio_client.get_upload_url(
+                bucket_name=user_id,
+                object_name=object_name,
+                expires_minutes=10
+            )
+
+            if not upload_url:
+                raise AppError("Failed to generate upload URL")
+
+            return {
+                "upload_url": upload_url,
+                "object_name": object_name,
+                "expires_in": 10
+            }
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get upload URL: {str(e)}")
+            raise AppError(f"Failed to get upload URL: {str(e)}")
+
+    async def save_file_metadata(self, user_id: str, object_name: str, file_name: str, file_type: str, file_size: int = None) -> FileCreate:
+        """Save file metadata to database after upload
+
+        Args:
+            user_id: User ID
+            object_name: Object name in MinIO
+            file_name: Original file name
+            file_type: File MIME type
+            file_size: File size in bytes
+
+        Returns:
+            File object
+        """
+        try:
+            # Generate unique display name (with number suffix if exists)
+            unique_display_name = await self._generate_unique_display_name(user_id, file_name)
+
+            # Extract original file name and extension for database
+            original_name, original_ext = os.path.splitext(file_name)
+
+            # Create file record with unique display name
+            file_info = FileCreate(
+                bucket=user_id,
+                file_name=unique_display_name,  # Use unique display name
+                file_ext=original_ext,
+                file_path=object_name,
+                file_size=file_size,
+                file_type=file_type,
+                owner_id=user_id
+            )
+
+            file_create = await self.crud.create(obj_in=file_info)
+            return file_create
+
+        except Exception as e:
+            logger.error(f"Failed to save file metadata: {str(e)}")
+            raise AppError(f"Failed to save file metadata: {str(e)}")
+
+    async def get_download_url(self, user_id: str, file_id: str) -> str:
+        """Get presigned download URL for a file
+
+        Args:
+            user_id: User ID
+            file_id: File ID
+
+        Returns:
+            Presigned download URL string
+        """
+        try:
+            # Get file from database
+            file = await self.crud.get_by_id(file_id)
+            if not file:
+                raise AppError("File not found")
+
+            if file.owner_id != user_id:
+                raise AppError("Unauthorized: Cannot access file")
+
+            # Generate presigned URL from MinIO with proper filename (single use)
+            original_filename = f"{file.file_name}{file.file_ext}"
+            download_url = self._minio_client.get_url(
+                bucket_name=user_id,
+                object_name=file.file_path,
+                download_filename=original_filename,
+
+                single_use=True  # URL expires in 1 minute for single use
+            )
+
+            if not download_url:
+                raise AppError("Failed to generate download URL")
+
+            return download_url
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get download URL: {str(e)}")
+            raise AppError(f"Failed to get download URL: {str(e)}")
 

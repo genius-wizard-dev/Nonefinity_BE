@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette import status
-
+from scalar_fastapi import get_scalar_api_reference
 from app.schemas.response import ApiError, ErrorDetail
 from app.utils.api_response import JSONResponse
 from app.configs.settings import settings
@@ -15,7 +15,7 @@ from app.middlewares import init_sentry
 from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router, embedding_router, model_router
 
 logger = get_logger(__name__)
 
@@ -203,15 +203,25 @@ def include_routers(app: FastAPI) -> None:
     routers_config = [
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
+        (embedding_router, "embedding", ["Vector Embedding"]),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
           (auth_router, "auth", ["Authentication"]),
           (duckdb_router, "duckdb", ["DuckDB Management"]),
           (dataset_router, "datasets", ["Dataset Management"]),
-          (credential_router, "credentials", ["Credential Management"]),
-          (provider_router, "providers", ["AI Provider Management"])
+          (credential_router, "credentials", ["AI Credential Management"]),
+          (provider_router, "providers", ["AI Provider Management"]),
+          (model_router, "models", ["AI Model Management"])
       ])
+      @app.get("/scalar", include_in_schema=False)
+      async def scalar_html():
+        return get_scalar_api_reference(
+            # Your OpenAPI document
+            openapi_url=app.openapi_url,
+            # Avoid CORS issues (optional)
+            scalar_proxy_url="https://proxy.scalar.com",
+        )
 
     for router, prefix_name, tags in routers_config:
         app.include_router(
@@ -219,6 +229,7 @@ def include_routers(app: FastAPI) -> None:
             prefix=_create_api_prefix(prefix_name),
             tags=tags
         )
+
 
     logger.info(f"Included {len(routers_config)} API routers successfully")
 
@@ -235,6 +246,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
     )
+
 
     # Install CORS middleware
     install_cors_middleware(app)

@@ -3,33 +3,72 @@ from app.services import FileService, user_service
 from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
-from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest
+from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest, UploadUrlResponse, FileMetadataRequest
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from typing import Optional, List
 
 router = APIRouter()
 
-@router.post("/upload", response_model=ApiResponse[FileResponse])
-async def upload_file(file: UploadFile, current_user = Depends(verify_token)):
-    """Upload file to raw/ folder
+@router.post("/upload-url", response_model=ApiResponse[UploadUrlResponse])
+async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verify_token)):
+    """Get presigned upload URL for file upload
 
     Args:
-        file: File to upload
+        request: Upload URL request with file metadata
         current_user: Current user
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
-    user_id = str(user.id)
+
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
-    result = await file_service.upload_file(user_id=user_id, file=file)
-    if not result:
-        raise AppError("File upload failed", status_code=HTTP_400_BAD_REQUEST)
+    try:
+        upload_data = await file_service.get_upload_url(
+            user_id=user_id,
+            file_name=request.file_name,
+            file_type=request.file_type
+        )
 
-    return created(result, message="File uploaded successfully")
+        return ok(data=upload_data, message="Upload URL generated successfully")
+    except AppError as e:
+        raise e
+    except Exception as e:
+        raise AppError("Failed to generate upload URL", status_code=HTTP_400_BAD_REQUEST)
+
+@router.post("/upload", response_model=ApiResponse[FileResponse])
+async def save_file_metadata(request: FileMetadataRequest, current_user = Depends(verify_token)):
+    """Save file metadata after upload to MinIO
+
+    Args:
+        request: File metadata after upload
+        current_user: Current user
+    """
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
+    if not user or not user.minio_secret_key:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+
+    file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+    try:
+        result = await file_service.save_file_metadata(
+            user_id=user_id,
+            object_name=request.object_name,
+            file_name=request.file_name,
+            file_type=request.file_type,
+            file_size=request.file_size
+        )
+
+        return created(result, message="File metadata saved successfully")
+    except AppError as e:
+        raise e
+    except Exception as e:
+        raise AppError("Failed to save file metadata", status_code=HTTP_400_BAD_REQUEST)
 
 @router.delete("/{file_id}", response_model=ApiResponse[bool])
 async def delete_file(file_id: str, current_user = Depends(verify_token)):
@@ -99,6 +138,38 @@ async def rename_file(file_id: str, new_name: str, current_user = Depends(verify
     update_data = FileUpdate(file_name=new_name)
     updated_file = await file_service.crud.update(file, obj_in=update_data)
     return ok(data=updated_file, message="File renamed successfully")
+
+@router.get("/download/{file_id}", response_model=ApiResponse[str])
+async def get_download_url(file_id: str, current_user = Depends(verify_token)):
+    """Get presigned download URL for file from raw/ folder
+
+    Args:
+        file_id: File ID
+        current_user: Current user
+    """
+    try:
+        clerk_id = current_user.get("sub")
+        user = await user_service.crud.get_by_clerk_id(clerk_id)
+        user_id = str(user.id)
+
+        if not user or not user.minio_secret_key:
+            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+
+        file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+        download_url = await file_service.get_download_url(user_id, file_id)
+        if not download_url:
+            raise AppError("File not found", status_code=HTTP_400_BAD_REQUEST)
+
+        return ok(data=download_url, message="Download URL generated successfully")
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise e
+    except Exception as e:
+        raise AppError("Failed to generate download URL", status_code=HTTP_400_BAD_REQUEST)
+
+
 
 @router.get("/search", response_model=ApiResponse[List[FileResponse]])
 async def search_files(
