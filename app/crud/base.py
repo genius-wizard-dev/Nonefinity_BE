@@ -13,18 +13,22 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
     def __init__(self, model: Type[ModelT]):
         self.model = model
 
-    async def get_by_id(self, id: str, include_deleted: bool = True) -> Optional[ModelT]:
+    async def get_by_id(self, id: str, include_deleted: bool = True, owner_id: str = None) -> Optional[ModelT]:
         query = {"_id": ObjectId(id)}
         if not include_deleted and "is_deleted" in self.model.__fields__:
             query["is_deleted"] = False
+        if owner_id:
+            query["owner_id"] = owner_id
         return await self.model.find_one(query)
 
     async def get_one(
-        self, filter_: Dict[str, Any], include_deleted: bool = True
+        self, filter_: Dict[str, Any], include_deleted: bool = True, owner_id: str = None
     ) -> Optional[ModelT]:
         query = dict(filter_)
         if not include_deleted and "is_deleted" in self.model.__fields__:
             query["is_deleted"] = False
+        if owner_id:
+            query["owner_id"] = owner_id
         return await self.model.find_one(query)
 
     async def list(
@@ -33,6 +37,7 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         limit: int = 50,
         skip: int = 0,
         include_deleted: bool = True,
+        owner_id: str = None,
     ) -> List[ModelT]:
         query = dict(filter_ or {})
         if not include_deleted and "is_deleted" in self.model.__fields__:
@@ -42,6 +47,8 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
             cursor = cursor.skip(skip)
         if limit:
             cursor = cursor.limit(limit)
+        if owner_id:
+            cursor = cursor.filter({"owner_id": owner_id})
         return await cursor.to_list()
 
     async def create(self, obj_in: CreateSchemaT) -> ModelT:
