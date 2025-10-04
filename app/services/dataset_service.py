@@ -490,8 +490,8 @@ class DatasetService:
                 raise AppError("Invalid SQL syntax", status_code=HTTP_400_BAD_REQUEST)
 
             # Check if it's a SELECT query
-            if not is_select_query(query):
-                raise AppError("Only SELECT queries are allowed", status_code=HTTP_400_BAD_REQUEST)
+            # if not is_select_query(query):
+            #     raise AppError("Only SELECT queries are allowed", status_code=HTTP_400_BAD_REQUEST)
 
             # Add limit to query if not present
             processed_query = add_limit_sql(query, limit)
@@ -502,4 +502,8 @@ class DatasetService:
             raise
         except Exception as e:
             logger.error(f"Error when querying dataset for user {user_id}: {str(e)}")
-            raise AppError(f"Error when querying dataset: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+            # Remove "Catalog Error:" prefix from error message
+            error_message = str(e)
+            if error_message.startswith("Catalog Error:"):
+                error_message = error_message.replace("Catalog Error:", "").strip()
+            raise AppError(f"Error when querying dataset: {error_message}", status_code=HTTP_400_BAD_REQUEST)
