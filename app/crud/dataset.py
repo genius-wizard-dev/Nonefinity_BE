@@ -11,10 +11,11 @@ class DatasetCRUD(BaseCRUD[Dataset, DatasetCreate, DatasetUpdate]):
     def __init__(self):
         super().__init__(Dataset)
 
-    async def get_by_name(self, name: str) -> Optional[Dataset]:
+    async def get_by_name(self, name: str, owner_id: str) -> Optional[Dataset]:
         """Get dataset by name"""
+        # Get dataset by name and owner_id, only return if not deleted
         return await self.get_one(
-            filter_={"name": name},
+            filter_={"name": name, "owner_id": owner_id},
             include_deleted=False
         )
 
@@ -57,12 +58,24 @@ class DatasetCRUD(BaseCRUD[Dataset, DatasetCreate, DatasetUpdate]):
         )
         return len(datasets)
 
-    async def update_schema(self, db_obj: Dataset, new_schema: List[dict]) -> Dataset:
+    async def update_schema(self, dataset_id: str, new_schema: List) -> Dataset:
         """Update dataset schema"""
-        update_data = {"data_schema": new_schema}
-        updated_dataset = await self.update(db_obj, update_data)
+        dataset = await self.get_by_id(dataset_id, include_deleted=False)
+        if not dataset:
+            raise ValueError(f"Dataset with id {dataset_id} not found")
 
-        logger.info(f"Updated schema for dataset: {db_obj.id}")
+        # Convert DataSchemaField objects to dict if needed
+        schema_data = []
+        for field in new_schema:
+            if hasattr(field, 'dict'):
+                schema_data.append(field.dict())
+            else:
+                schema_data.append(field)
+
+        update_data = {"data_schema": schema_data}
+        updated_dataset = await self.update(dataset, update_data)
+
+        logger.info(f"Updated schema for dataset: {dataset_id}")
         return updated_dataset
 
 

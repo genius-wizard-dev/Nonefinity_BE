@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
+from pydantic import Field
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing import Optional
+from typing import Optional, List
+import json
 
 from app.services.dataset_service import DatasetService
 from app.services import user_service
@@ -8,9 +10,10 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
-
+from app.schemas.dataset import DataSchemaField
 logger = get_logger(__name__)
 router = APIRouter()
+
 
 
 async def get_user_and_service(current_user):
@@ -25,6 +28,29 @@ async def get_user_and_service(current_user):
 
     return user_id, dataset_service
 
+
+@router.post("/create")
+async def create_dataset(
+    dataset_name: str = Form(...),
+    description: Optional[str] = Form(None),
+    schema: str = Form(...),
+    current_user = Depends(verify_token)
+):
+    """Create a new dataset"""
+    try:
+        # Parse JSON string to List[DataSchemaField]
+        schema_data = json.loads(schema)
+        schema_fields = [DataSchemaField(**field) for field in schema_data]
+
+        user_id, dataset_service = await get_user_and_service(current_user)
+        result = await dataset_service.create_dataset(user_id, dataset_name, description, schema_fields)
+        return created(data=result, message="Dataset created successfully")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Invalid JSON format in schema: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Schema validation error: {str(e)}")
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.post("/convert")
 async def convert(
@@ -118,4 +144,22 @@ async def get_dataset_data(
 
     except Exception as e:
         logger.error(f"Get dataset data failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/query")
+async def query_dataset(
+    query: str = Form(...),
+    limit: int = Form(100),
+    current_user = Depends(verify_token)
+):
+    """Query dataset by ID with SQL validation and preprocessing"""
+    try:
+        user_id, dataset_service = await get_user_and_service(current_user)
+        result = await dataset_service.query_dataset(user_id, query, limit)
+        return ok(data=result, message="Query executed successfully")
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    except Exception as e:
+        logger.error(f"Query dataset failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
