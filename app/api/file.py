@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.services import FileService, user_service
 from app.schemas.response import ApiResponse
 from starlette.status import HTTP_400_BAD_REQUEST
@@ -36,7 +36,7 @@ async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verif
         return ok(data=upload_data, message="Upload URL generated successfully")
     except AppError as e:
         raise e
-    except Exception as e:
+    except Exception:
         raise AppError("Failed to generate upload URL", status_code=HTTP_400_BAD_REQUEST)
 
 @router.post("/upload", response_model=ApiResponse[FileResponse])
@@ -67,7 +67,7 @@ async def save_file_metadata(request: FileMetadataRequest, current_user = Depend
         return created(result, message="File metadata saved successfully")
     except AppError as e:
         raise e
-    except Exception as e:
+    except Exception:
         raise AppError("Failed to save file metadata", status_code=HTTP_400_BAD_REQUEST)
 
 @router.delete("/{file_id}", response_model=ApiResponse[bool])
@@ -166,7 +166,7 @@ async def get_download_url(file_id: str, current_user = Depends(verify_token)):
         raise
     except AppError as e:
         raise e
-    except Exception as e:
+    except Exception:
         raise AppError("Failed to generate download URL", status_code=HTTP_400_BAD_REQUEST)
 
 

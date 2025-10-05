@@ -2,10 +2,10 @@ from app.utils import get_logger
 from app.databases.duckdb import DuckDB
 from app.crud.dataset import DatasetCRUD
 from app.crud.file import FileCRUD
-from app.schemas.dataset import DatasetCreate, DataSchemaField
+from app.schemas.dataset import DatasetCreate, DataSchemaField, DatasetUpdate
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
-from app.utils.preprocess_sql import check_sql_syntax, is_select_query, add_limit_sql
+from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql
 from typing import List
 
 logger = get_logger(__name__)
@@ -445,8 +445,8 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-        with self.duckdb as db:
-          db.execute(f"DROP TABLE {dataset.name}")
+
+          self.duckdb.execute(f"DROP TABLE {dataset.name}")
           logger.info(f"Deleted dataset: {dataset.name} for user {user_id}")
       except Exception as e:
         logger.error(f"Error when deleting dataset for user {user_id}: {str(e)}")
@@ -462,8 +462,7 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-        with self.duckdb as db:
-          data = db.execute(f"SELECT * FROM {dataset.name} LIMIT {limit} OFFSET {skip}").df()
+          data = self.duckdb.execute(f"SELECT * FROM {dataset.name} LIMIT {limit} OFFSET {skip}").df()
           if data.empty:
             return {
               "data": [],
@@ -507,3 +506,49 @@ class DatasetService:
             if error_message.startswith("Catalog Error:"):
                 error_message = error_message.replace("Catalog Error:", "").strip()
             raise AppError(f"Error when querying dataset: {error_message}", status_code=HTTP_400_BAD_REQUEST)
+
+    async def update_dataset(self, user_id: str, dataset_id: str, update_data: DatasetUpdate):
+      dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
+      if not dataset:
+        raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+      # Only update name and description, no schema changes
+      update_dict = update_data.model_dump(exclude_unset=True)
+      if not update_dict:
+        return dataset
+
+      # If name is being updated, rename the table in DuckDB
+      if 'name' in update_dict and update_dict['name'] != dataset.name:
+        self.duckdb.execute(f"ALTER TABLE {dataset.name} RENAME TO {update_dict['name']}")
+
+      await self.crud.update(dataset, update_dict)
+
+    async def update_dataset_schema(self, user_id: str, dataset_id: str, descriptions: dict):
+        """Update dataset schema descriptions in MongoDB only"""
+        dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
+        if not dataset:
+            raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+        try:
+            # Get current schema
+            current_schema = dataset.data_schema
+
+            # Update descriptions for matching columns
+            updated_schema = []
+            for field in current_schema:
+                column_name = field['column_name']
+                if column_name in descriptions:
+                    # Update description
+                    field['desc'] = descriptions[column_name]
+                updated_schema.append(DataSchemaField(**field))
+
+            # Update schema in MongoDB
+            updated_dataset = await self.crud.update_schema(dataset.id, updated_schema)
+            logger.info(f"Updated schema descriptions for dataset: {dataset.name}")
+            return updated_dataset
+
+        except Exception as e:
+            logger.error(f"Error updating schema for dataset {dataset.name}: {str(e)}")
+            raise AppError(f"Error updating schema: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+
+

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
-from pydantic import Field
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing import Optional, List
+from typing import Optional
 import json
 
 from app.services.dataset_service import DatasetService
@@ -10,7 +9,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
-from app.schemas.dataset import DataSchemaField
+from app.schemas.dataset import DataSchemaField, DatasetUpdate, DatasetUpdateRequest
 logger = get_logger(__name__)
 router = APIRouter()
 
@@ -163,3 +162,57 @@ async def query_dataset(
     except Exception as e:
         logger.error(f"Query dataset failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/{dataset_id}")
+async def update_dataset(
+    dataset_id: str,
+    update_data: DatasetUpdateRequest,
+    current_user = Depends(verify_token)
+):
+    """Update dataset name and description only"""
+    try:
+        user_id, dataset_service = await get_user_and_service(current_user)
+
+        # Convert to DatasetUpdate for service
+        dataset_update = DatasetUpdate(
+            name=update_data.name,
+            description=update_data.description
+        )
+
+        await dataset_service.update_dataset(user_id, dataset_id, dataset_update)
+        return ok(message="Dataset updated successfully")
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Update dataset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/{dataset_id}/schema")
+async def update_dataset_schema(
+    dataset_id: str,
+    descriptions: dict,
+    current_user = Depends(verify_token)
+):
+    """Update dataset schema descriptions only"""
+    try:
+        logger.info(f"Updating schema for dataset {dataset_id}")
+        logger.info(f"Received descriptions: {descriptions}")
+
+        # Validate descriptions is not empty
+        if not descriptions:
+            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Descriptions cannot be empty")
+
+        user_id, dataset_service = await get_user_and_service(current_user)
+        await dataset_service.update_dataset_schema(user_id, dataset_id, descriptions)
+        return ok(message="Dataset schema descriptions updated successfully")
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Validation error: {str(e)}")
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Update dataset schema failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
