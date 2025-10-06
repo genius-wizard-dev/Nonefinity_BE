@@ -290,4 +290,33 @@ async def batch_delete_files(
 
     return ok(data=results, message=f"Batch deletion completed. {len(results['successful'])} successful, {len(results['failed'])} failed")
 
+@router.get("/allow-convert", response_model=ApiResponse[List[FileResponse]])
+async def get_list_allow_convert(current_user = Depends(verify_token)):
+    """Get list of files that are allowed to be converted to dataset"""
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
+    if not user:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
 
+    file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+    files = await file_service.get_list_allow_convert(user_id)
+
+    return ok(data=files, message="List of files that are allowed to be converted to dataset retrieved successfully")
+
+
+@router.get("/allow-extract", response_model=ApiResponse[List[FileResponse]])
+async def get_list_allow_extract(current_user = Depends(verify_token)):
+    """Get list of files that are allowed to be extracted"""
+    clerk_id = current_user.get("sub")
+    user = await user_service.crud.get_by_clerk_id(clerk_id)
+    user_id = str(user.id)
+    if not user:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+
+    file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+    files = await file_service.get_list_allow_extract(user_id)
+
+    return ok(data=files, message="List of files that are allowed to be extracted retrieved successfully")

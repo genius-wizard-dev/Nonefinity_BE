@@ -216,3 +216,53 @@ async def update_dataset_schema(
         logger.error(f"Update dataset schema failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+@router.get("/{dataset_id}/file-columns/{file_id}")
+async def get_file_columns(
+    dataset_id: str,
+    file_id: str,
+    current_user = Depends(verify_token)
+):
+    """Get file columns and dataset columns for mapping preparation"""
+    try:
+        user_id, dataset_service = await get_user_and_service(current_user)
+
+        result = await dataset_service.get_file_and_dataset_columns(
+            user_id=user_id,
+            dataset_id=dataset_id,
+            file_id=file_id
+        )
+
+        return ok(data=result, message="File and dataset columns retrieved successfully")
+
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Get file columns failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{dataset_id}/insert/{file_id}")
+async def insert_data_from_file(
+    dataset_id: str,
+    file_id: str,
+    current_user = Depends(verify_token)
+):
+    """Insert data from file into existing dataset with automatic column mapping"""
+    try:
+        user_id, dataset_service = await get_user_and_service(current_user)
+
+        result = await dataset_service.insert_data_from_file(
+            user_id=user_id,
+            dataset_id=dataset_id,
+            file_id=file_id
+        )
+
+        return created(data=result, message="Data inserted successfully from file")
+
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Insert data from file failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+

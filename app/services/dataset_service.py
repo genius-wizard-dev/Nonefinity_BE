@@ -219,7 +219,7 @@ class DatasetService:
                         row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM {table_name}").df()["count"].iloc[0]
                         new_dataset_with_count = await self._add_row_count_to_dataset(new_dataset, row_count)
                         available_datasets.append(new_dataset_with_count)
-                    except:
+                    except Exception:
                         available_datasets.append(new_dataset)
 
                     logger.info(f"Auto-created dataset for table: {table_name}")
@@ -347,7 +347,7 @@ class DatasetService:
                     row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM {dataset.name}").df()["count"].iloc[0]
                     dataset_with_count = await self._add_row_count_to_dataset(dataset, row_count)
                     available_datasets.append(dataset_with_count)
-                except:
+                except Exception:
                     available_datasets.append(dataset)
 
     async def _add_row_count_to_dataset(self, dataset, row_count: int):
@@ -550,5 +550,218 @@ class DatasetService:
         except Exception as e:
             logger.error(f"Error updating schema for dataset {dataset.name}: {str(e)}")
             raise AppError(f"Error updating schema: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+
+    async def insert_data_from_file(self, user_id: str, dataset_id: str, file_id: str):
+        """Insert data from file into existing dataset with automatic column mapping"""
+        try:
+            # Get dataset
+            dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
+            if not dataset:
+                raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+            # Get file
+            file = await self.file_crud.get_by_id(file_id)
+            if not file:
+                raise AppError("File not found", status_code=HTTP_404_NOT_FOUND)
+
+            # Validate file type
+            supported_csv_types = ["text/csv", "application/csv", "text/plain"]
+            supported_excel_types = [
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel",
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+                "application/vnd.ms-excel.template.macroEnabled.12",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            ]
+            all_supported_types = supported_csv_types + supported_excel_types
+
+            if file.file_type not in all_supported_types:
+                raise AppError("File type not supported", status_code=HTTP_400_BAD_REQUEST)
+
+            # Get dataset schema
+            dataset_columns = [field['column_name'] for field in dataset.data_schema]
+
+            # Get file columns
+            file_columns = await self._get_file_columns(user_id, file.file_path, file.file_type)
+
+            # Auto-generate column mapping based on column name matching
+            column_mapping = self._generate_automatic_column_mapping(file_columns, dataset_columns)
+
+            # Validate all required dataset columns are mapped
+            missing_columns = [col for col in dataset_columns if col not in column_mapping.values()]
+            if missing_columns:
+                raise AppError(f"Cannot automatically map dataset columns: {', '.join(missing_columns)}. Available file columns: {', '.join(file_columns)}", status_code=HTTP_400_BAD_REQUEST)
+
+            # Insert data with automatic column mapping
+            result = await self._insert_data_with_mapping(
+                user_id,
+                dataset.name,
+                file.file_path,
+                file.file_type,
+                column_mapping
+            )
+
+            return {
+                "dataset_id": dataset_id,
+                "file_id": file_id,
+                "rows_inserted": result.get("rows_inserted", 0),
+                "column_mapping": column_mapping,
+                "auto_mapped": True
+            }
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Error inserting data from file for user {user_id}: {str(e)}")
+            raise AppError(f"Error inserting data from file: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+
+    def _generate_automatic_column_mapping(self, file_columns: list, dataset_columns: list) -> dict:
+        """Generate automatic column mapping based on exact name matching"""
+        column_mapping = {}
+
+        # Create mapping for exact matches (case-insensitive)
+        dataset_columns_lower = [col.lower() for col in dataset_columns]
+
+        for file_col in file_columns:
+            file_col_lower = file_col.lower()
+            if file_col_lower in dataset_columns_lower:
+                # Find the corresponding dataset column (case-sensitive)
+                dataset_col_index = dataset_columns_lower.index(file_col_lower)
+                dataset_col = dataset_columns[dataset_col_index]
+                column_mapping[file_col] = dataset_col
+
+        return column_mapping
+
+
+    async def _get_file_columns(self, user_id: str, file_path: str, file_type: str) -> list:
+        """Get column names from file"""
+        try:
+            # Add S3 prefix to file path
+            s3_path = f"s3://{user_id}/{file_path}"
+
+            if file_type in ["text/csv", "application/csv", "text/plain"]:
+                # Read CSV file to get columns with ignore_errors=true
+                df = self.duckdb.execute(f"SELECT * FROM read_csv_auto('{s3_path}', header=true, ignore_errors=true) LIMIT 0").df()
+                return df.columns.tolist()
+            elif file_type in [
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel",
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+                "application/vnd.ms-excel.template.macroEnabled.12",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            ]:
+                # Read Excel file to get columns
+                df = self.duckdb.execute(f"SELECT * FROM read_excel('{s3_path}', header=true) LIMIT 0").df()
+                return df.columns.tolist()
+            else:
+                raise AppError("Unsupported file type", status_code=HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error reading file columns: {str(e)}")
+            raise AppError(f"Error reading file: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+
+    async def _insert_data_with_mapping(self, user_id: str, dataset_name: str, file_path: str, file_type: str, column_mapping: dict):
+        """Insert data from file with column mapping"""
+        try:
+            # Add S3 prefix to file path
+            s3_path = f"s3://{user_id}/{file_path}"
+
+            # Create temporary table for file data
+            temp_table = f"temp_file_data_{dataset_name}"
+
+            if file_type in ["text/csv", "application/csv", "text/plain"]:
+                # Read CSV file with ignore_errors=true to handle malformed rows
+                self.duckdb.execute(f"CREATE TEMP TABLE {temp_table} AS SELECT * FROM read_csv_auto('{s3_path}', header=true, ignore_errors=true)")
+            else:
+                # Read Excel file
+                self.duckdb.execute(f"CREATE TEMP TABLE {temp_table} AS SELECT * FROM read_excel('{s3_path}', header=true)")
+
+            # Get count of rows to insert
+            row_count = self.duckdb.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
+
+            # Build INSERT query with column mapping
+            dataset_columns = list(column_mapping.values())
+
+            # Create column selection with mapping
+            column_selection = []
+            for file_col, dataset_col in column_mapping.items():
+                column_selection.append(f"{file_col} AS {dataset_col}")
+
+            # Insert data with mapping
+            insert_query = f"""
+                INSERT INTO {dataset_name} ({', '.join(dataset_columns)})
+                SELECT {', '.join(column_selection)}
+                FROM {temp_table}
+            """
+
+            self.duckdb.execute(insert_query)
+
+            # Clean up temporary table
+            self.duckdb.execute(f"DROP TABLE {temp_table}")
+
+            return {"rows_inserted": row_count}
+
+        except Exception as e:
+            logger.error(f"Error inserting data with mapping: {str(e)}")
+            raise AppError(f"Error inserting data: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
+
+    async def get_file_and_dataset_columns(self, user_id: str, dataset_id: str, file_id: str):
+        """Get file columns and dataset columns for mapping preparation"""
+        try:
+            # Get dataset
+            dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
+            if not dataset:
+                raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+            # Get file
+            file = await self.file_crud.get_by_id(file_id)
+            if not file:
+                raise AppError("File not found", status_code=HTTP_404_NOT_FOUND)
+
+            # Validate file type
+            supported_csv_types = ["text/csv", "application/csv", "text/plain"]
+            supported_excel_types = [
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel",
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+                "application/vnd.ms-excel.template.macroEnabled.12",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            ]
+            all_supported_types = supported_csv_types + supported_excel_types
+
+            if file.file_type not in all_supported_types:
+                raise AppError("File type not supported", status_code=HTTP_400_BAD_REQUEST)
+
+            # Get file columns
+            file_columns = await self._get_file_columns(user_id, file.file_path, file.file_type)
+
+            # Get dataset columns with schema info
+            dataset_columns = []
+            for field in dataset.data_schema:
+                dataset_columns.append({
+                    "column_name": field['column_name'],
+                    "column_type": field['column_type'],
+                    "description": field.get('desc', '')
+                })
+
+            return {
+                "file_columns": file_columns,
+                "dataset_columns": dataset_columns,
+                "file_info": {
+                    "file_id": file_id,
+                    "file_name": file.file_name,
+                    "file_type": file.file_type
+                },
+                "dataset_info": {
+                    "dataset_id": dataset_id,
+                    "dataset_name": dataset.name,
+                    "description": dataset.description
+                }
+            }
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting file and dataset columns for user {user_id}: {str(e)}")
+            raise AppError(f"Error getting columns: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
 
 
