@@ -7,7 +7,7 @@ def check_sql_syntax(sql: str) -> bool:
     try:
         sqlparse.parse(sql)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -50,5 +50,5 @@ def add_limit_sql(sql: str, limit: int) -> str:
             parser = parser.limit(limit)
         modified_sql = parser.sql()
         return modified_sql
-    except Exception as e:
+    except Exception:
         return sql

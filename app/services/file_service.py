@@ -56,7 +56,7 @@ class FileService:
                     number_part = file.file_name[len(name)+1:-1]
                     if number_part.isdigit():
                         max_number = max(max_number, int(number_part))
-                except:
+                except Exception:
                     continue
 
         # Return name with next number
@@ -406,3 +406,14 @@ class FileService:
             logger.error(f"Failed to get download URL: {str(e)}")
             raise AppError(f"Failed to get download URL: {str(e)}")
 
+
+    async def get_list_allow_convert(self, user_id: str) -> List[FileCreate]:
+        """Get list of files that are allowed to be converted to dataset"""
+        files = await self.crud.list(filter_={"owner_id": user_id, "file_type": {"$in": ["text/csv", "application/csv", "text/plain", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "application/vnd.ms-excel.sheet.macroEnabled.12", "application/vnd.ms-excel.template.macroEnabled.12", "application/vnd.openxmlformats-officedocument.spreadsheetml.template"]}})
+        return files
+
+    async def get_list_allow_extract(self, user_id: str) -> List[FileCreate]:
+        """Get list of files that are allowed to be extracted (pdf or txt)"""
+        allowed_types = ["application/pdf", "text/plain"]
+        files = await self.crud.list(filter_={"owner_id": user_id, "file_type": {"$in": allowed_types}})
+        return files

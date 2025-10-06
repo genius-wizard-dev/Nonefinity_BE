@@ -8,6 +8,7 @@ class DataSchemaField(BaseModel):
     column_name: str = Field(..., description="Column name")
     column_type: str = Field(..., description="Data type (string, integer, float, boolean, etc.)")
     desc: Optional[str] = Field(None, description="Column description")
+    old_name: Optional[str] = Field(None, description="Old column name for renaming")
 
     @validator('column_type')
     def validate_type(cls, v):
@@ -43,16 +44,36 @@ class DatasetCreate(DatasetBase):
 
 
 class DatasetUpdate(BaseModel):
-    """Schema for updating dataset"""
+    """Schema for updating dataset (name and description only)"""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None)
-    data_schema: Optional[List[DataSchemaField]] = Field(None, min_items=1)
 
     @validator('name')
     def validate_name(cls, v):
         if v is not None and not v.strip():
             raise ValueError("Dataset name cannot be empty")
         return v.strip() if v else v
+
+
+
+
+class DatasetDescriptionsUpdate(BaseModel):
+    """Schema for updating dataset column descriptions"""
+    descriptions: dict = Field(..., description="Dictionary mapping column names to descriptions")
+
+
+class DatasetUpdateRequest(BaseModel):
+    """Schema for updating dataset name and description via JSON"""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None)
+
+    @validator('name')
+    def validate_name(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip() if v else v
+
+
 
 
 class Dataset(DatasetBase):
