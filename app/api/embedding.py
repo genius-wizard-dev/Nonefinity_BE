@@ -2,9 +2,8 @@
 API endpoints for creating and managing vector embedding tasks with external AI Tasks System
 """
 
-from fastapi import APIRouter, HTTPException, Path, Body, Depends
+from fastapi import APIRouter, HTTPException, Path, Depends
 from fastapi.responses import JSONResponse
-from typing import List, Optional
 
 from app.schemas.embedding import (
     EmbeddingRequest,
