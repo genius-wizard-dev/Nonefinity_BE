@@ -17,11 +17,13 @@ class MinIOClientService:
         self.access_key = access_key
         self.secret_key = secret_key
 
-        logger.debug(f"Creating new MinIO client for user: {access_key[:10]}...")
+        logger.debug(
+            f"Creating new MinIO client for user: {access_key[:10]}...")
 
         # Always create a new client
         self.client = Minio(
-            endpoint=settings.MINIO_URL.replace("http://", "").replace("https://", ""),
+            endpoint=settings.MINIO_URL.replace(
+                "http://", "").replace("https://", ""),
             access_key=access_key,
             secret_key=secret_key,
             secure=settings.MINIO_SSL
@@ -59,7 +61,8 @@ class MinIOClientService:
             self.client.remove_object(bucket_name, object_name)
             return True
         except Exception as e:
-            logger.error(f"Error removing object {object_name} from {bucket_name}: {e}")
+            logger.error(
+                f"Error removing object {object_name} from {bucket_name}: {e}")
             return False
 
     def get_upload_url(self, bucket_name: str, object_name: str, expires_minutes: int = 10) -> str:
@@ -82,7 +85,8 @@ class MinIOClientService:
             return url
 
         except Exception as e:
-            logger.error(f"Error getting upload URL for {bucket_name}/{object_name}: {e}")
+            logger.error(
+                f"Error getting upload URL for {bucket_name}/{object_name}: {e}")
             return ""
 
     def get_url(self, bucket_name: str, object_name: str, download_filename: str = None, single_use: bool = True) -> str:
@@ -101,13 +105,15 @@ class MinIOClientService:
             # Set up response headers for proper filename
             response_headers = {}
             if download_filename:
-                response_headers["response-content-disposition"] = f'attachment; filename="{download_filename}"'
+                response_headers[
+                    "response-content-disposition"] = f'attachment; filename="{download_filename}"'
 
             # Set expiry time based on single_use flag
             if single_use:
                 expires_time = timedelta(minutes=1)  # 1 minute for single use
             else:
-                expires_time = timedelta(minutes=10)  # 10 minutes for normal use
+                # 10 minutes for normal use
+                expires_time = timedelta(minutes=10)
 
             url = self.client.presigned_get_object(
                 bucket_name=bucket_name,
@@ -118,7 +124,8 @@ class MinIOClientService:
             return url
 
         except Exception as e:
-            logger.error(f"Error getting URL for {bucket_name}/{object_name}: {e}")
+            logger.error(
+                f"Error getting URL for {bucket_name}/{object_name}: {e}")
             return ""
 
     def upload_file(self, bucket_name: str, file: UploadFile, object_name: str) -> bool:
@@ -156,8 +163,27 @@ class MinIOClientService:
             return True
 
         except Exception as e:
-            logger.error(f"Error uploading bytes to {bucket_name}/{object_name}: {e}")
+            logger.error(
+                f"Error uploading bytes to {bucket_name}/{object_name}: {e}")
             return False
+
+    def get_object_bytes(self, bucket_name: str, object_name: str) -> bytes:
+        """Download an object and return raw bytes"""
+        try:
+            if not self.client.bucket_exists(bucket_name):
+                raise ValueError(f"Bucket {bucket_name} does not exist")
+
+            response = self.client.get_object(bucket_name, object_name)
+            try:
+                data = response.read()
+                return data
+            finally:
+                response.close()
+                response.release_conn()
+        except Exception as e:
+            logger.error(
+                f"Error downloading object {bucket_name}/{object_name}: {e}")
+            return b""
 
     def delete_file(self, bucket_name: str, file_name: str) -> bool:
         """Delete a file from bucket"""
@@ -165,11 +191,13 @@ class MinIOClientService:
             if not self.client.bucket_exists(bucket_name):
                 raise ValueError(f"Bucket {bucket_name} does not exist")
 
-            self.client.remove_object(bucket_name=bucket_name, object_name=file_name)
+            self.client.remove_object(
+                bucket_name=bucket_name, object_name=file_name)
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting file {file_name} from {bucket_name}: {e}")
+            logger.error(
+                f"Error deleting file {file_name} from {bucket_name}: {e}")
             return False
 
     def create_folder(self, bucket_name: str, folder_path: str) -> bool:
@@ -193,7 +221,8 @@ class MinIOClientService:
             return True
 
         except Exception as e:
-            logger.error(f"Error creating folder {folder_path} in {bucket_name}: {e}")
+            logger.error(
+                f"Error creating folder {folder_path} in {bucket_name}: {e}")
             return False
 
     def delete_folder(self, bucket_name: str, folder_path: str) -> bool:
@@ -206,7 +235,8 @@ class MinIOClientService:
                 folder_path += '/'
 
             # List all objects in the folder
-            objects = self.client.list_objects(bucket_name, prefix=folder_path, recursive=True)
+            objects = self.client.list_objects(
+                bucket_name, prefix=folder_path, recursive=True)
 
             # Delete all objects in the folder
             for obj in objects:
@@ -215,7 +245,8 @@ class MinIOClientService:
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting folder {folder_path} from {bucket_name}: {e}")
+            logger.error(
+                f"Error deleting folder {folder_path} from {bucket_name}: {e}")
             return False
 
     def rename_folder(self, bucket_name: str, old_path: str, new_path: str) -> bool:
@@ -230,16 +261,19 @@ class MinIOClientService:
                 new_path += '/'
 
             # List all objects in the old folder
-            objects = list(self.client.list_objects(bucket_name, prefix=old_path, recursive=True))
+            objects = list(self.client.list_objects(
+                bucket_name, prefix=old_path, recursive=True))
 
             # Copy each object to new location
             for obj in objects:
                 old_object_name = obj.object_name
-                new_object_name = old_object_name.replace(old_path, new_path, 1)
+                new_object_name = old_object_name.replace(
+                    old_path, new_path, 1)
 
                 # Copy object
                 copy_source = {"Bucket": bucket_name, "Key": old_object_name}
-                self.client.copy_object(bucket_name, new_object_name, copy_source)
+                self.client.copy_object(
+                    bucket_name, new_object_name, copy_source)
 
                 # Delete old object
                 self.client.remove_object(bucket_name, old_object_name)
@@ -247,7 +281,8 @@ class MinIOClientService:
             return True
 
         except Exception as e:
-            logger.error(f"Error renaming folder from {old_path} to {new_path} in {bucket_name}: {e}")
+            logger.error(
+                f"Error renaming folder from {old_path} to {new_path} in {bucket_name}: {e}")
             return False
 
     def move_folder(self, bucket_name: str, old_path: str, new_path: str) -> bool:
@@ -267,7 +302,8 @@ class MinIOClientService:
                 folder_path = ""
 
             # List objects with folder prefix, but not recursive to get only direct children
-            objects = self.client.list_objects(bucket_name, prefix=folder_path, recursive=False)
+            objects = self.client.list_objects(
+                bucket_name, prefix=folder_path, recursive=False)
 
             files = []
             for obj in objects:
@@ -283,5 +319,6 @@ class MinIOClientService:
             return files
 
         except Exception as e:
-            logger.error(f"Error listing files in folder {folder_path} from {bucket_name}: {e}")
+            logger.error(
+                f"Error listing files in folder {folder_path} from {bucket_name}: {e}")
             return []

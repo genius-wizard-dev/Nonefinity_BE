@@ -51,8 +51,11 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
             cursor = cursor.filter({"owner_id": owner_id})
         return await cursor.to_list()
 
-    async def create(self, obj_in: CreateSchemaT) -> ModelT:
-        data = obj_in.model_dump()
+    async def create(self, obj_in: CreateSchemaT | Dict[str, Any]) -> ModelT:
+        if isinstance(obj_in, BaseModel):
+            data = obj_in.model_dump()
+        else:
+            data = dict(obj_in)
         if "is_deleted" in self.model.__fields__:
             data.setdefault("is_deleted", False)
             data.setdefault("deleted_at", None)

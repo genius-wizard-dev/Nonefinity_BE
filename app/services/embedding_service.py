@@ -3,12 +3,14 @@ Service for creating and managing vector embedding tasks with external AI Tasks 
 """
 
 from typing import Dict, Any, List, Optional
+import asyncio
 
 from app.utils.celery_client import embedding_client
 from app.utils.logging import get_logger
 from app.services.credential_service import credential_service
 from app.services.model_service import ModelService
 from app.services.provider_service import ProviderService
+from app.crud.task import TaskCRUD
 
 logger = get_logger(__name__)
 
@@ -19,7 +21,6 @@ class EmbeddingService:
     @staticmethod
     async def create_embedding_task(
         user_id: str,
-        model_id: str,
         file_id: str,
     ) -> Dict[str, Any]:
         """
@@ -35,74 +36,44 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-            logger.info(f"Creating embedding task for user {user_id}, model {model_id}, file {file_id}")
+            logger.info(
+                f"Creating embedding task for user {user_id}, file {file_id}")
 
-            # Initialize services
-            model_service = ModelService()
-
-            # Get model configuration
-            db_model = await model_service.crud.get_by_owner_and_id(user_id, model_id)
-            if not db_model:
-                return {
-                    "success": False,
-                    "error": "Model not found or does not belong to user",
-                    "task_id": None
-                }
-
-            # Validate model type
-            if db_model.type.value != "embedding":
-                return {
-                    "success": False,
-                    "error": "Model is not an embedding model",
-                    "task_id": None
-                }
-
-            # Get and decrypt credential
-            db_credential = await credential_service.crud.get_by_owner_and_id(user_id, db_model.credential_id)
-            if not db_credential:
-                return {
-                    "success": False,
-                    "error": "Credential not found",
-                    "task_id": None
-                }
-
-            # Get provider information
-            provider_info = await ProviderService.get_provider_by_id(db_credential.provider_id)
-            if not provider_info:
-                return {
-                    "success": False,
-                    "error": "Provider not found",
-                    "task_id": None
-                }
-
-            # Decrypt the API key
-            decrypted_api_key = credential_service._decrypt_api_key(db_credential.api_key)
-
-            # Prepare credential for external system
-            credential_data = {
-                "api_key": decrypted_api_key,
-                "base_url": db_credential.base_url or provider_info.base_url
-            }
-
-            # Create task via AI Tasks Client
+            # Always use fixed local OSS embedding (no external provider exposure)
             task_id = embedding_client.create_embedding_task(
                 user_id=user_id,
                 file_id=file_id,
-                provider=provider_info.provider,
-                model_id=db_model.model,
-                credential=credential_data
+                provider="local",
+                model_id="sentence-transformers/all-MiniLM-L6-v2",
+                credential={}
             )
 
-            logger.info(f"Embedding task created successfully: {task_id}")
+            logger.info(
+                f"Embedding task created with fixed local OSS model: {task_id}")
+            # Persist task to MongoDB for tracking
+            try:
+                task_crud = TaskCRUD()
+                await task_crud.create({
+                    "task_id": task_id,
+                    "task_type": "embedding",
+                    "user_id": user_id,
+                    "file_id": file_id,
+                    "provider": "local",
+                    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+                    "status": "PENDING",
+                    "metadata": {}
+                })
+            except Exception as _:
+                logger.warning("Failed to persist embedding task document")
             return {
                 "success": True,
                 "task_id": task_id,
-                "message": "Embedding task created successfully",
+                "message": "Embedding task created",
                 "metadata": {
                     "user_id": user_id,
-                    "model_name": db_model.name,
-                    "model_identifier": db_model.model,
-                    "provider": provider_info.provider,
+                    "model_name": "Default OSS",
+                    "model_identifier": "sentence-transformers/all-MiniLM-L6-v2",
+                    "provider": "local",
                     "file_id": file_id,
                     "chunks_count": 0
                 }
@@ -119,10 +90,10 @@ class EmbeddingService:
     @staticmethod
     async def create_search_task(
         user_id: str,
-        credential_id: str,
+        credential_id: Optional[str],
         query_text: str,
-        provider: str = "openai",
-        model_id: str = "text-embedding-ada-002",
+        provider: str = "huggingface",
+        model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
         file_id: Optional[str] = None,
         limit: int = 5
     ) -> Dict[str, Any]:
@@ -142,25 +113,25 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-            logger.info(f"Creating search task for user {user_id}, credential {credential_id}")
+            logger.info(
+                f"Creating search task for user {user_id}, credential {credential_id}")
 
-            # Get and decrypt credential
-            db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
-            if not db_credential:
-                return {
-                    "success": False,
-                    "error": "Credential not found",
-                    "task_id": None
+            # For local/HuggingFace sentence-transformers used locally, credential is optional
+            credential_data = {}
+            if provider.lower() not in ("huggingface", "hf", "local"):
+                db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
+                if not db_credential:
+                    return {
+                        "success": False,
+                        "error": "Credential not found",
+                        "task_id": None
+                    }
+                decrypted_api_key = credential_service._decrypt_api_key(
+                    db_credential.api_key)
+                credential_data = {
+                    "api_key": decrypted_api_key,
+                    "base_url": db_credential.base_url
                 }
-
-            # Decrypt the API key
-            decrypted_api_key = credential_service._decrypt_api_key(db_credential.api_key)
-
-            # Prepare credential for external system
-            credential_data = {
-                "api_key": decrypted_api_key,
-                "base_url": db_credential.base_url
-            }
 
             # Create search task via AI Tasks Client
             task_id = embedding_client.search_embeddings(
@@ -174,6 +145,21 @@ class EmbeddingService:
             )
 
             logger.info(f"Search task created successfully: {task_id}")
+            # Persist search task
+            try:
+                task_crud = TaskCRUD()
+                await task_crud.create({
+                    "task_id": task_id,
+                    "task_type": "search",
+                    "user_id": user_id,
+                    "file_id": file_id,
+                    "provider": provider,
+                    "model_id": model_id,
+                    "status": "PENDING",
+                    "metadata": {"limit": limit, "query_length": len(query_text)}
+                })
+            except Exception:
+                logger.warning("Failed to persist search task document")
             return {
                 "success": True,
                 "task_id": task_id,
@@ -209,10 +195,13 @@ class EmbeddingService:
 
         try:
             logger.debug(f"Getting embedding task status: {task_id}")
-            return embedding_client.get_task_status(task_id)
+            status = embedding_client.get_task_status(task_id)
+            # Status persistence handled by Celery signals now
+            return status
 
         except Exception as e:
-            logger.error(f"Error getting embedding task status for {task_id}: {e}")
+            logger.error(
+                f"Error getting embedding task status for {task_id}: {e}")
             return {
                 "task_id": task_id,
                 "status": "ERROR",
@@ -238,10 +227,13 @@ class EmbeddingService:
 
         try:
             logger.debug(f"Getting embedding task result: {task_id}")
-            return embedding_client.get_task_result(task_id)
+            result = embedding_client.get_task_result(task_id)
+            # Completion persistence handled by Celery signals now
+            return result
 
         except Exception as e:
-            logger.error(f"Error getting embedding task result for {task_id}: {e}")
+            logger.error(
+                f"Error getting embedding task result for {task_id}: {e}")
             return {
                 "task_id": task_id,
                 "status": "ERROR",
@@ -266,7 +258,16 @@ class EmbeddingService:
 
         try:
             logger.info(f"Cancelling embedding task: {task_id}")
-            return embedding_client.cancel_task(task_id)
+            res = embedding_client.cancel_task(task_id)
+            # Persist cancel
+            try:
+                task_crud = TaskCRUD()
+                doc = asyncio.get_event_loop().run_until_complete(task_crud.get_by_task_id(task_id))  # type: ignore
+                if doc:
+                    asyncio.get_event_loop().run_until_complete(task_crud.update(doc, {"status": res.get("status")}))  # type: ignore
+            except Exception:
+                pass
+            return res
 
         except Exception as e:
             logger.error(f"Error cancelling embedding task {task_id}: {e}")

@@ -56,6 +56,8 @@ class AITasksClient:
             logger.error(f"Failed to initialize AI Tasks client: {e}")
             raise
 
+    # Avoid async DB calls in this sync client; persistence is handled at service layer
+
     @property
     def celery_app(self) -> Celery:
         """Get the Celery app instance (lazy loading)"""
@@ -67,8 +69,8 @@ class AITasksClient:
         self,
         user_id: str,
         file_id: str = None,
-        provider: str = "openai",
-        model_id: str = "text-embedding-ada-002",
+        provider: str = "huggingface",
+        model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
         credential: Dict[str, Any] = None
     ) -> str:
         """
@@ -284,7 +286,8 @@ class AITasksClient:
         """
 
         try:
-            logger.info(f"Waiting for task {task_id} to complete (timeout: {timeout}s)")
+            logger.info(
+                f"Waiting for task {task_id} to complete (timeout: {timeout}s)")
 
             result = AsyncResult(task_id, app=self.celery_app)
 
