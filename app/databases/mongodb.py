@@ -8,6 +8,7 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 class MongoDB:
     """Simplified MongoDB connection manager using Beanie ODM"""
 
@@ -18,12 +19,15 @@ class MongoDB:
     async def connect(self, document_models: List[Document] = None):
         """Connect to MongoDB and initialize Beanie"""
         try:
-            # Create MongoDB client with shorter timeouts
+            # Create MongoDB client with sane defaults and retries
+            mongo_url = settings.MONGO_URL
             self.client = AsyncIOMotorClient(
-                settings.MONGO_URL,
-                serverSelectionTimeoutMS=3000,  # 3 second timeout
-                connectTimeoutMS=5000,          # 5 second connection timeout
-                socketTimeoutMS=5000            # 5 second socket timeout
+                mongo_url,
+                serverSelectionTimeoutMS=8000,
+                connectTimeoutMS=8000,
+                socketTimeoutMS=10000,
+                maxPoolSize=50,
+                minPoolSize=0,
             )
 
             # Test connection
@@ -39,12 +43,14 @@ class MongoDB:
                     database=self.database,
                     document_models=document_models
                 )
-                logger.info(f"Beanie initialized with {len(document_models)} document models")
+                logger.info(
+                    f"Beanie initialized with {len(document_models)} document models")
 
             return True
 
-        except ServerSelectionTimeoutError:
-            logger.error("Failed to connect to MongoDB: Server selection timeout")
+        except ServerSelectionTimeoutError as e:
+            logger.error(
+                f"Failed to connect to MongoDB (timeout) at {settings.MONGO_URL}: {e}")
             raise ConnectionError("Cannot connect to MongoDB server")
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {str(e)}")
@@ -56,7 +62,6 @@ class MongoDB:
             self.client.close()
             logger.info("Disconnected from MongoDB")
 
+
 # Global MongoDB instance
 mongodb = MongoDB()
-
-

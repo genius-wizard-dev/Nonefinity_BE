@@ -15,7 +15,7 @@ from app.middlewares import init_sentry
 from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router, embedding_router, model_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router, embedding_router, model_router, tasks_router
 
 logger = get_logger(__name__)
 
@@ -204,6 +204,7 @@ def include_routers(app: FastAPI) -> None:
         (webhooks_router, "webhooks", ["Webhooks"]),
         (file_router, "file", ["File Management"]),
         (embedding_router, "embedding", ["Vector Embedding"]),
+        (tasks_router, "tasks", ["Task Management"]),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([

@@ -6,6 +6,7 @@ from app.models.dataset import Dataset
 from app.models.provider import Provider, ProviderTaskConfig
 from app.models.credential import Credential
 from app.models.model import Model
+from app.models.task import Task
 
 # Export all models for easy import
 __all__ = [
@@ -28,5 +29,6 @@ DOCUMENT_MODELS = [
     Provider,
     ProviderTaskConfig,
     Credential,
-    Model
+    Model,
+    Task
 ]

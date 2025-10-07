@@ -1,6 +1,7 @@
 from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class AppSettings(BaseSettings):
     APP_NAME: str = "Nonefinity Agent"
     APP_ENV: Literal["dev", "prod"] = "dev"
@@ -10,6 +11,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
+
 class CORSSettings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*", "http://127.0.0.1:5173"]
     CORS_CREDENTIALS: bool = True
@@ -17,6 +19,7 @@ class CORSSettings(BaseSettings):
     CORS_HEADERS: list[str] = ["*"]
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CORS_")
+
 
 class MongoSettings(BaseSettings):
     MONGO_HOST: str = ""
@@ -29,17 +32,26 @@ class MongoSettings(BaseSettings):
 
     @property
     def MONGO_URL(self) -> str:
+        host = self.MONGO_HOST or "localhost"
+        port = self.MONGO_PORT or 27017
         if self.MONGO_USER and self.MONGO_PWD:
-            return f"mongodb://{self.MONGO_USER}:{self.MONGO_PWD}@{self.MONGO_HOST}:{self.MONGO_PORT}"
-        else:
-            return f"mongodb://{self.MONGO_HOST}:{self.MONGO_PORT}"
+            return f"mongodb://{self.MONGO_USER}:{self.MONGO_PWD}@{host}:{port}"
+        return f"mongodb://{host}:{port}"
+
 
 class RedisSettings(BaseSettings):
     REDIS_HOST: str = ""
     REDIS_PORT: int = 6379
     REDIS_PWD: str = ""
+    REDIS_PASSWORD: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_")
+
+    @property
+    def redis_password(self) -> str:
+        # Prefer REDIS_PASSWORD if provided, otherwise fallback to REDIS_PWD
+        return self.REDIS_PASSWORD or self.REDIS_PWD
+
 
 class CelerySettings(BaseSettings):
     CELERY_BROKER_URL: str = ""
@@ -58,8 +70,9 @@ class CelerySettings(BaseSettings):
             return self.CELERY_BROKER_URL
         # Fallback to Redis settings
         from app.configs.settings import settings
-        if settings.REDIS_PWD:
-            return f"redis://:{settings.REDIS_PWD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+        pwd = settings.redis_password
+        if pwd:
+            return f"redis://:{pwd}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
         return f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
 
     @property
@@ -68,9 +81,11 @@ class CelerySettings(BaseSettings):
             return self.CELERY_RESULT_BACKEND
         # Fallback to Redis settings
         from app.configs.settings import settings
-        if settings.REDIS_PWD:
-            return f"redis://:{settings.REDIS_PWD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/1"
+        pwd = settings.redis_password
+        if pwd:
+            return f"redis://:{pwd}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/1"
         return f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/1"
+
 
 class SentrySettings(BaseSettings):
     SENTRY_DSN: str | None = None
@@ -79,6 +94,7 @@ class SentrySettings(BaseSettings):
     SENTRY_SEND_DEFAULT_PII: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SENTRY_")
+
 
 class QdrantSettings(BaseSettings):
     QDRANT_HOST: str
@@ -97,12 +113,12 @@ class ClerkSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env")
 
+
 class MinioSettings(BaseSettings):
     MINIO_URL: str = ""
     MINIO_ACCESS_KEY: str = ""
     MINIO_SECRET_KEY: str = ""
     MINIO_ALIAS: str = ""
-
 
     @property
     def MINIO_SSL(self) -> bool:
@@ -129,15 +145,13 @@ class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="POSTGRES_")
 
 
-
 class CredentialSettings(BaseSettings):
     CREDENTIAL_SECRET_KEY: str
     CREDENTIAL_ENCRYPTION_SALT: str
     CREDENTIAL_KDF_ITERATIONS: int = 100000
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="CREDENTIAL_")
-
-
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="CREDENTIAL_")
 
 
 class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):

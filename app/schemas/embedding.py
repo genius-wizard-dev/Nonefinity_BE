@@ -8,21 +8,28 @@ from pydantic import BaseModel, Field, validator
 
 class EmbeddingRequest(BaseModel):
     """Schema for embedding request"""
-    model_id: str = Field(..., description="AI model identifier from database")
     file_id: str = Field(..., description="File identifier to process")
-
-
 
 
 class SearchRequest(BaseModel):
     """Schema for similarity search request"""
 
-    credential_id: str = Field(..., description="Credential identifier for API key")
-    query_text: str = Field(..., description="Text to search for", min_length=1)
-    provider: str = Field(default="openai", description="AI provider (e.g., 'openai')")
-    model_id: str = Field(default="text-embedding-ada-002", description="Model identifier")
+    credential_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Credential identifier for API key. Optional for 'huggingface'/'hf'/"
+            "'local' providers using free open-source models."
+        ),
+    )
+    query_text: str = Field(...,
+                            description="Text to search for", min_length=1)
+    provider: str = Field(
+        default="huggingface", description="AI provider (e.g., 'huggingface', 'local', 'openai')")
+    model_id: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2", description="Model identifier")
     file_id: Optional[str] = Field(None, description="Optional filter by file")
-    limit: int = Field(default=5, description="Number of results to return", ge=1, le=100)
+    limit: int = Field(
+        default=5, description="Number of results to return", ge=1, le=100)
 
     @validator('query_text')
     def validate_query_text(cls, v):
@@ -32,9 +39,18 @@ class SearchRequest(BaseModel):
 
     @validator('provider')
     def validate_provider(cls, v):
-        if v.lower() not in ['openai']:
-            raise ValueError("Only 'openai' provider is currently supported")
+        allowed = ['openai', 'huggingface', 'hf', 'local']
+        if v.lower() not in allowed:
+            raise ValueError(f"Provider must be one of {allowed}")
         return v.lower()
+
+    @validator('credential_id')
+    def validate_credential_with_provider(cls, v, values):
+        provider = values.get('provider', 'huggingface')
+        if provider not in ('huggingface', 'hf', 'local') and not v:
+            raise ValueError(
+                "credential_id is required for non-local providers")
+        return v
 
 
 class BatchEmbeddingRequest(BaseModel):
@@ -57,7 +73,8 @@ class BatchEmbeddingRequest(BaseModel):
 class TaskResponse(BaseModel):
     """Schema for task submission response"""
 
-    success: bool = Field(..., description="Whether the task was submitted successfully")
+    success: bool = Field(...,
+                          description="Whether the task was submitted successfully")
     task_id: str = Field(..., description="Celery task identifier")
     message: str = Field(..., description="Response message")
     metadata: Optional[Dict[str, Any]] = Field(
@@ -72,10 +89,14 @@ class TaskStatusResponse(BaseModel):
     task_id: str = Field(..., description="Task identifier")
     status: str = Field(..., description="Task status")
     ready: bool = Field(..., description="Whether task is ready")
-    successful: Optional[bool] = Field(default=None, description="Whether task was successful")
-    failed: Optional[bool] = Field(default=None, description="Whether task failed")
-    result: Optional[Dict[str, Any]] = Field(default=None, description="Task result if available")
-    error: Optional[str] = Field(default=None, description="Error message if failed")
+    successful: Optional[bool] = Field(
+        default=None, description="Whether task was successful")
+    failed: Optional[bool] = Field(
+        default=None, description="Whether task failed")
+    result: Optional[Dict[str, Any]] = Field(
+        default=None, description="Task result if available")
+    error: Optional[str] = Field(
+        default=None, description="Error message if failed")
     meta: Optional[Union[str, Dict[str, Any]]] = Field(
         default=None,
         description="Additional task metadata"
@@ -88,10 +109,14 @@ class TaskResultResponse(BaseModel):
     task_id: str = Field(..., description="Task identifier")
     status: str = Field(..., description="Task status")
     ready: bool = Field(..., description="Whether task is ready")
-    successful: Optional[bool] = Field(default=None, description="Whether task was successful")
-    failed: Optional[bool] = Field(default=None, description="Whether task failed")
-    result: Optional[Dict[str, Any]] = Field(default=None, description="Task result")
-    error: Optional[str] = Field(default=None, description="Error message if failed")
+    successful: Optional[bool] = Field(
+        default=None, description="Whether task was successful")
+    failed: Optional[bool] = Field(
+        default=None, description="Whether task failed")
+    result: Optional[Dict[str, Any]] = Field(
+        default=None, description="Task result")
+    error: Optional[str] = Field(
+        default=None, description="Error message if failed")
 
 
 class EmbeddingResult(BaseModel):
@@ -101,10 +126,14 @@ class EmbeddingResult(BaseModel):
     file_id: str = Field(..., description="File identifier")
     provider: str = Field(..., description="AI provider used")
     model_id: str = Field(..., description="Model identifier used")
-    total_chunks: int = Field(..., description="Total number of chunks processed")
-    successful_chunks: int = Field(..., description="Number of successfully processed chunks")
-    split_config: Dict[str, Any] = Field(..., description="Split configuration used")
-    embeddings: List[List[float]] = Field(..., description="Generated embeddings")
+    total_chunks: int = Field(...,
+                              description="Total number of chunks processed")
+    successful_chunks: int = Field(...,
+                                   description="Number of successfully processed chunks")
+    split_config: Dict[str,
+                       Any] = Field(..., description="Split configuration used")
+    embeddings: List[List[float]
+                     ] = Field(..., description="Generated embeddings")
     chunks: List[str] = Field(..., description="Original text chunks")
     metadata: Dict[str, Any] = Field(..., description="Additional metadata")
 
@@ -112,11 +141,15 @@ class EmbeddingResult(BaseModel):
 class ActiveTasksResponse(BaseModel):
     """Schema for active tasks response"""
 
-    active_tasks: Dict[str, Any] = Field(..., description="Active tasks by worker")
+    active_tasks: Dict[str,
+                       Any] = Field(..., description="Active tasks by worker")
     total_active: int = Field(..., description="Total number of active tasks")
-    workers: Optional[List[str]] = Field(default=None, description="List of worker names")
-    message: Optional[str] = Field(default=None, description="Additional message")
-    error: Optional[str] = Field(default=None, description="Error message if any")
+    workers: Optional[List[str]] = Field(
+        default=None, description="List of worker names")
+    message: Optional[str] = Field(
+        default=None, description="Additional message")
+    error: Optional[str] = Field(
+        default=None, description="Error message if any")
 
 
 class TaskCancelResponse(BaseModel):
@@ -124,5 +157,7 @@ class TaskCancelResponse(BaseModel):
 
     task_id: str = Field(..., description="Task identifier")
     status: str = Field(..., description="Cancellation status")
-    message: Optional[str] = Field(default=None, description="Cancellation message")
-    error: Optional[str] = Field(default=None, description="Error message if failed")
+    message: Optional[str] = Field(
+        default=None, description="Cancellation message")
+    error: Optional[str] = Field(
+        default=None, description="Error message if failed")

@@ -32,11 +32,13 @@ async def get_owner(current_user):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     if not user:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST,
+                            detail="User not found")
 
     owner_id = str(user.id)
 
     return owner_id
+
 
 @router.get(
     "/models",
@@ -54,7 +56,6 @@ async def get_embedding_models(
 
     try:
         owner_id = await get_owner(current_user)
-
 
         # Initialize model service
         model_service = ModelService()
@@ -94,7 +95,7 @@ async def create_embedding_task(
     """
     Create an embedding task for file processing
 
-    - **model_id**: AI model identifier from database
+    The server uses a fixed local open-source embedding model; no provider/model is required.
     - **file_id**: File identifier to process
     - **chunks**: Optional list of text chunks to embed
 
@@ -108,7 +109,6 @@ async def create_embedding_task(
         # Create embedding task
         result = await EmbeddingService.create_embedding_task(
             user_id=owner_id,
-            model_id=request.model_id,
             file_id=request.file_id,
         )
 
@@ -280,9 +280,6 @@ async def get_task_result(
             status_code=500,
             detail=f"Failed to get task result: {str(e)}"
         )
-
-
-
 
 
 @router.delete(
