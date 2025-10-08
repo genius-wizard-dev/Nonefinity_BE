@@ -69,6 +69,7 @@ class AITasksClient:
         self,
         user_id: str,
         file_id: str = None,
+
         provider: str = "huggingface",
         model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
         credential: Dict[str, Any] = None
@@ -79,6 +80,7 @@ class AITasksClient:
         Args:
             user_id: User identifier
             file_id: File identifier (if processing file from storage)
+            text: Text to embed
             provider: Embedding provider (openai, huggingface)
             model_id: Model identifier
             credential: Dictionary containing API keys
@@ -110,6 +112,53 @@ class AITasksClient:
 
         except Exception as e:
             logger.error(f"Error creating embedding task: {e}")
+            raise
+
+    def create_text_embedding_task(
+        self,
+        user_id: str,
+        text: str,
+        provider: str = "huggingface",
+        model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
+        credential: Dict[str, Any] = None
+    ) -> str:
+        """
+        Create a text embedding task for direct text input
+
+        Args:
+            user_id: User identifier
+            text: Text to embed directly
+            provider: Embedding provider (openai, huggingface, google)
+            model_id: Model identifier
+            credential: Dictionary containing API keys
+
+        Returns:
+            Task ID
+        """
+        try:
+            logger.info(
+                f"Creating text embedding task for user {user_id}, provider {provider}, "
+                f"model {model_id}, text length: {len(text)}"
+            )
+
+            # Send task to queue
+            result = self.celery_app.send_task(
+                'tasks.embedding.run_text_embedding',
+                kwargs={
+                    'user_id': user_id,
+                    'text': text,
+                    'provider': provider,
+                    'model_id': model_id,
+                    'credential': credential or {}
+                },
+                queue='embeddings'
+            )
+
+            logger.info(f"Text embedding task created with ID: {result.id}")
+            return result.id
+
+        except Exception as e:
+            logger.error(f"Error creating text embedding task: {e}")
             raise
 
     def search_embeddings(
@@ -347,43 +396,43 @@ class AITasksClient:
                 "error": f"Failed to cancel task: {str(e)}"
             }
 
-    def get_active_tasks(self) -> Dict[str, Any]:
-        """
-        Get information about currently active tasks
+    # def get_active_tasks(self) -> Dict[str, Any]:
+    #     """
+    #     Get information about currently active tasks
 
-        Returns:
-            Dict containing active task information
-        """
+    #     Returns:
+    #         Dict containing active task information
+    #     """
 
-        try:
-            logger.debug("Getting active tasks information")
+    #     try:
+    #         logger.debug("Getting active tasks information")
 
-            # Get active tasks from Celery
-            inspect = self.celery_app.control.inspect()
-            active_tasks = inspect.active()
+    #         # Get active tasks from Celery
+    #         inspect = self.celery_app.control.inspect()
+    #         active_tasks = inspect.active()
 
-            if not active_tasks:
-                return {
-                    "active_tasks": {},
-                    "total_active": 0,
-                    "message": "No active tasks found"
-                }
+    #         if not active_tasks:
+    #             return {
+    #                 "active_tasks": {},
+    #                 "total_active": 0,
+    #                 "message": "No active tasks found"
+    #             }
 
-            total_active = sum(len(tasks) for tasks in active_tasks.values())
+    #         total_active = sum(len(tasks) for tasks in active_tasks.values())
 
-            return {
-                "active_tasks": active_tasks,
-                "total_active": total_active,
-                "workers": list(active_tasks.keys())
-            }
+    #         return {
+    #             "active_tasks": active_tasks,
+    #             "total_active": total_active,
+    #             "workers": list(active_tasks.keys())
+    #         }
 
-        except Exception as e:
-            logger.error(f"Error getting active tasks: {e}")
-            return {
-                "active_tasks": {},
-                "total_active": 0,
-                "error": str(e)
-            }
+    #     except Exception as e:
+    #         logger.error(f"Error getting active tasks: {e}")
+    #         return {
+    #             "active_tasks": {},
+    #             "total_active": 0,
+    #             "error": str(e)
+    #         }
 
 
 # Singleton instances for common use cases

@@ -3,8 +3,9 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from app.models.provider import Provider
+from app.schemas.model import ModelType
 from app.utils.logging import get_logger
-
+from bson import ObjectId
 logger = get_logger(__name__)
 
 
@@ -42,6 +43,7 @@ class ProviderService:
             'base_url': provider_data['base_url'],
             'logo_url': provider_data.get('logo_url'),
             'docs_url': provider_data.get('docs_url'),
+            'list_models_url': provider_data.get('list_models_url'),
             'api_key_header': provider_data.get('api_key_header', 'Authorization'),
             'api_key_prefix': provider_data.get('api_key_prefix', 'Bearer'),
             'is_active': provider_data.get('is_active', True),
@@ -50,7 +52,6 @@ class ProviderService:
             'tags': []  # Can be added later for categorization
         }
 
-        # Remove None values to keep the document clean
         return {k: v for k, v in prepared_data.items() if v is not None}
 
     @staticmethod
@@ -154,7 +155,7 @@ class ProviderService:
         return providers
 
     @staticmethod
-    async def get_provider_task_config(provider_name: str, task_type: str) -> Optional[Dict[str, Any]]:
+    async def get_provider_task_config(provider_name: str, task_type: ModelType) -> Optional[Dict[str, Any]]:
         """Get task configuration for a specific provider and task type"""
         provider = await ProviderService.get_provider_by_name(provider_name)
 
@@ -194,7 +195,7 @@ class ProviderService:
 
         # Update allowed fields
         allowed_fields = {
-            'name', 'description', 'base_url', 'logo_url', 'docs_url',
+            'name', 'description', 'base_url', 'logo_url', 'docs_url', 'list_models_url',
             'api_key_header', 'api_key_prefix', 'is_active', 'support',
             'tasks', 'provider_type', 'tags'
         }
@@ -207,3 +208,14 @@ class ProviderService:
         await provider.save()
         logger.info(f"Updated provider configuration: {provider_name}")
         return provider
+
+    @staticmethod
+    async def get_providers_by_ids(provider_ids: List[str], active_only: bool = True) -> List[Provider]:
+        """Get providers by IDs"""
+
+        query = {"_id": {"$in": [ObjectId(provider_id) for provider_id in provider_ids]}}
+        if active_only:
+            query["is_active"] = True
+
+        providers = await Provider.find(query).to_list()
+        return providers

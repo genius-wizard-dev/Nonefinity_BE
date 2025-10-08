@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing import Optional
-import json
 
 from app.services.dataset_service import DatasetService
 from app.services import user_service
@@ -9,7 +8,11 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
-from app.schemas.dataset import DataSchemaField, DatasetUpdate, DatasetUpdateRequest
+from app.schemas.dataset import (
+   DatasetUpdate, DatasetUpdateRequest,
+    DatasetCreateRequest, DatasetConvertRequest, DatasetQueryRequest,
+    DatasetSchemaUpdateRequest
+)
 logger = get_logger(__name__)
 router = APIRouter()
 
@@ -30,22 +33,19 @@ async def get_user_and_service(current_user):
 
 @router.post("/create")
 async def create_dataset(
-    dataset_name: str = Form(...),
-    description: Optional[str] = Form(None),
-    schema: str = Form(...),
+    request: DatasetCreateRequest,
     current_user = Depends(verify_token)
 ):
     """Create a new dataset"""
     try:
-        # Parse JSON string to List[DataSchemaField]
-        schema_data = json.loads(schema)
-        schema_fields = [DataSchemaField(**field) for field in schema_data]
-
         user_id, dataset_service = await get_user_and_service(current_user)
-        result = await dataset_service.create_dataset(user_id, dataset_name, description, schema_fields)
+        result = await dataset_service.create_dataset(
+            user_id,
+            request.dataset_name,
+            request.description,
+            request.schema
+        )
         return created(data=result, message="Dataset created successfully")
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Invalid JSON format in schema: {str(e)}")
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=f"Schema validation error: {str(e)}")
     except AppError as e:
@@ -53,9 +53,7 @@ async def create_dataset(
 
 @router.post("/convert")
 async def convert(
-    file_id: str = Form(...),
-    dataset_name: str = Form(...),
-    description: Optional[str] = Form(None),
+    request: DatasetConvertRequest,
     current_user = Depends(verify_token)
 ):
     """Convert existing file in storage to dataset using file_id"""
@@ -64,9 +62,9 @@ async def convert(
 
         result = await dataset_service.convert(
             user_id=user_id,
-            file_id=file_id,
-            dataset_name=dataset_name,
-            description=description
+            file_id=request.file_id,
+            dataset_name=request.dataset_name,
+            description=request.description
         )
 
         return created(data=result, message="Dataset created from existing file successfully")
@@ -147,14 +145,13 @@ async def get_dataset_data(
 
 @router.post("/query")
 async def query_dataset(
-    query: str = Form(...),
-    limit: int = Form(100),
+    request: DatasetQueryRequest,
     current_user = Depends(verify_token)
 ):
     """Query dataset by ID with SQL validation and preprocessing"""
     try:
         user_id, dataset_service = await get_user_and_service(current_user)
-        result = await dataset_service.query_dataset(user_id, query, limit)
+        result = await dataset_service.query_dataset(user_id, request.query, request.limit)
         return ok(data=result, message="Query executed successfully")
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -192,20 +189,16 @@ async def update_dataset(
 @router.put("/{dataset_id}/schema")
 async def update_dataset_schema(
     dataset_id: str,
-    descriptions: dict,
+    request: DatasetSchemaUpdateRequest,
     current_user = Depends(verify_token)
 ):
     """Update dataset schema descriptions only"""
     try:
         logger.info(f"Updating schema for dataset {dataset_id}")
-        logger.info(f"Received descriptions: {descriptions}")
-
-        # Validate descriptions is not empty
-        if not descriptions:
-            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Descriptions cannot be empty")
+        logger.info(f"Received descriptions: {request.descriptions}")
 
         user_id, dataset_service = await get_user_and_service(current_user)
-        await dataset_service.update_dataset_schema(user_id, dataset_id, descriptions)
+        await dataset_service.update_dataset_schema(user_id, dataset_id, request.descriptions)
         return ok(message="Dataset schema descriptions updated successfully")
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")

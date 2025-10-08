@@ -7,49 +7,80 @@ import asyncio
 
 from app.utils.celery_client import embedding_client
 from app.utils.logging import get_logger
-from app.services.credential_service import credential_service
+from app.services.credential_service import CredentialService
 from app.services.model_service import ModelService
 from app.services.provider_service import ProviderService
 from app.crud.task import TaskCRUD
-
+from app.schemas.embedding import EmbeddingRequest
 logger = get_logger(__name__)
 
 
 class EmbeddingService:
     """Service class for managing embedding tasks with external AI Tasks System"""
+    def __init__(self):
+        self.model_service = ModelService()
+        self.provider_service = ProviderService()
+        self.credential_service = CredentialService()
 
-    @staticmethod
+
     async def create_embedding_task(
+        self,
         user_id: str,
-        file_id: str,
+        embedding_data: EmbeddingRequest,
     ) -> Dict[str, Any]:
         """
         Create an embedding task using model configuration from database
 
         Args:
             user_id: User identifier
-            model_id: AI model identifier from database
-            file_id: File identifier to process
-            chunks: Optional list of text chunks to embed
+            embedding_data: EmbeddingRequest containing file_id and optional model_id
 
         Returns:
             Dict containing task creation result
         """
         try:
-            logger.info(
-                f"Creating embedding task for user {user_id}, file {file_id}")
+            # Initialize default values
+            model_id = "sentence-transformers/all-MiniLM-L6-v2"
+            provider = "local"
+            credential_data = {}
+            model_name = "Default OSS"
 
-            # Always use fixed local OSS embedding (no external provider exposure)
+            # If model_id is provided, get model and credential information
+            if embedding_data.model_id:
+
+                model = await self.model_service.get_model(user_id, embedding_data.model_id)
+                if not model:
+                    raise ValueError(f"Model with ID '{embedding_data.model_id}' not found")
+                model_id = model.model
+                credential = await self.credential_service.get_credential(user_id, model.credential_id)
+                if not credential:
+                    raise ValueError(f"Credential with ID '{model.credential_id}' not found")
+
+                provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
+                if not provider_obj:
+                    raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
+
+                # Set provider and credential data
+                provider = provider_obj.provider
+                model_name = model.name
+                credential_data = {
+                    "api_key": credential.api_key,
+                    "base_url": credential.base_url,
+                    "additional_headers": credential.additional_headers,
+                    "provider": provider_obj.provider
+                }
+
+            # Always use file embedding task (no text support)
             task_id = embedding_client.create_embedding_task(
                 user_id=user_id,
-                file_id=file_id,
-                provider="local",
-                model_id="sentence-transformers/all-MiniLM-L6-v2",
-                credential={}
+                file_id=embedding_data.file_id,
+                provider=provider,
+                model_id=model_id,
+                credential=credential_data
             )
 
-            logger.info(
-                f"Embedding task created with fixed local OSS model: {task_id}")
+            logger.info(f"Embedding task created: {task_id} with provider: {provider}, model: {model_id}")
+
             # Persist task to MongoDB for tracking
             try:
                 task_crud = TaskCRUD()
@@ -57,24 +88,27 @@ class EmbeddingService:
                     "task_id": task_id,
                     "task_type": "embedding",
                     "user_id": user_id,
-                    "file_id": file_id,
-                    "provider": "local",
-                    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
-                    "status": "PENDING",
-                    "metadata": {}
+                    "file_id": embedding_data.file_id,
+                    "provider": provider,
+                    "model_id": model_id,
+                    "status": "STARTED",
+                    "metadata": {
+                        "model_name": model_name
+                    }
                 })
-            except Exception as _:
-                logger.warning("Failed to persist embedding task document")
+            except Exception as e:
+                logger.warning(f"Failed to persist embedding task document: {e}")
+
             return {
                 "success": True,
                 "task_id": task_id,
                 "message": "Embedding task created",
                 "metadata": {
                     "user_id": user_id,
-                    "model_name": "Default OSS",
-                    "model_identifier": "sentence-transformers/all-MiniLM-L6-v2",
-                    "provider": "local",
-                    "file_id": file_id,
+                    "model_name": model_name,
+                    "model_identifier": model_id,
+                    "provider": provider,
+                    "file_id": embedding_data.file_id,
                     "chunks_count": 0
                 }
             }
@@ -119,6 +153,8 @@ class EmbeddingService:
             # For local/HuggingFace sentence-transformers used locally, credential is optional
             credential_data = {}
             if provider.lower() not in ("huggingface", "hf", "local"):
+                # Initialize credential service for non-local providers
+                credential_service = CredentialService()
                 db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
                 if not db_credential:
                     return {
@@ -155,7 +191,7 @@ class EmbeddingService:
                     "file_id": file_id,
                     "provider": provider,
                     "model_id": model_id,
-                    "status": "PENDING",
+                    "status": "STARTED",
                     "metadata": {"limit": limit, "query_length": len(query_text)}
                 })
             except Exception:
@@ -277,26 +313,26 @@ class EmbeddingService:
                 "error": f"Service error: {str(e)}"
             }
 
-    @staticmethod
-    def get_active_tasks() -> Dict[str, Any]:
-        """
-        Get information about currently active embedding tasks
+    # @staticmethod
+    # def get_active_tasks() -> Dict[str, Any]:
+    #     """
+    #     Get information about currently active embedding tasks
 
-        Returns:
-            Dict containing active task information
-        """
+    #     Returns:
+    #         Dict containing active task information
+    #     """
 
-        try:
-            logger.debug("Getting active embedding tasks information")
-            return embedding_client.get_active_tasks()
+    #     try:
+    #         logger.debug("Getting active embedding tasks information")
+    #         return embedding_client.get_active_tasks()
 
-        except Exception as e:
-            logger.error(f"Error getting active embedding tasks: {e}")
-            return {
-                "active_tasks": {},
-                "total_active": 0,
-                "error": f"Service error: {str(e)}"
-            }
+    #     except Exception as e:
+    #         logger.error(f"Error getting active embedding tasks: {e}")
+    #         return {
+    #             "active_tasks": {},
+    #             "total_active": 0,
+    #             "error": f"Service error: {str(e)}"
+    #         }
 
     # @staticmethod
     # def get_active_tasks() -> Dict[str, Any]:

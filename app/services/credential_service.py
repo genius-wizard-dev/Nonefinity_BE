@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
 
 from app.crud.credential import CredentialCRUD
+from app.crud.model import ModelCRUD
 from app.schemas.credential import (
     CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
     CredentialList
@@ -17,6 +18,7 @@ from app.schemas.provider import ProviderResponse, ProviderList
 from app.services.provider_service import ProviderService
 from app.configs.settings import settings
 from app.core.exceptions import AppError
+from app.schemas.model import ModelType
 from app.utils import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +27,7 @@ logger = get_logger(__name__)
 class CredentialService:
     def __init__(self, crud: Optional[CredentialCRUD] = None):
         self.crud = crud or CredentialCRUD()
+        self.model_crud = ModelCRUD()
         self._cipher_suite = None
         self._initialize_encryption()
 
@@ -36,12 +39,6 @@ class CredentialService:
             salt = settings.CREDENTIAL_ENCRYPTION_SALT.encode('utf-8')
             iterations = settings.CREDENTIAL_KDF_ITERATIONS
 
-            # Log security info (without exposing sensitive data)
-            logger.info("🔐 Initializing credential encryption system")
-            logger.info(f"   • KDF iterations: {iterations:,}")
-            logger.info(f"   • Secret key length: {len(secret_key)} characters")
-            logger.info(f"   • Salt length: {len(salt)} bytes")
-            logger.info("   • Algorithm: PBKDF2-SHA256 + Fernet")
 
             # Derive encryption key using PBKDF2
             kdf = PBKDF2HMAC(
@@ -114,19 +111,15 @@ class CredentialService:
                 status_code=500
             )
 
-    def _mask_api_key(self, api_key: str) -> str:
-        """Mask API key for secure display"""
-        if not api_key:
-            return "****"
 
-        if len(api_key) <= 8:
-            return '*' * len(api_key)
-        elif len(api_key) <= 12:
-            # For short keys, show only first 2 and last 2
-            return f"{api_key[:2]}{'*' * (len(api_key) - 4)}{api_key[-2:]}"
-        else:
-            # For longer keys, show first 4 and last 4
-            return f"{api_key[:4]}{'*' * (len(api_key) - 8)}{api_key[-4:]}"
+
+    # def _mask_api_key(self, api_key: str) -> str:
+    #     """Mask API key, show first 6 chars, rest as a few • (not too long)"""
+    #     s = str(api_key or "")
+    #     if len(s) <= 6:
+    #         return "•" * len(s)
+    #     # Show first 6, then 4 * only, regardless of length
+    #     return s[:6] + "•" * 10
 
     @staticmethod
     def generate_secure_key(length: int = 32) -> str:
@@ -158,8 +151,8 @@ class CredentialService:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
-    async def create_credential(self, owner_id: str, credential_data: CredentialCreate) -> Credential:
-        """Create a new credential with API key validation"""
+    async def create_credential(self, owner_id: str, credential_data: CredentialCreate) -> bool:
+        """Create a new credential with API key validation, return bool indicating success"""
         # Get provider information first for validation
         provider = await ProviderService.get_provider_by_id(credential_data.provider_id)
         if not provider:
@@ -186,63 +179,77 @@ class CredentialService:
         encrypted_data = credential_data.model_copy()
         encrypted_data.api_key = self._encrypt_api_key(credential_data.api_key)
 
-        db_credential = await self.crud.create_with_owner(owner_id, encrypted_data)
+        try:
+            db_credential = await self.crud.create_with_owner(owner_id, encrypted_data)
+            if db_credential:
+                return True
+            else:
+                return False
+        except Exception as e:
+            logger.error(f"Failed to create credential: {e}")
+            return False
 
-        logger.info(f"Successfully created and validated credential: {db_credential.id} for provider: {provider.name}")
-
-        return Credential(
-            id=str(db_credential.id),
-            name=db_credential.name,
-            provider_id=db_credential.provider_id,
-            provider_name=provider.name if provider else None,
-            base_url=db_credential.base_url,
-            additional_headers=db_credential.additional_headers,
-            is_active=db_credential.is_active,
-            created_at=db_credential.created_at,
-            updated_at=db_credential.updated_at
-        )
-
-    async def get_credentials(self, owner_id: str, skip: int = 0, limit: int = 100) -> CredentialList:
+    async def get_credentials(
+        self,
+        owner_id: str,
+        skip: int = 0,
+        limit: int = 100,
+        active: Optional[bool] = None,
+        task_type: Optional[ModelType] = None
+    ) -> CredentialList:
         """Get owner credentials"""
-        credentials = await self.crud.get_by_owner_id(owner_id, skip, limit)
-        total = await self.crud.count_by_owner(owner_id)
+        credentials = await self.crud.get_by_owner_id(owner_id, skip, limit, active)
+        provider_ids = [cred.provider_id for cred in credentials]
+        providers = await ProviderService.get_providers_by_ids(provider_ids)
+        provider_map = {str(provider.id): provider for provider in providers}
 
         credential_list = []
         for cred in credentials:
-            # Get provider information
-            provider = await ProviderService.get_provider_by_id(cred.provider_id)
+            provider = provider_map.get(str(cred.provider_id))
+            if provider:
+                # If task_type is specified, filter by provider.support
+                if task_type is not None and (not provider.support or task_type not in provider.support):
+                    continue
+                usage_count = await self.model_crud.count_credential_usage(cred.id)
+                decrypted_key = self._decrypt_api_key(cred.api_key)
+                credential_list.append(CredentialDetail(
+                    id=str(cred.id),
+                    name=cred.name,
+                    provider_id=cred.provider_id,
+                    provider_name=provider.name if provider else None,
+                    base_url=cred.base_url,
+                    additional_headers=cred.additional_headers,
+                    is_active=cred.is_active,
+                    created_at=cred.created_at,
+                    updated_at=cred.updated_at,
+                    api_key=decrypted_key,
+                    usage_count=usage_count
+                ))
 
-            credential_list.append(Credential(
-                id=str(cred.id),
-                name=cred.name,
-                provider_id=cred.provider_id,
-                provider_name=provider.name if provider else None,
-                base_url=cred.base_url,
-                additional_headers=cred.additional_headers,
-                is_active=cred.is_active,
-                created_at=cred.created_at,
-                updated_at=cred.updated_at
-            ))
+        total = await self.crud.count_by_owner(owner_id)
 
         return CredentialList(
             credentials=credential_list,
             total=total,
             page=skip // limit + 1 if limit > 0 else 1,
-            size=len(credential_list)
+            size=limit
         )
 
-    async def get_credential(self, owner_id: str, credential_id: str) -> Optional[CredentialDetail]:
+    async def get_credential(self, owner_id: str, credential_id: str) -> CredentialDetail:
         """Get credential by ID with masked API key"""
         db_credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
         if not db_credential:
-            return None
+            raise AppError(
+                message="Credential not found",
+                status_code=404
+            )
 
         # Get provider information
         provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
-
+        usage_count = await self.model_crud.count_credential_usage(db_credential.id)
         # Decrypt and mask the API key
         decrypted_key = self._decrypt_api_key(db_credential.api_key)
-        masked_key = self._mask_api_key(decrypted_key)
+        # masked_key = self._mask_api_key(decrypted_key)
 
         return CredentialDetail(
             id=str(db_credential.id),
@@ -254,32 +261,56 @@ class CredentialService:
             is_active=db_credential.is_active,
             created_at=db_credential.created_at,
             updated_at=db_credential.updated_at,
-            api_key_masked=masked_key
+            api_key=decrypted_key,
+            usage_count=usage_count
         )
 
-    async def update_credential(self, owner_id: str, credential_id: str, update_data: CredentialUpdate) -> Optional[Credential]:
+    async def update_credential(self, owner_id: str, credential_id: str, update_data: CredentialUpdate) -> bool:
         """Update credential"""
         db_credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
         if not db_credential:
-            return None
+            return False
+
+        usage_count = await self.model_crud.count_credential_usage(db_credential.id)
+
+        # If credential is being used by at least one model then cannot disable it
+        update_dict = update_data.model_dump(exclude_none=True)
+        if usage_count > 0 and 'is_active' in update_dict and update_dict['is_active'] is False:
+            raise ValueError("Cannot disable credential that is being used by at least one model.")
+
+        # Test API key and base URL if they are being updated
+        if 'api_key' in update_dict or 'base_url' in update_dict:
+            # Get provider information for validation
+            provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
+            if not provider:
+                raise ValueError(f"Provider with ID '{db_credential.provider_id}' not found or inactive")
+
+            # Use new values or fall back to existing ones
+            test_api_key = update_dict.get('api_key', self._decrypt_api_key(db_credential.api_key))
+            test_base_url = update_dict.get('base_url', db_credential.base_url or provider.base_url)
+
+            # Test the API key before updating the credential
+            test_result = await self.verify_credential(
+                provider=provider.provider,
+                api_key=test_api_key,
+                base_url=test_base_url
+            )
+
+            if not test_result.get('is_valid', False):
+                error_msg = test_result.get('message', 'Invalid API key')
+                error_details = test_result.get('error_details', '')
+                full_error = f"{error_msg}. {error_details}" if error_details else error_msg
+                raise ValueError(f"API key validation failed: {full_error}")
 
         # Encrypt API key if being updated
-        update_dict = update_data.model_dump(exclude_none=True)
         if 'api_key' in update_dict:
             update_dict['api_key'] = self._encrypt_api_key(update_dict['api_key'])
 
         updated_credential = await self.crud.update(db_credential, update_dict)
+        if not updated_credential:
+            return False
 
-        return Credential(
-            id=str(updated_credential.id),
-            name=updated_credential.name,
-            provider=updated_credential.provider,
-            base_url=updated_credential.base_url,
-            additional_headers=updated_credential.additional_headers,
-            is_active=updated_credential.is_active,
-            created_at=updated_credential.created_at,
-            updated_at=updated_credential.updated_at
-        )
+        return True
 
     async def delete_credential(self, owner_id: str, credential_id: str) -> bool:
         """Delete credential (soft delete)"""

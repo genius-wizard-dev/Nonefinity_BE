@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-async def get_owner(current_user):
+async def get_owner_and_embedding_service(current_user):
     """Helper function to get owner and embedding service"""
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
@@ -36,8 +36,9 @@ async def get_owner(current_user):
                             detail="User not found")
 
     owner_id = str(user.id)
+    embedding_service = EmbeddingService()
 
-    return owner_id
+    return owner_id, embedding_service
 
 
 @router.get(
@@ -55,7 +56,7 @@ async def get_embedding_models(
     """
 
     try:
-        owner_id = await get_owner(current_user)
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
 
         # Initialize model service
         model_service = ModelService()
@@ -95,21 +96,25 @@ async def create_embedding_task(
     """
     Create an embedding task for file processing
 
-    The server uses a fixed local open-source embedding model; no provider/model is required.
-    - **file_id**: File identifier to process
-    - **chunks**: Optional list of text chunks to embed
+    - **file_id**: File identifier to process (optional if text is provided)
+    - **text**: Text to embed directly (optional if file_id is provided)
+    - **model_id**: Optional model identifier to use specific model and credentials
+
+    If no model_id is provided, uses default local open-source embedding model.
+    If model_id is provided, retrieves model configuration and credentials from database.
 
     Returns task ID for monitoring progress
     """
 
     try:
-        owner_id = await get_owner(current_user)
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.info(f"Creating embedding task for user {owner_id}")
 
         # Create embedding task
-        result = await EmbeddingService.create_embedding_task(
+
+        result = await embedding_service.create_embedding_task(
             user_id=owner_id,
-            file_id=request.file_id,
+            embedding_data=request
         )
 
         if not result.get("success", False):
@@ -164,11 +169,11 @@ async def create_search_task(
     """
 
     try:
-        owner_id = await get_owner(current_user)
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.info(f"Creating search task for user {owner_id}")
 
         # Create search task
-        result = await EmbeddingService.create_search_task(
+        result = await embedding_service.create_search_task(
             user_id=owner_id,
             credential_id=request.credential_id,
             query_text=request.query_text,
@@ -213,7 +218,8 @@ async def create_search_task(
     description="Get the current status of an embedding task"
 )
 async def get_task_status(
-    task_id: str = Path(..., description="Task identifier")
+    task_id: str = Path(..., description="Task identifier"),
+    current_user: dict = Depends(verify_token)
 ) -> JSONResponse:
     """
     Get the status of an embedding task
@@ -224,10 +230,11 @@ async def get_task_status(
     """
 
     try:
+        _, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.debug(f"Getting status for task: {task_id}")
 
         # Get task status from service
-        status_data = EmbeddingService.get_task_status(task_id)
+        status_data = embedding_service.get_task_status(task_id)
 
         response_data = TaskStatusResponse(**status_data)
 
@@ -251,7 +258,8 @@ async def get_task_status(
     description="Get the result of a completed embedding task"
 )
 async def get_task_result(
-    task_id: str = Path(..., description="Task identifier")
+    task_id: str = Path(..., description="Task identifier"),
+    current_user: dict = Depends(verify_token)
 ) -> JSONResponse:
     """
     Get the result of a completed embedding task
@@ -263,9 +271,10 @@ async def get_task_result(
 
     try:
         logger.debug(f"Getting result for task: {task_id}")
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
 
         # Get task result from service
-        result_data = EmbeddingService.get_task_result(task_id)
+        result_data = embedding_service.get_task_result(task_id)
 
         response_data = TaskResultResponse(**result_data)
 
@@ -289,7 +298,8 @@ async def get_task_result(
     description="Cancel a running embedding task"
 )
 async def cancel_task(
-    task_id: str = Path(..., description="Task identifier")
+    task_id: str = Path(..., description="Task identifier"),
+    current_user: dict = Depends(verify_token)
 ) -> JSONResponse:
     """
     Cancel a running embedding task
@@ -300,10 +310,11 @@ async def cancel_task(
     """
 
     try:
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.info(f"Cancelling task: {task_id}")
 
         # Cancel task via service
-        cancel_data = EmbeddingService.cancel_task(task_id)
+        cancel_data = embedding_service.cancel_task(task_id)
 
         response_data = TaskCancelResponse(**cancel_data)
 
@@ -320,35 +331,36 @@ async def cancel_task(
         )
 
 
-@router.get(
-    "/active",
-    response_model=ActiveTasksResponse,
-    summary="Get Active Tasks",
-    description="Get information about currently active embedding tasks"
-)
-async def get_active_tasks() -> JSONResponse:
-    """
-    Get information about currently active embedding tasks
+# @router.get(
+#     "/active",
+#     response_model=ActiveTasksResponse,
+#     summary="Get Active Tasks",
+#     description="Get information about currently active embedding tasks"
+# )
+# async def get_active_tasks(current_user: dict = Depends(verify_token)) -> JSONResponse:
+#     """
+#     Get information about currently active embedding tasks
 
-    Returns information about all active tasks across all workers
-    """
+#     Returns information about all active tasks across all workers
+#     """
 
-    try:
-        logger.debug("Getting active tasks information")
+#     try:
+#         owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
+#         logger.debug("Getting active tasks information")
 
-        # Get active tasks from service
-        active_data = EmbeddingService.get_active_tasks()
+#         # Get active tasks from service
+#         active_data = embedding_service.get_active_tasks()
 
-        response_data = ActiveTasksResponse(**active_data)
+#         response_data = ActiveTasksResponse(**active_data)
 
-        return ok(
-            data=response_data.model_dump(),
-            message="Active tasks retrieved successfully"
-        )
+#         return ok(
+#             data=response_data.model_dump(),
+#             message="Active tasks retrieved successfully"
+#         )
 
-    except Exception as e:
-        logger.error(f"Failed to get active tasks: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get active tasks: {str(e)}"
-        )
+#     except Exception as e:
+#         logger.error(f"Failed to get active tasks: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Failed to get active tasks: {str(e)}"
+#         )

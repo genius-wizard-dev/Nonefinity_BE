@@ -1,6 +1,6 @@
 from app.services.minio_client_service import MinIOClientService
 from fastapi import UploadFile
-from app.schemas.file import FileCreate, FileUpdate
+from app.schemas.file import FileCreate, FileUpdate, FileResponse
 from app.crud.file import FileCRUD
 from app.core.exceptions import AppError
 from app.utils import get_logger
@@ -407,13 +407,35 @@ class FileService:
             raise AppError(f"Failed to get download URL: {str(e)}")
 
 
-    async def get_list_allow_convert(self, user_id: str) -> List[FileCreate]:
-        """Get list of files that are allowed to be converted to dataset"""
-        files = await self.crud.list(filter_={"owner_id": user_id, "file_type": {"$in": ["text/csv", "application/csv", "text/plain", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "application/vnd.ms-excel.sheet.macroEnabled.12", "application/vnd.ms-excel.template.macroEnabled.12", "application/vnd.openxmlformats-officedocument.spreadsheetml.template"]}})
+    async def get_list_allow_convert(self, user_id: str) -> List[dict]:
+        """
+        Get list of files that are allowed to be converted to dataset.
+        Only returns files, not a single file by id.
+        """
+        allowed_types = [
+            "text/csv",
+            "application/csv",
+            "text/plain",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-excel.sheet.macroEnabled.12",
+            "application/vnd.ms-excel.template.macroEnabled.12",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+        ]
+        files = await self.crud.list(
+            filter_={"owner_id": user_id, "file_type": {"$in": allowed_types}}
+        )
+
         return files
 
-    async def get_list_allow_extract(self, user_id: str) -> List[FileCreate]:
-        """Get list of files that are allowed to be extracted (pdf or txt)"""
+    async def get_list_allow_extract(self, user_id: str) -> List[dict]:
+        """
+        Get list of files that are allowed to be extracted (pdf or txt).
+        Only returns files, not a single file by id.
+        """
         allowed_types = ["application/pdf", "text/plain"]
-        files = await self.crud.list(filter_={"owner_id": user_id, "file_type": {"$in": allowed_types}})
+        files = await self.crud.list(
+            filter_={"owner_id": user_id, "file_type": {"$in": allowed_types}}
+        )
+
         return files

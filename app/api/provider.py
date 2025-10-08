@@ -5,6 +5,7 @@ from app.services.credential_service import CredentialService
 from app.services.provider_service import ProviderService
 from app.utils.api_response import ok
 from app.utils import get_logger
+from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -26,7 +27,7 @@ async def get_providers(
 
 @router.get("/task/{task_type}")
 async def get_providers_by_task(
-    task_type: str = Path(..., description="Task type (e.g., chat, embedding, moderation)"),
+    task_type: ModelType = Path(..., description="Task type (e.g., chat, embedding, moderation)"),
     active_only: bool = Query(True, description="Only return active providers")
 ):
     """Get providers that support a specific task type"""
@@ -41,6 +42,7 @@ async def get_providers_by_task(
                 base_url=provider.base_url,
                 logo_url=provider.logo_url,
                 docs_url=provider.docs_url,
+                list_models_url=provider.list_models_url,
                 api_key_header=provider.api_key_header,
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
@@ -75,6 +77,7 @@ async def get_provider_details(
             base_url=provider.base_url,
             logo_url=provider.logo_url,
             docs_url=provider.docs_url,
+            list_models_url=provider.list_models_url,
             api_key_header=provider.api_key_header,
             api_key_prefix=provider.api_key_prefix,
             is_active=provider.is_active,
@@ -95,7 +98,7 @@ async def get_provider_details(
 @router.get("/{provider_name}/tasks/{task_type}")
 async def get_provider_task_config(
     provider_name: str = Path(..., description="Provider name"),
-    task_type: str = Path(..., description="Task type")
+    task_type: ModelType = Path(..., description="Task type")
 ):
     """Get task configuration for a specific provider and task type"""
     try:

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Form
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_201_CREATED
 from typing import Optional
+from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate
+    CredentialCreate, CredentialUpdate, SecureKeyRequest
 )
 from app.services.credential_service import CredentialService
 from app.services import user_service
@@ -11,6 +12,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
+from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -31,45 +33,37 @@ async def get_owner_and_service(current_user):
 
 @router.post("")
 async def create_credential(
-    name: str = Form(...),
-    provider_id: str = Form(...),
-    api_key: str = Form(...),
-    base_url: Optional[str] = Form(None),
-    current_user = Depends(verify_token)
+    current_user = Depends(verify_token),
+    credential_data: CredentialCreate = Body(..., description="Credential data")
 ):
     """Create a new credential"""
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
 
-        credential_data = CredentialCreate(
-            name=name,
-            provider_id=provider_id,
-            api_key=api_key,
-            base_url=base_url
-        )
+        success = await credential_service.create_credential(owner_id, credential_data)
 
-        result = await credential_service.create_credential(owner_id, credential_data)
-        return created(data=result, message="Credential created successfully")
+        if not success:
+            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Failed to create credential")
 
+        return created(message="Credential created successfully")
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error creating credential: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create credential")
-
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create credential")
 
 @router.get("")
 async def list_credentials(
     current_user = Depends(verify_token),
     skip: int = Query(0),
-    limit: int = Query(100)
+    limit: int = Query(100),
+    active: Optional[bool] = Query(None),
+    task_type: Optional[ModelType] = Query(None)
 ):
     """Get all credentials for the current user"""
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
-        result = await credential_service.get_credentials(owner_id, skip, limit)
+        result = await credential_service.get_credentials(owner_id, skip, limit, active, task_type)
         return ok(data=result, message="Credentials retrieved successfully")
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -102,40 +96,26 @@ async def get_credential(
 @router.put("/{credential_id}")
 async def update_credential(
     credential_id: str = Path(..., description="Credential ID"),
-    name: Optional[str] = Form(None),
-    api_key: Optional[str] = Form(None),
-    base_url: Optional[str] = Form(None),
-    is_active: Optional[bool] = Form(None),
+    update_data: CredentialUpdate = Body(..., description="Update data"),
     current_user = Depends(verify_token)
 ):
     """Update a credential"""
     try:
+
         owner_id, credential_service = await get_owner_and_service(current_user)
 
-        update_data = CredentialUpdate(
-            name=name,
-            api_key=api_key,
-            base_url=base_url,
-            is_active=is_active
-        )
+        success = await credential_service.update_credential(owner_id, credential_id, update_data)
 
-        # Check if any fields are provided
-        if not any(v is not None for v in update_data.model_dump().values()):
-            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="No fields provided for update")
+        if not success:
+            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Failed to update credential")
 
-        result = await credential_service.update_credential(owner_id, credential_id, update_data)
-
-        if not result:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Credential not found")
-
-        return ok(data=result, message="Credential updated successfully")
-    except HTTPException:
-        raise
+        return ok(message="Credential updated successfully")
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating credential: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update credential")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update credential")
+
 
 
 @router.delete("/{credential_id}")
@@ -151,7 +131,7 @@ async def delete_credential(
         if not success:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Credential not found")
 
-        return ok(data={"credential_id": credential_id}, message="Credential deleted successfully")
+        return ok( message="Credential deleted successfully")
     except HTTPException:
         raise
     except Exception as e:
@@ -219,16 +199,12 @@ async def check_encryption_health(
 
 @router.post("/encryption/generate-key")
 async def generate_secure_key(
-    length: int = Form(32, description="Key length in bytes"),
+    request: SecureKeyRequest,
     current_user = Depends(verify_token)
 ):
     """Generate a cryptographically secure key for CREDENTIAL_SECRET_KEY"""
     try:
-        if length < 16 or length > 128:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail="Key length must be between 16 and 128 bytes"
-            )
+        length = request.length
 
         from datetime import datetime
         secure_key = CredentialService.generate_secure_key(length)

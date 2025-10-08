@@ -12,8 +12,8 @@ from app.databases.mongodb import mongodb
 from app.models import DOCUMENT_MODELS
 import asyncio
 from app.crud.task import TaskCRUD
-
-
+from sentence_transformers import SentenceTransformer
+from app.crud.user import UserCRUD
 logger = get_logger(__name__)
 
 
@@ -109,7 +109,7 @@ def _simple_text_split(text: str, chunk_size: int = 1000, chunk_overlap: int = 2
 
 
 def _hf_local_embed(batch_texts: List[str], model: str) -> List[List[float]]:
-    from sentence_transformers import SentenceTransformer
+
 
     embedder = SentenceTransformer(model)
     vectors = embedder.encode(
@@ -117,12 +117,66 @@ def _hf_local_embed(batch_texts: List[str], model: str) -> List[List[float]]:
     return [v.tolist() for v in vectors]
 
 
+def _langchain_embed(provider: str, model: str, texts: List[str], credential: Dict[str, Any]) -> List[List[float]]:
+    """Create embeddings using LangChain when credentials are provided"""
+    try:
+        # Import LangChain modules dynamically
+        p = provider.lower()
+        if p == "openai" or p == "openrouter" or p == "huggingface":
+            # Default to OpenAIEmbeddings for openai, opnerouter, huggingface (if base_url is provided)
+            from langchain_openai.embeddings import OpenAIEmbeddings
+            embeddings = OpenAIEmbeddings(
+                model=model,
+                api_key=credential.get("api_key"),
+                base_url=credential.get("base_url")
+            )
+        elif p == "google":
+            from langchain_google_vertexai.embeddings import VertexAIEmbeddings
+            embeddings = VertexAIEmbeddings(
+                model=model,
+                project=credential.get("project"),
+                location=credential.get("location")
+            )
+        else:
+            # Default to OpenAIEmbeddings for any other provider
+            from langchain_openai.embeddings import OpenAIEmbeddings
+            embeddings = OpenAIEmbeddings(
+                model=model,
+                api_key=credential.get("api_key"),
+                base_url=credential.get("base_url")
+            )
+
+        # Generate embeddings
+        vectors = embeddings.embed_documents(texts)
+        return vectors
+
+    except ImportError as e:
+        logger.error(f"Failed to import LangChain modules: {e}")
+        raise ValueError(f"LangChain modules not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to create embeddings with LangChain: {e}")
+        raise ValueError(f"LangChain embedding failed: {e}")
+
+
 def _embed(provider: str, model: str, texts: List[str], credential: Dict[str, Any]) -> List[List[float]]:
+    """Create embeddings using either LangChain (if credentials provided) or local models"""
     p = (provider or "").lower()
+
+    # Check if credentials are provided and not empty
+    has_credentials = credential and any(credential.values())
+
+    if has_credentials:
+        # Use LangChain for external providers when credentials are available
+        if p in ("openai", "huggingface", "google"):
+            return _langchain_embed(provider, model, texts, credential)
+        else:
+            logger.warning(f"Provider {provider} not supported with LangChain, falling back to local")
+
+    # Fallback to local models (HuggingFace sentence-transformers)
     if p in ("huggingface", "hf", "local"):
         return _hf_local_embed(texts, model=model)
-    # Remove OpenAI path entirely
-    raise ValueError(f"Unsupported provider: {provider}")
+
+    raise ValueError(f"Unsupported provider: {provider}. Use 'huggingface', 'local', or provide credentials for 'openai', 'google'")
 
 
 @celery_app.task(name="tasks.embedding.run_embedding")
@@ -140,7 +194,7 @@ def run_embedding(user_id: str, file_id: str, provider: str, model_id: str, cred
         raise ValueError("File not found")
 
     # 2) Download bytes from MinIO using user's secret key
-    from app.crud.user import UserCRUD
+
     user_crud = UserCRUD()
     user = asyncio.get_event_loop().run_until_complete(user_crud.get_by_id(user_id))
     secret_key = getattr(user, "minio_secret_key", None) if user else None
@@ -246,3 +300,63 @@ def search_similar(query_text: str, provider: str, model_id: str, credential: Di
         }
         for r in results
     ]
+
+
+@celery_app.task(name="tasks.embedding.run_text_embedding")
+def run_text_embedding(user_id: str, text: str, provider: str, model_id: str, credential: Dict[str, Any]) -> Dict[str, Any]:
+    """Create embeddings for direct text input using LangChain or local models"""
+    _ensure_mongo_initialized()
+    logger.info(f"Run text embedding for user={user_id} provider={provider} model={model_id}")
+
+    qdrant = QdrantService()
+
+    if not text or not text.strip():
+        return {"message": "No text provided", "total_chunks": 0}
+
+    # Split text into chunks
+    chunks = _simple_text_split(text.strip())
+
+    if not chunks:
+        return {"message": "No content to embed", "total_chunks": 0}
+
+    # Create embeddings using LangChain or local models
+    try:
+        vectors = _embed(provider=provider, model=model_id, texts=chunks, credential=credential or {})
+    except Exception as e:
+        logger.error(f"Failed to create embeddings: {e}")
+        return {
+            "success": False,
+            "error": f"Embedding creation failed: {str(e)}",
+            "total_chunks": 0
+        }
+
+    # Ensure collection created
+    qdrant.ensure_collection(vector_size=len(vectors[0]))
+
+    # Upsert to Qdrant
+    points: List[qm.PointStruct] = []
+    from uuid import uuid4
+    for idx, vec in enumerate(vectors):
+        point = qm.PointStruct(
+            id=str(uuid4()),
+            vector=vec,
+            payload={
+                "user_id": user_id,
+                "file_id": None,  # Direct text embedding
+                "chunk_index": idx,
+                "text": chunks[idx],
+            },
+        )
+        points.append(point)
+
+    qdrant.upsert_points(points)
+
+    return {
+        "user_id": user_id,
+        "file_id": None,
+        "provider": provider,
+        "model_id": model_id,
+        "total_chunks": len(chunks),
+        "successful_chunks": len(points),
+        "success": True
+    }
