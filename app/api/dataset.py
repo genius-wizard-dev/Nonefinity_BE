@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing import Optional
 
 from app.services.dataset_service import DatasetService
 from app.services import user_service
@@ -11,10 +10,23 @@ from app.utils import get_logger
 from app.schemas.dataset import (
    DatasetUpdate, DatasetUpdateRequest,
     DatasetCreateRequest, DatasetConvertRequest, DatasetQueryRequest,
-    DatasetSchemaUpdateRequest
+    DatasetSchemaUpdateRequest, Dataset
 )
+from app.schemas.response import ApiResponse, ApiError
+
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    prefix="/datasets",
+    tags=["Datasets"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
 
@@ -31,12 +43,73 @@ async def get_user_and_service(current_user):
     return user_id, dataset_service
 
 
-@router.post("/create")
+@router.post(
+    "/create",
+    response_model=ApiResponse[Dataset],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Dataset",
+    description="Create a new dataset with defined schema",
+    responses={
+        201: {"description": "Dataset created successfully"},
+        400: {"description": "Invalid request or schema validation error"},
+        401: {"description": "Authentication required"},
+        422: {"description": "Validation error"}
+    }
+)
 async def create_dataset(
     request: DatasetCreateRequest,
     current_user = Depends(verify_token)
 ):
-    """Create a new dataset"""
+    """
+    Create a new dataset
+
+    This endpoint creates a new dataset with a defined schema. The dataset can be used
+    to store and query structured data.
+
+    **Parameters:**
+    - **dataset_name**: Name of the dataset (required)
+    - **description**: Optional description of the dataset
+    - **schema**: List of schema fields defining the table structure (required)
+
+    **Schema Fields:**
+    - **column_name**: Name of the column
+    - **column_type**: Data type (string, integer, float, boolean, date, etc.)
+    - **desc**: Optional column description
+    - **old_name**: Optional old column name for renaming
+
+    **Returns:**
+    - Complete dataset information including ID and timestamps
+
+    **Example:**
+    ```json
+    {
+        "dataset_name": "Customer Data",
+        "description": "Customer information dataset",
+        "schema": [
+            {
+                "column_name": "customer_id",
+                "column_type": "integer",
+                "desc": "Unique customer identifier"
+            },
+            {
+                "column_name": "name",
+                "column_type": "string",
+                "desc": "Customer full name"
+            },
+            {
+                "column_name": "email",
+                "column_type": "string",
+                "desc": "Customer email address"
+            }
+        ]
+    }
+    ```
+
+    **Note:**
+    - Dataset names must be unique per user
+    - Schema must contain at least one field
+    - Column types must be valid SQL types
+    """
     try:
         user_id, dataset_service = await get_user_and_service(current_user)
         result = await dataset_service.create_dataset(

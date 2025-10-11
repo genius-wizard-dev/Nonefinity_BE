@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm

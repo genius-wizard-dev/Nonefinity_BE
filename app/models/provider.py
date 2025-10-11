@@ -4,7 +4,6 @@ from pydantic import Field, validator
 from pymongo import IndexModel
 
 from app.models.time_mixin import TimeMixin
-from app.schemas.model import ModelType
 
 
 class ProviderTaskConfig(Document):

@@ -2,7 +2,7 @@
 API endpoints for creating and managing vector embedding tasks with external AI Tasks System
 """
 
-from fastapi import APIRouter, HTTPException, Path, Depends
+from fastapi import APIRouter, HTTPException, Path, Depends, status
 from fastapi.responses import JSONResponse
 
 from app.schemas.embedding import (
@@ -11,11 +11,10 @@ from app.schemas.embedding import (
     TaskResponse,
     TaskStatusResponse,
     TaskResultResponse,
-    TaskCancelResponse,
-    ActiveTasksResponse
+    TaskCancelResponse
 )
+from app.schemas.response import ApiResponse, ApiError
 from app.services.embedding_service import EmbeddingService
-from app.services.model_service import ModelService
 from app.services.user import user_service
 from app.utils.api_response import ok
 from app.utils.logging import get_logger
@@ -24,7 +23,17 @@ from starlette.status import HTTP_400_BAD_REQUEST
 
 logger = get_logger(__name__)
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/embeddings",
+    tags=["Embeddings"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
 async def get_owner_and_embedding_service(current_user):
@@ -47,9 +56,16 @@ async def get_owner_and_embedding_service(current_user):
 
 @router.post(
     "/create",
-    response_model=TaskResponse,
+    response_model=ApiResponse[TaskResponse],
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Create Embedding Task",
-    description="Create an embedding task for text chunks"
+    description="Create an embedding task for processing files or text into vector embeddings",
+    responses={
+        202: {"description": "Task created successfully"},
+        400: {"description": "Invalid request or file not found"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Task creation failed"}
+    }
 )
 async def create_embedding_task(
     request: EmbeddingRequest,
@@ -58,14 +74,37 @@ async def create_embedding_task(
     """
     Create an embedding task for file processing
 
-    - **file_id**: File identifier to process (optional if text is provided)
-    - **text**: Text to embed directly (optional if file_id is provided)
+    This endpoint creates an asynchronous task to generate vector embeddings from a file.
+    The task runs in the background and can be monitored using the returned task ID.
+
+    **Parameters:**
+    - **file_id**: File identifier to process (required)
     - **model_id**: Optional model identifier to use specific model and credentials
 
-    If no model_id is provided, uses default local open-source embedding model.
-    If model_id is provided, retrieves model configuration and credentials from database.
+    **Process:**
+    1. File is retrieved and processed into text chunks
+    2. Text chunks are converted to vector embeddings using the specified model
+    3. Embeddings are stored in the vector database
+    4. Task status can be monitored using the task ID
 
-    Returns task ID for monitoring progress
+    **Returns:**
+    - **task_id**: Unique identifier for monitoring task progress
+    - **success**: Boolean indicating if task was created successfully
+    - **message**: Human-readable status message
+    - **metadata**: Additional task information (estimated duration, etc.)
+
+    **Example:**
+    ```json
+    {
+        "file_id": "507f1f77bcf86cd799439011",
+        "model_id": "sentence-transformers/all-MiniLM-L6-v2"
+    }
+    ```
+
+    **Note:**
+    - Tasks run asynchronously
+    - Use the task ID to monitor progress via `/status/{task_id}`
+    - Large files may take several minutes to process
     """
 
     try:
@@ -109,9 +148,16 @@ async def create_embedding_task(
 
 @router.post(
     "/search",
-    response_model=TaskResponse,
+    response_model=ApiResponse[TaskResponse],
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Create Search Task",
-    description="Create a similarity search task"
+    description="Create a similarity search task to find relevant content using vector embeddings",
+    responses={
+        202: {"description": "Search task created successfully"},
+        400: {"description": "Invalid request or missing credentials"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Search task creation failed"}
+    }
 )
 async def create_search_task(
     request: SearchRequest,
@@ -120,14 +166,45 @@ async def create_search_task(
     """
     Create a similarity search task
 
-    - **credential_id**: Credential identifier for API key
-    - **query_text**: Text to search for
-    - **provider**: AI provider (default: openai)
-    - **model_id**: Model identifier (default: text-embedding-ada-002)
-    - **file_id**: Optional filter by file
+    This endpoint creates an asynchronous task to perform semantic search across
+    previously embedded content. The search uses vector similarity to find the
+    most relevant content based on the query text.
+
+    **Parameters:**
+    - **query_text**: Text to search for (required)
+    - **provider**: AI provider (huggingface, openai, local)
+    - **model_id**: Model identifier for embedding generation
+    - **credential_id**: Optional credential ID for API access
+    - **file_id**: Optional filter to search within specific file
     - **limit**: Number of results to return (1-100, default: 5)
 
-    Returns task ID for monitoring progress
+    **Process:**
+    1. Query text is converted to vector embedding
+    2. Vector similarity search is performed against stored embeddings
+    3. Most relevant chunks are returned with similarity scores
+    4. Results include original text and metadata
+
+    **Returns:**
+    - **task_id**: Unique identifier for monitoring search progress
+    - **success**: Boolean indicating if search was initiated successfully
+    - **message**: Human-readable status message
+    - **metadata**: Additional search information
+
+    **Example:**
+    ```json
+    {
+        "query_text": "machine learning algorithms",
+        "provider": "huggingface",
+        "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+        "file_id": "507f1f77bcf86cd799439011",
+        "limit": 10
+    }
+    ```
+
+    **Note:**
+    - Search results are ranked by similarity score
+    - Results include original text chunks and source information
+    - Use the task ID to retrieve results via `/result/{task_id}`
     """
 
     try:

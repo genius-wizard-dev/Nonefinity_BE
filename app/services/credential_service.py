@@ -11,7 +11,7 @@ from cryptography.fernet import InvalidToken
 from app.crud.credential import CredentialCRUD
 from app.crud.model import ModelCRUD
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
+    CredentialCreate, CredentialUpdate, CredentialDetail,
     CredentialList
 )
 from app.schemas.provider import ProviderResponse, ProviderList

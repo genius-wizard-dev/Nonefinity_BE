@@ -1,22 +1,68 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from app.services import FileService, user_service
-from app.schemas.response import ApiResponse
+from app.schemas.response import ApiResponse, ApiError
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
-from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest, UploadUrlResponse, FileMetadataRequest
+from app.schemas.file import (
+    FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest,
+    UploadUrlResponse, FileMetadataRequest
+)
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from typing import Optional, List
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/files",
+    tags=["Files"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
-@router.post("/upload-url", response_model=ApiResponse[UploadUrlResponse])
-async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verify_token)):
-    """Get presigned upload URL for file upload
+@router.post(
+    "/upload-url",
+    response_model=ApiResponse[UploadUrlResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get Presigned Upload URL",
+    description="Generate a presigned URL for direct file upload to MinIO storage",
+    responses={
+        200: {"description": "Upload URL generated successfully"},
+        400: {"description": "Invalid request or user not found"},
+        401: {"description": "Authentication required"}
+    }
+)
+async def get_upload_url(
+    request: UploadUrlRequest,
+    current_user = Depends(verify_token)
+):
+    """
+    Get presigned upload URL for file upload
 
-    Args:
-        request: Upload URL request with file metadata
-        current_user: Current user
+    This endpoint generates a presigned URL that allows direct file upload to MinIO storage
+    without going through the API server. The URL is valid for a limited time.
+
+    **Parameters:**
+    - **file_name**: Original name of the file to upload
+    - **file_type**: MIME type of the file (e.g., application/pdf, image/jpeg)
+    - **file_size**: Optional file size in bytes
+
+    **Returns:**
+    - **upload_url**: Presigned URL for direct upload
+    - **object_name**: Object name in MinIO storage
+    - **expires_in**: URL expiry time in minutes
+
+    **Example:**
+    ```json
+    {
+        "file_name": "document.pdf",
+        "file_type": "application/pdf",
+        "file_size": 1024000
+    }
+    ```
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
@@ -39,13 +85,46 @@ async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verif
     except Exception:
         raise AppError("Failed to generate upload URL", status_code=HTTP_400_BAD_REQUEST)
 
-@router.post("/upload", response_model=ApiResponse[FileResponse])
-async def save_file_metadata(request: FileMetadataRequest, current_user = Depends(verify_token)):
-    """Save file metadata after upload to MinIO
+@router.post(
+    "/upload",
+    response_model=ApiResponse[FileResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Save File Metadata",
+    description="Save file metadata after successful upload to MinIO storage",
+    responses={
+        201: {"description": "File metadata saved successfully"},
+        400: {"description": "Invalid request or user not found"},
+        401: {"description": "Authentication required"}
+    }
+)
+async def save_file_metadata(
+    request: FileMetadataRequest,
+    current_user = Depends(verify_token)
+):
+    """
+    Save file metadata after upload to MinIO
 
-    Args:
-        request: File metadata after upload
-        current_user: Current user
+    This endpoint saves file metadata to the database after a file has been successfully
+    uploaded to MinIO storage using the presigned URL.
+
+    **Parameters:**
+    - **object_name**: Object name in MinIO storage (from upload URL response)
+    - **file_name**: Original file name
+    - **file_type**: MIME type of the file
+    - **file_size**: File size in bytes (optional)
+
+    **Returns:**
+    - Complete file information including database ID and timestamps
+
+    **Example:**
+    ```json
+    {
+        "object_name": "raw/user123/document.pdf",
+        "file_name": "my-document.pdf",
+        "file_type": "application/pdf",
+        "file_size": 1024000
+    }
+    ```
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
@@ -70,13 +149,38 @@ async def save_file_metadata(request: FileMetadataRequest, current_user = Depend
     except Exception:
         raise AppError("Failed to save file metadata", status_code=HTTP_400_BAD_REQUEST)
 
-@router.delete("/{file_id}", response_model=ApiResponse[bool])
-async def delete_file(file_id: str, current_user = Depends(verify_token)):
-    """Delete file from raw/ folder
+@router.delete(
+    "/{file_id}",
+    response_model=ApiResponse[bool],
+    status_code=status.HTTP_200_OK,
+    summary="Delete File",
+    description="Delete a file from storage and database",
+    responses={
+        200: {"description": "File deleted successfully"},
+        400: {"description": "File deletion failed"},
+        401: {"description": "Authentication required"},
+        404: {"description": "File not found"}
+    }
+)
+async def delete_file(
+    file_id: str = Path(..., description="File ID to delete"),
+    current_user = Depends(verify_token)
+):
+    """
+    Delete file from storage and database
 
-    Args:
-        file_id: File ID
-        current_user: Current user
+    This endpoint permanently deletes a file from both MinIO storage and the database.
+    The operation cannot be undone.
+
+    **Parameters:**
+    - **file_id**: Unique identifier of the file to delete
+
+    **Returns:**
+    - Success status indicating whether the deletion was successful
+
+    **Note:**
+    - This operation is irreversible
+    - File will be removed from both storage and database
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
@@ -93,12 +197,45 @@ async def delete_file(file_id: str, current_user = Depends(verify_token)):
     return ok(message="File deleted successfully")
 
 
-@router.get("/list", response_model=ApiResponse[list[FileResponse]])
+@router.get(
+    "/list",
+    response_model=ApiResponse[List[FileResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="List Files",
+    description="Get a list of all files for the current user",
+    responses={
+        200: {"description": "Files retrieved successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def list_files(current_user = Depends(verify_token)):
-    """List all files in raw/ folder
+    """
+    List all files for the current user
 
-    Args:
-        current_user: Current user
+    This endpoint retrieves a list of all files owned by the authenticated user.
+    Files are returned with complete metadata including size, type, and timestamps.
+
+    **Returns:**
+    - List of file objects with complete metadata
+    - Each file includes ID, name, type, size, and timestamps
+
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "message": "Files listed successfully",
+        "data": [
+            {
+                "id": "507f1f77bcf86cd799439011",
+                "file_name": "document.pdf",
+                "file_type": "application/pdf",
+                "file_size": 1024000,
+                "created_at": "2024-01-15T10:30:00Z"
+            }
+        ]
+    }
+    ```
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)

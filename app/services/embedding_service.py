@@ -2,7 +2,7 @@
 Service for creating and managing vector embedding tasks with external AI Tasks System
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import asyncio
 
 from app.utils.celery_client import embedding_client

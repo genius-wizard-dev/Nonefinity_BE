@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from typing import Optional
 
-from app.schemas.model import ModelCreate, ModelUpdate, ModelType, ModelCreateRequest, ModelUpdateRequest
+from app.schemas.model import ModelCreate, ModelType, ModelCreateRequest, ModelUpdateRequest, ModelResponse, ModelListResponse
+from app.schemas.response import ApiResponse, ApiError
 from app.services.model_service import ModelService
 from app.services import user_service
 from app.core.exceptions import AppError
@@ -11,7 +12,18 @@ from app.utils.api_response import created, ok
 from app.utils import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    prefix="/models",
+    tags=["AI Models"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
 async def get_owner_and_service(current_user):
@@ -27,12 +39,58 @@ async def get_owner_and_service(current_user):
     return owner_id, model_service
 
 
-@router.post("")
+@router.post(
+    "",
+    response_model=ApiResponse[ModelResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create AI Model",
+    description="Create a new AI model configuration for chat or embedding tasks",
+    responses={
+        201: {"description": "Model created successfully"},
+        400: {"description": "Invalid request or credential not found"},
+        401: {"description": "Authentication required"},
+        422: {"description": "Validation error"}
+    }
+)
 async def create_model(
     request: ModelCreateRequest,
     current_user = Depends(verify_token)
 ):
-    """Create a new AI model configuration"""
+    """
+    Create a new AI model configuration
+
+    This endpoint creates a new AI model configuration that can be used for chat
+    completions or embedding generation. The model must be associated with a
+    valid credential that provides API access.
+
+    **Parameters:**
+    - **credential_id**: Associated credential ID (required)
+    - **name**: Display name for the model (required)
+    - **model**: AI model identifier (e.g., gpt-4, text-embedding-ada-002)
+    - **type**: Model type (chat or embedding)
+    - **description**: Optional description of the model
+    - **is_active**: Whether the model is active (default: true)
+
+    **Returns:**
+    - Complete model information including database ID and timestamps
+
+    **Example:**
+    ```json
+    {
+        "credential_id": "507f1f77bcf86cd799439011",
+        "name": "GPT-4 Chat Model",
+        "model": "gpt-4",
+        "type": "chat",
+        "description": "OpenAI GPT-4 model for chat completions",
+        "is_active": true
+    }
+    ```
+
+    **Note:**
+    - Model must be associated with a valid credential
+    - Model identifier must match the provider's naming convention
+    - Only one model can be set as default per type per user
+    """
     try:
         owner_id, model_service = await get_owner_and_service(current_user)
 
@@ -42,7 +100,7 @@ async def create_model(
             model=request.model,
             type=request.type,
             description=request.description,
-            is_active=request.is_active,  
+            is_active=request.is_active,
         )
 
         success = await model_service.create_model(owner_id, model_data)
@@ -62,16 +120,68 @@ async def create_model(
         raise HTTPException(status_code=500, detail="Failed to create model")
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=ApiResponse[ModelListResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List AI Models",
+    description="Get a paginated list of AI models for the current user with optional filtering",
+    responses={
+        200: {"description": "Models retrieved successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def list_models(
     current_user = Depends(verify_token),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    type: Optional[ModelType] = Query(None),
-    credential_id: Optional[str] = Query(None),
-    active_only: bool = Query(False)
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Number of items to return"),
+    type: Optional[ModelType] = Query(None, description="Filter by model type (chat or embedding)"),
+    credential_id: Optional[str] = Query(None, description="Filter by credential ID"),
+    active_only: bool = Query(False, description="Show only active models")
 ):
-    """Get all models for the current user"""
+    """
+    Get all models for the current user
+
+    This endpoint retrieves a paginated list of AI models owned by the authenticated user.
+    Results can be filtered by type, credential, and active status.
+
+    **Query Parameters:**
+    - **skip**: Number of items to skip (pagination)
+    - **limit**: Number of items to return (1-100, default: 50)
+    - **type**: Filter by model type (chat or embedding)
+    - **credential_id**: Filter by specific credential ID
+    - **active_only**: Show only active models (default: false)
+
+    **Returns:**
+    - **models**: List of model objects with complete metadata
+    - **total**: Total number of models matching the criteria
+    - **skip**: Number of items skipped
+    - **limit**: Number of items per page
+
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "message": "Models retrieved successfully",
+        "data": {
+            "models": [
+                {
+                    "id": "507f1f77bcf86cd799439011",
+                    "name": "GPT-4 Chat Model",
+                    "model": "gpt-4",
+                    "type": "chat",
+                    "is_active": true,
+                    "created_at": "2024-01-15T10:30:00Z"
+                }
+            ],
+            "total": 1,
+            "skip": 0,
+            "limit": 50
+        }
+    }
+    ```
+    """
     try:
 
         owner_id, model_service = await get_owner_and_service(current_user)

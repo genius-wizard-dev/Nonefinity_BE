@@ -1,6 +1,6 @@
 from app.services.minio_client_service import MinIOClientService
 from fastapi import UploadFile
-from app.schemas.file import FileCreate, FileUpdate, FileResponse
+from app.schemas.file import FileCreate, FileUpdate
 from app.crud.file import FileCRUD
 from app.core.exceptions import AppError
 from app.utils import get_logger

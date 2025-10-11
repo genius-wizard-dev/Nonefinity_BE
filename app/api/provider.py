@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, status
 
 from app.schemas.provider import ProviderList, ProviderResponse, ProviderTaskConfigResponse
+from app.schemas.response import ApiResponse, ApiError
 from app.services.credential_service import CredentialService
 from app.services.provider_service import ProviderService
 from app.utils.api_response import ok
@@ -8,14 +9,78 @@ from app.utils import get_logger
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    prefix="/providers",
+    tags=["AI Providers"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
-@router.get("", response_model=ProviderList)
+@router.get(
+    "",
+    response_model=ApiResponse[ProviderList],
+    status_code=status.HTTP_200_OK,
+    summary="List AI Providers",
+    description="Get a list of all available AI providers with their capabilities and configuration",
+    responses={
+        200: {"description": "Providers retrieved successfully"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def get_providers(
     active_only: bool = Query(True, description="Only return active providers")
 ):
-    """Get all AI providers"""
+    """
+    Get all AI providers
+
+    This endpoint retrieves a list of all available AI providers with their capabilities,
+    configuration, and supported task types.
+
+    **Query Parameters:**
+    - **active_only**: Show only active providers (default: true)
+
+    **Returns:**
+    - **providers**: List of provider objects with complete configuration
+    - **total**: Total number of providers
+
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "message": "Providers retrieved successfully",
+        "data": {
+            "providers": [
+                {
+                    "id": "507f1f77bcf86cd799439011",
+                    "provider": "openai",
+                    "name": "OpenAI",
+                    "description": "OpenAI API for GPT models",
+                    "base_url": "https://api.openai.com/v1",
+                    "logo_url": "https://openai.com/logo.png",
+                    "docs_url": "https://platform.openai.com/docs",
+                    "is_active": true,
+                    "support": ["chat", "embedding"],
+                    "tasks": {
+                        "chat": {
+                            "class_path": "app.providers.openai.OpenAIChatProvider",
+                            "init_params": ["api_key", "base_url"]
+                        }
+                    },
+                    "tags": ["gpt", "chat", "embedding"]
+                }
+            ],
+            "total": 1
+        }
+    }
+    ```
+    """
     try:
         credential_service = CredentialService()
         result = await credential_service.get_providers(active_only)
