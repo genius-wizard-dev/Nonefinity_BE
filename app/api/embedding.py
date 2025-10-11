@@ -41,46 +41,8 @@ async def get_owner_and_embedding_service(current_user):
     return owner_id, embedding_service
 
 
-@router.get(
-    "/models",
-    summary="Get Embedding Models",
-    description="Get all available embedding models for the current user"
-)
-async def get_embedding_models(
-    current_user: dict = Depends(verify_token)
-) -> JSONResponse:
-    """
-    Get all available embedding models for the current user
 
-    Returns list of embedding models that can be used for creating tasks
-    """
 
-    try:
-        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
-
-        # Initialize model service
-        model_service = ModelService()
-
-        # Get embedding models for user
-        result = await model_service.get_models(
-            owner_id=owner_id,
-            skip=0,
-            limit=100,
-            model_type="embedding",
-            active_only=True
-        )
-
-        return ok(
-            data=result,
-            message="Embedding models retrieved successfully"
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to get embedding models: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get embedding models: {str(e)}"
-        )
 
 
 @router.post(
