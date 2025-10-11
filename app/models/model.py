@@ -5,7 +5,6 @@ from pymongo import IndexModel
 from enum import Enum
 
 from app.models.time_mixin import TimeMixin
-from app.models.soft_delete_mixin import SoftDeleteMixin
 
 
 class ModelType(str, Enum):
@@ -14,7 +13,7 @@ class ModelType(str, Enum):
     EMBEDDING = "embedding"
 
 
-class Model(TimeMixin, SoftDeleteMixin, Document):
+class Model(TimeMixin, Document):
     """AI Model configuration for users"""
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
     credential_id: Annotated[str, Indexed()] = Field(..., description="Associated credential ID")
@@ -23,7 +22,7 @@ class Model(TimeMixin, SoftDeleteMixin, Document):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
-    is_default: bool = Field(default=False, description="Whether this is the default model for this type")
+
 
     class Settings:
         name = "models"
@@ -31,6 +30,4 @@ class Model(TimeMixin, SoftDeleteMixin, Document):
             IndexModel([("owner_id", 1), ("name", 1)], unique=True),
             IndexModel([("owner_id", 1), ("type", 1)]),
             IndexModel([("owner_id", 1), ("credential_id", 1)]),
-            IndexModel([("owner_id", 1), ("is_deleted", 1)]),
-            IndexModel([("owner_id", 1), ("type", 1), ("is_default", 1)])
         ]

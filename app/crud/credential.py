@@ -18,10 +18,13 @@ class CredentialCRUD(BaseCRUD[Credential, CredentialCreate, CredentialUpdate]):
             include_deleted=False
         )
 
-    async def get_by_owner_id(self, owner_id: str, skip: int = 0, limit: int = 100) -> List[Credential]:
+    async def get_by_owner_id(self, owner_id: str, skip: int = 0, limit: int = 100, active: Optional[bool] = None) -> List[Credential]:
         """Get credentials by owner ID"""
+        filter_dict = {"owner_id": owner_id}
+        if active is not None:
+            filter_dict["is_active"] = active
         return await self.list(
-            filter_={"owner_id": owner_id},
+            filter_=filter_dict,
             skip=skip,
             limit=limit,
             include_deleted=False

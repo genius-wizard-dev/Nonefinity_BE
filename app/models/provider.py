@@ -4,6 +4,7 @@ from pydantic import Field, validator
 from pymongo import IndexModel
 
 from app.models.time_mixin import TimeMixin
+from app.schemas.model import ModelType
 
 
 class ProviderTaskConfig(Document):
@@ -27,7 +28,7 @@ class Provider(TimeMixin, Document):
     base_url: str = Field(..., description="API base URL")
     logo_url: Optional[str] = Field(None, description="Provider logo URL")
     docs_url: Optional[str] = Field(None, description="Provider documentation URL")
-
+    list_models_url: Optional[str] = Field(None, description="Provider models URL")
     # API configuration
     api_key_header: str = Field(default="Authorization", description="Header for API key")
     api_key_prefix: str = Field(default="Bearer", description="Prefix for API key")

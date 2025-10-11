@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from typing import Optional
 
-from app.schemas.model import ModelCreate, ModelUpdate, ModelType
+from app.schemas.model import ModelCreate, ModelUpdate, ModelType, ModelCreateRequest, ModelUpdateRequest
 from app.services.model_service import ModelService
 from app.services import user_service
 from app.core.exceptions import AppError
@@ -29,13 +29,7 @@ async def get_owner_and_service(current_user):
 
 @router.post("")
 async def create_model(
-    credential_id: str = Form(...),
-    name: str = Form(...),
-    model: str = Form(...),
-    type: ModelType = Form(...),
-    description: Optional[str] = Form(None),
-    is_active: bool = Form(True),
-    is_default: bool = Form(False),
+    request: ModelCreateRequest,
     current_user = Depends(verify_token)
 ):
     """Create a new AI model configuration"""
@@ -43,22 +37,26 @@ async def create_model(
         owner_id, model_service = await get_owner_and_service(current_user)
 
         model_data = ModelCreate(
-            credential_id=credential_id,
-            name=name,
-            model=model,
-            type=type,
-            description=description,
-            is_active=is_active,
-            is_default=is_default
+            credential_id=request.credential_id,
+            name=request.name,
+            model=request.model,
+            type=request.type,
+            description=request.description,
+            is_active=request.is_active,  
         )
 
-        result = await model_service.create_model(owner_id, model_data)
-        return created(data=result, message="Model created successfully")
+        success = await model_service.create_model(owner_id, model_data)
+        if not success:
+            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Failed to create model")
 
-    except ValueError as e:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
+        return created(message="Model created successfully")
+
+    except HTTPException:
+        raise
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Error creating model: {e}")
         raise HTTPException(status_code=500, detail="Failed to create model")
@@ -75,6 +73,7 @@ async def list_models(
 ):
     """Get all models for the current user"""
     try:
+
         owner_id, model_service = await get_owner_and_service(current_user)
         result = await model_service.get_models(
             owner_id=owner_id,
@@ -160,40 +159,23 @@ async def get_model(
 @router.put("/{model_id}")
 async def update_model(
     model_id: str = Path(..., description="Model ID"),
-    name: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    is_active: Optional[bool] = Form(None),
-    is_default: Optional[bool] = Form(None),
+    request: ModelUpdateRequest = Body(...),
     current_user = Depends(verify_token)
 ):
     """Update a model configuration"""
     try:
         owner_id, model_service = await get_owner_and_service(current_user)
 
-        update_data = ModelUpdate(
-            name=name,
-            description=description,
-            is_active=is_active,
-            is_default=is_default
-        )
+        success = await model_service.update_model(owner_id, model_id, request)
 
-        # Check if any fields are provided
-        update_dict = update_data.model_dump(exclude_unset=True)
-        if not update_dict:
-            raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="No fields provided for update")
+        if not success:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Model not found or update failed")
 
-        result = await model_service.update_model(owner_id, model_id, update_data)
-
-        if not result:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Model not found")
-
-        return ok(data=result, message="Model updated successfully")
+        return ok(message="Model updated successfully")
     except HTTPException:
         raise
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error updating model: {e}")
         raise HTTPException(status_code=500, detail="Failed to update model")
@@ -212,7 +194,7 @@ async def delete_model(
         if not success:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Model not found")
 
-        return ok(data={"model_id": model_id}, message="Model deleted successfully")
+        return ok(message="Model deleted successfully")
     except HTTPException:
         raise
     except AppError as e:
@@ -230,16 +212,14 @@ async def set_default_model(
     """Set a model as the default for its type"""
     try:
         owner_id, model_service = await get_owner_and_service(current_user)
-        result = await model_service.set_default_model(owner_id, model_id)
+        success = await model_service.set_default_model(owner_id, model_id)
 
-        if not result:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Model not found")
+        if not success:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Model not found or failed to set as default")
 
-        return ok(data=result, message="Model set as default successfully")
+        return ok(message="Model set as default successfully")
     except HTTPException:
         raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error setting default model: {e}")
         raise HTTPException(status_code=500, detail="Failed to set default model")

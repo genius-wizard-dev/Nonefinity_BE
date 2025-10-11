@@ -15,26 +15,89 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
         owner_id: str,
         skip: int = 0,
         limit: int = 50,
-        include_deleted: bool = False
     ) -> List[Model]:
         """Get all models for a specific owner"""
-        query = {"owner_id": owner_id}
-        if not include_deleted:
-            query["is_deleted"] = False
+        query = {
+            "owner_id": owner_id,
+            "name": {"$ne": None},
+            "is_active": {"$ne": None}
+        }
 
         cursor = self.model.find(query).skip(skip).limit(limit)
         return await cursor.to_list()
+
+    async def get_models_with_filters(
+        self,
+        owner_id: str,
+        skip: int = 0,
+        limit: int = 50,
+        model_type: Optional[ModelType] = None,
+        credential_id: Optional[str] = None,
+        active_only: bool = False
+    ) -> List[Model]:
+        """Get models with various filtering conditions"""
+        # Build MongoDB query with all conditions
+        query = {"owner_id": owner_id}
+
+        # Add type filter if specified
+        if model_type is not None:
+            query["type"] = model_type
+
+        # Add credential filter if specified
+        if credential_id is not None:
+            query["credential_id"] = credential_id
+
+        # Add active filter if specified
+        if active_only:
+            query["is_active"] = True
+        else:
+            # Only add None filter if not already filtering by is_active
+            query["is_active"] = {"$ne": None}
+
+        # Add filters to exclude documents with None values for required fields
+        query["name"] = {"$ne": None}
+
+        cursor = self.model.find(query).skip(skip).limit(limit)
+        return await cursor.to_list()
+
+    async def count_models_with_filters(
+        self,
+        owner_id: str,
+        model_type: Optional[ModelType] = None,
+        credential_id: Optional[str] = None,
+        active_only: bool = False
+    ) -> int:
+        """Count models with various filtering conditions"""
+        # Build MongoDB query with all conditions
+        query = {"owner_id": owner_id}
+
+        # Add type filter if specified
+        if model_type is not None:
+            query["type"] = model_type
+
+        # Add credential filter if specified
+        if credential_id is not None:
+            query["credential_id"] = credential_id
+
+        # Add active filter if specified
+        if active_only:
+            query["is_active"] = True
+        else:
+            # Only add None filter if not already filtering by is_active
+            query["is_active"] = {"$ne": None}
+
+        # Add filters to exclude documents with None values for required fields
+        query["name"] = {"$ne": None}
+
+        return await self.model.find(query).count()
 
     async def get_by_owner_and_id(
         self,
         owner_id: str,
         model_id: str,
-        include_deleted: bool = False
     ) -> Optional[Model]:
         """Get a specific model by owner and ID"""
         query = {"_id": ObjectId(model_id), "owner_id": owner_id}
-        if not include_deleted:
-            query["is_deleted"] = False
 
         return await self.model.find_one(query)
 
@@ -42,12 +105,9 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
         self,
         owner_id: str,
         credential_id: str,
-        include_deleted: bool = False
     ) -> List[Model]:
         """Get all models for a specific credential"""
         query = {"owner_id": owner_id, "credential_id": credential_id}
-        if not include_deleted:
-            query["is_deleted"] = False
 
         return await self.model.find(query).to_list()
 
@@ -55,32 +115,12 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
         self,
         owner_id: str,
         model_type: ModelType,
-        include_deleted: bool = False
     ) -> List[Model]:
         """Get all models of a specific type for an owner"""
         query = {"owner_id": owner_id, "type": model_type}
-        if not include_deleted:
-            query["is_deleted"] = False
 
         return await self.model.find(query).to_list()
 
-    async def get_default_model(
-        self,
-        owner_id: str,
-        model_type: ModelType,
-        include_deleted: bool = False
-    ) -> Optional[Model]:
-        """Get the default model for a specific type and owner"""
-        query = {
-            "owner_id": owner_id,
-            "type": model_type,
-            "is_default": True,
-            "is_active": True
-        }
-        if not include_deleted:
-            query["is_deleted"] = False
-
-        return await self.model.find_one(query)
 
     async def check_name_exists(
         self,
@@ -89,52 +129,20 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
         exclude_id: Optional[str] = None
     ) -> bool:
         """Check if a model name already exists for an owner"""
-        query = {"owner_id": owner_id, "name": name, "is_deleted": False}
+        query = {"owner_id": owner_id, "name": name}
         if exclude_id:
             query["_id"] = {"$ne": ObjectId(exclude_id)}
 
         existing = await self.model.find_one(query)
         return existing is not None
 
-    async def set_default_model(
-        self,
-        owner_id: str,
-        model_id: str,
-        model_type: ModelType
-    ) -> bool:
-        """Set a model as default, unsetting others of the same type"""
-        try:
-            # First, unset all other default models of the same type
-            await self.model.find(
-                {
-                    "owner_id": owner_id,
-                    "type": model_type,
-                    "is_deleted": False,
-                    "_id": {"$ne": ObjectId(model_id)}
-                }
-            ).update_many({"$set": {"is_default": False}})
 
-            # Then set the specified model as default
-            result = await self.model.find_one(
-                {"_id": ObjectId(model_id), "owner_id": owner_id, "is_deleted": False}
-            )
-
-            if result:
-                await result.set({"is_default": True, "is_active": True})
-                return True
-
-            return False
-        except Exception:
-            return False
 
     async def create_with_owner(self, owner_id: str, obj_in: ModelCreate) -> Model:
         """Create model with owner"""
         data = obj_in.model_dump()
         data["owner_id"] = owner_id
 
-        if "is_deleted" in self.model.__fields__:
-            data.setdefault("is_deleted", False)
-            data.setdefault("deleted_at", None)
 
         db_obj = self.model(**data)
         await db_obj.insert()
@@ -143,36 +151,27 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
     async def get_active_models(
         self,
         owner_id: str,
-        include_deleted: bool = False
     ) -> List[Model]:
         """Get all active models for an owner"""
         query = {"owner_id": owner_id, "is_active": True}
-        if not include_deleted:
-            query["is_deleted"] = False
 
         return await self.model.find(query).to_list()
 
     async def count_by_owner(
         self,
         owner_id: str,
-        include_deleted: bool = False
     ) -> int:
         """Count total models for an owner"""
         query = {"owner_id": owner_id}
-        if not include_deleted:
-            query["is_deleted"] = False
 
         return await self.model.find(query).count()
 
     async def get_stats(
         self,
         owner_id: str,
-        include_deleted: bool = False
     ) -> Dict[str, int]:
         """Get model statistics for an owner"""
         base_query = {"owner_id": owner_id}
-        if not include_deleted:
-            base_query["is_deleted"] = False
 
         # Count all models
         total_models = await self.model.find(base_query).count()
@@ -192,3 +191,10 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
             "active_models": active_models,
             "inactive_models": inactive_models
         }
+
+    async def count_credential_usage(self, credential_id: str) -> int:
+        credential_id = str(credential_id)
+        """Count usage by credential ID"""
+        return await self.model.find({"credential_id": credential_id}).count()
+
+

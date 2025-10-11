@@ -12,6 +12,7 @@ class ProviderResponse(BaseModel):
     base_url: str
     logo_url: Optional[str] = None
     docs_url: Optional[str] = None
+    list_models_url: Optional[str] = None
     api_key_header: str
     api_key_prefix: str
     is_active: bool

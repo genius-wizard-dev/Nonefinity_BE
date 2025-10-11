@@ -103,6 +103,39 @@ class DatasetData(BaseModel):
     limit: int
 
 
+class DatasetCreateRequest(BaseModel):
+    """Schema for creating dataset via JSON"""
+    dataset_name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None)
+    schema: List[DataSchemaField] = Field(..., min_items=1, description="Table schema")
+
+    @validator('dataset_name')
+    def validate_dataset_name(cls, v):
+        if not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip()
+
+class DatasetConvertRequest(BaseModel):
+    """Schema for converting file to dataset"""
+    file_id: str = Field(..., description="File ID to convert")
+    dataset_name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None)
+
+    @validator('dataset_name')
+    def validate_dataset_name(cls, v):
+        if not v.strip():
+            raise ValueError("Dataset name cannot be empty")
+        return v.strip()
+
+class DatasetQueryRequest(BaseModel):
+    """Schema for querying dataset"""
+    query: str = Field(..., min_length=1, description="SQL query")
+    limit: int = Field(default=100, ge=1, le=1000, description="Maximum number of results")
+
+class DatasetSchemaUpdateRequest(BaseModel):
+    """Schema for updating dataset schema descriptions"""
+    descriptions: Dict[str, str] = Field(..., min_items=1, description="Column descriptions mapping")
+
 class FileUploadRequest(BaseModel):
     """Schema for file upload request"""
     dataset_name: str = Field(..., min_length=1, max_length=255)

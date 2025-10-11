@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, validator
 class EmbeddingRequest(BaseModel):
     """Schema for embedding request"""
     file_id: str = Field(..., description="File identifier to process")
+    model_id: Optional[str] = Field(None, description="Model identifier")
 
 
 class SearchRequest(BaseModel):

@@ -32,6 +32,7 @@ class CredentialCreate(CredentialBase):
 class CredentialUpdate(BaseModel):
     """Schema for updating credential"""
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="Credential name")
+    provider_id: Optional[str] = Field(None, description="AI provider ID")
     api_key: Optional[str] = Field(None, min_length=1, description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -68,12 +69,13 @@ class Credential(BaseModel):
 
 class CredentialDetail(Credential):
     """Detailed credential response with masked API key"""
-    api_key_masked: str
+    api_key: str
+    usage_count: Optional[int] = Field(None, description="Number of times this credential is used")
 
 
 class CredentialList(BaseModel):
     """Schema for credential list response"""
-    credentials: List[Credential]
+    credentials: List[CredentialDetail]
     total: int
     page: int
     size: int
@@ -104,6 +106,10 @@ class EncryptionHealthResponse(BaseModel):
     timestamp: str
     error: Optional[str] = None
 
+
+class SecureKeyRequest(BaseModel):
+    """Request schema for secure key generation"""
+    length: int = Field(default=32, ge=16, le=128, description="Key length in bytes")
 
 class SecureKeyResponse(BaseModel):
     """Response schema for secure key generation"""

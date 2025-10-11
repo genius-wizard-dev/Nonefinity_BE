@@ -13,7 +13,6 @@ class ModelCreate(BaseModel):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
-    is_default: bool = Field(default=False, description="Whether this is the default model for this type")
 
 
 class ModelUpdate(BaseModel):
@@ -21,7 +20,6 @@ class ModelUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="Model display name")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: Optional[bool] = Field(None, description="Whether the model is active")
-    is_default: Optional[bool] = Field(None, description="Whether this is the default model for this type")
 
 
 class ModelResponse(BaseModel):
@@ -34,7 +32,6 @@ class ModelResponse(BaseModel):
     type: ModelType = Field(..., description="Model type")
     description: Optional[str] = Field(None, description="Model description")
     is_active: bool = Field(..., description="Whether the model is active")
-    is_default: bool = Field(..., description="Whether this is the default model for this type")
 
     # Timestamps
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -56,3 +53,18 @@ class ModelStats(BaseModel):
     embedding_models: int = Field(..., description="Number of embedding models")
     active_models: int = Field(..., description="Number of active models")
     inactive_models: int = Field(..., description="Number of inactive models")
+
+class ModelCreateRequest(BaseModel):
+    """Request schema for creating model via JSON"""
+    credential_id: str = Field(..., description="Associated credential ID")
+    name: str = Field(..., min_length=1, max_length=100, description="Model display name")
+    model: str = Field(..., min_length=1, description="AI model identifier")
+    type: ModelType = Field(..., description="Model type (chat or embedding)")
+    description: Optional[str] = Field(None, max_length=500, description="Model description")
+    is_active: bool = Field(default=True, description="Whether the model is active")
+
+class ModelUpdateRequest(BaseModel):
+    """Request schema for updating model via JSON"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="Model display name")
+    description: Optional[str] = Field(None, max_length=500, description="Model description")
+    is_active: Optional[bool] = Field(None, description="Whether the model is active")
