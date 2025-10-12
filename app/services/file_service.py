@@ -63,107 +63,107 @@ class FileService:
         return f"{name}({max_number + 1})"
 
 
-    async def upload_file(self, user_id: str, file: UploadFile) -> Optional[FileCreate]:
-        """Upload file to raw/ folder only - simplified version"""
-        file_create = None
+    # async def upload_file(self, user_id: str, file: UploadFile) -> Optional[FileCreate]:
+    #     """Upload file to raw/ folder only - simplified version"""
+    #     file_create = None
 
-        try:
-            logger.info(f"Starting file upload for user {user_id}, file: {file.filename}")
+    #     try:
+    #         logger.info(f"Starting file upload for user {user_id}, file: {file.filename}")
 
-            # Validate file
-            if not file.filename:
-                raise AppError("File name is required")
+    #         # Validate file
+    #         if not file.filename:
+    #             raise AppError("File name is required")
 
-            if file.size and file.size > 100 * 1024 * 1024:  # 100MB limit
-                raise AppError("File size exceeds 100MB limit")
+    #         if file.size and file.size > 100 * 1024 * 1024:  # 100MB limit
+    #             raise AppError("File size exceeds 100MB limit")
 
-            # Get root folder and generate unique filename
-            root_folder = "raw"
-            original_name, original_ext = os.path.splitext(file.filename)
-            unique_filename, file_ext = self._generate_unique_filename(file.filename)
+    #         # Get root folder and generate unique filename
+    #         root_folder = "raw"
+    #         original_name, original_ext = os.path.splitext(file.filename)
+    #         unique_filename, file_ext = self._generate_unique_filename(file.filename)
 
-            # Create file path: raw/unique_filename.ext
-            file_path = f"{root_folder}/{unique_filename}{file_ext}"
+    #         # Create file path: raw/unique_filename.ext
+    #         file_path = f"{root_folder}/{unique_filename}{file_ext}"
 
-            # Determine content type
-            content_type = file.content_type
-            if content_type == "application/octet-stream" and file.filename:
-                guessed_type, _ = mimetypes.guess_type(file.filename)
-                if guessed_type:
-                    content_type = guessed_type
+    #         # Determine content type
+    #         content_type = file.content_type
+    #         if content_type == "application/octet-stream" and file.filename:
+    #             guessed_type, _ = mimetypes.guess_type(file.filename)
+    #             if guessed_type:
+    #                 content_type = guessed_type
 
-            # Create database record first
-            file_info = FileCreate(
-                bucket=user_id,
-                file_name=original_name,
-                file_ext=file_ext,
-                file_path=file_path,
-                file_size=file.size,
-                file_type=content_type,
-                owner_id=user_id
-            )
+    #         # Create database record first
+    #         file_info = FileCreate(
+    #             bucket=user_id,
+    #             file_name=original_name,
+    #             file_ext=file_ext,
+    #             file_path=file_path,
+    #             file_size=file.size,
+    #             file_type=content_type,
+    #             owner_id=user_id
+    #         )
 
-            file_create = await self.crud.create(obj_in=file_info)
-            logger.info(f"Created database record for file: {file_create.id}")
+    #         file_create = await self.crud.create(obj_in=file_info)
+    #         logger.info(f"Created database record for file: {file_create.id}")
 
-            # Upload file to MinIO
-            upload_success = self._minio_client.upload_file(
-                bucket_name=user_id,
-                file=file,
-                object_name=file_path
-            )
+    #         # Upload file to MinIO
+    #         upload_success = self._minio_client.upload_file(
+    #             bucket_name=user_id,
+    #             file=file,
+    #             object_name=file_path
+    #         )
 
-            if not upload_success:
-                logger.error(f"MinIO upload failed for file: {file_path}")
-                raise AppError("Failed to upload file to storage")
+    #         if not upload_success:
+    #             logger.error(f"MinIO upload failed for file: {file_path}")
+    #             raise AppError("Failed to upload file to storage")
 
 
 
-            logger.info(f"File upload completed successfully: {file_create.id}")
-            return file_create
+    #         logger.info(f"File upload completed successfully: {file_create.id}")
+    #         return file_create
 
-        except Exception as e:
-            logger.error(f"File upload failed: {str(e)}")
+    #     except Exception as e:
+    #         logger.error(f"File upload failed: {str(e)}")
 
-            # Simple rollback operations
-            rollback_errors = []
+    #         # Simple rollback operations
+    #         rollback_errors = []
 
-            # 1. Rollback original file from MinIO
-            if file_path:
-                try:
-                    file_deleted = self._minio_client.delete_file(bucket_name=user_id, file_name=file_path)
-                    if file_deleted:
-                        logger.info(f"Rolled back MinIO file: {file_path}")
-                    else:
-                        error_msg = f"Failed to delete original file: {file_path}"
-                        logger.warning(error_msg)
-                        rollback_errors.append(error_msg)
-                except Exception as cleanup_error:
-                    error_msg = f"Failed to cleanup MinIO file: {cleanup_error}"
-                    logger.error(error_msg)
-                    rollback_errors.append(error_msg)
+    #         # 1. Rollback original file from MinIO
+    #         if file_path:
+    #             try:
+    #                 file_deleted = self._minio_client.delete_file(bucket_name=user_id, file_name=file_path)
+    #                 if file_deleted:
+    #                     logger.info(f"Rolled back MinIO file: {file_path}")
+    #                 else:
+    #                     error_msg = f"Failed to delete original file: {file_path}"
+    #                     logger.warning(error_msg)
+    #                     rollback_errors.append(error_msg)
+    #             except Exception as cleanup_error:
+    #                 error_msg = f"Failed to cleanup MinIO file: {cleanup_error}"
+    #                 logger.error(error_msg)
+    #                 rollback_errors.append(error_msg)
 
-            # 2. Rollback database record
-            if file_create:
-                try:
-                    await self.crud.delete(file_create, soft_delete=False)  # Hard delete
-                    logger.info(f"Rolled back database record: {file_create.id}")
-                except Exception as cleanup_error:
-                    error_msg = f"Failed to cleanup database record: {cleanup_error}"
-                    logger.error(error_msg)
-                    rollback_errors.append(error_msg)
+    #         # 2. Rollback database record
+    #         if file_create:
+    #             try:
+    #                 await self.crud.delete(file_create, soft_delete=False)  # Hard delete
+    #                 logger.info(f"Rolled back database record: {file_create.id}")
+    #             except Exception as cleanup_error:
+    #                 error_msg = f"Failed to cleanup database record: {cleanup_error}"
+    #                 logger.error(error_msg)
+    #                 rollback_errors.append(error_msg)
 
-            # Log rollback summary
-            if rollback_errors:
-                logger.error(f"Rollback completed with errors: {'; '.join(rollback_errors)}")
-            else:
-                logger.info("Complete rollback successful")
+    #         # Log rollback summary
+    #         if rollback_errors:
+    #             logger.error(f"Rollback completed with errors: {'; '.join(rollback_errors)}")
+    #         else:
+    #             logger.info("Complete rollback successful")
 
-            # Re-raise original exception
-            if isinstance(e, AppError):
-                raise e
-            else:
-                raise AppError(f"Upload failed: {str(e)}")
+    #         # Re-raise original exception
+    #         if isinstance(e, AppError):
+    #             raise e
+    #         else:
+    #             raise AppError(f"Upload failed: {str(e)}")
 
     async def delete_file(self, user_id: str, file_id: str) -> bool:
         """Delete file permanently from both MongoDB and MinIO - simplified version
@@ -351,7 +351,7 @@ class FileService:
             # Create file record with unique display name
             file_info = FileCreate(
                 bucket=user_id,
-                file_name=unique_display_name,  # Use unique display name
+                file_name=unique_display_name,
                 file_ext=original_ext,
                 file_path=object_name,
                 file_size=file_size,

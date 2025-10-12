@@ -16,11 +16,14 @@ class QdrantDB:
 
     def __init__(self):
         """Initialize the Qdrant service with LangChain integration."""
+        # Use HTTPS when API key is provided for security
+        use_https = settings.QDRANT_HTTPS or (settings.QDRANT_API_KEY is not None)
+
         self.client = QdrantClient(
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
             api_key=settings.QDRANT_API_KEY,
-            https=False,
+            https=use_https,
         )
         self.collection_name = settings.QDRANT_COLLECTION
         self._embeddings = None

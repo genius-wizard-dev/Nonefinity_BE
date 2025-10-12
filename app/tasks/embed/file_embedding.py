@@ -1,16 +1,12 @@
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from io import BytesIO
-from uuid import uuid4
-import chardet
 from langchain_community.document_loaders import PyPDFLoader
 
 
 from app.tasks import celery_app
 from app.services.minio_client_service import MinIOClientService
-from app.databases import qdrant
 from app.utils import get_logger
-from .utils import create_embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 logger = get_logger(__name__)
 
@@ -32,12 +28,12 @@ def run_embedding(user_id: str, object_name: str, provider: str, model_id: str, 
 
 
 
-    qdrant.ensure_collection(vector_size=len(vectors[0]))
+    # qdrant.ensure_collection(vector_size=len(vectors[0]))
 
 
 
     # Upsert to Qdrant
-    qdrant.upsert_points(points)
+    # qdrant.upsert_points(points)
 
     return {
         "user_id": user_id,
@@ -45,5 +41,5 @@ def run_embedding(user_id: str, object_name: str, provider: str, model_id: str, 
         "provider": provider,
         "model_id": model_id,
         "total_chunks": len(chunks),
-        "successful_chunks": len(points),
+        # "successful_chunks": len(points),
     }

@@ -183,6 +183,7 @@ async def rename_file(file_id: str, new_name: str, current_user = Depends(verify
     return ok(data=updated_file, message="File renamed successfully")
 
 @router.get("/download/{file_id}", response_model=ApiResponse[str])
+@cache_list("files", ttl=300)
 async def get_download_url(file_id: str, current_user = Depends(verify_token)):
     try:
         clerk_id = current_user.get("sub")
@@ -209,6 +210,7 @@ async def get_download_url(file_id: str, current_user = Depends(verify_token)):
 
 
 @router.get("/search", response_model=ApiResponse[List[FileResponse]])
+@cache_list("files", ttl=300)
 async def search_files(
     q: str = Query(..., description="Search term"),
     file_type: Optional[str] = Query(None, description="Filter by file type"),
@@ -243,6 +245,7 @@ async def search_files(
     return ok(data=files, message="Search completed successfully")
 
 @router.get("/stats", response_model=ApiResponse[dict])
+@cache_list("files", ttl=300)
 async def get_file_stats(current_user = Depends(verify_token)):
     """Get file statistics for raw/ folder
 
@@ -278,6 +281,7 @@ async def get_file_stats(current_user = Depends(verify_token)):
     return ok(data=stats, message="Statistics retrieved successfully")
 
 @router.get("/types", response_model=ApiResponse[List[str]])
+@cache_list("files", ttl=300)
 async def get_file_types(current_user = Depends(verify_token)):
     """Get all unique file types in raw/ folder
 
@@ -329,6 +333,7 @@ async def batch_delete_files(
     return ok(data=results, message=f"Batch deletion completed. {len(results['successful'])} successful, {len(results['failed'])} failed")
 
 @router.get("/allow-convert", response_model=ApiResponse[List[FileResponse]])
+@cache_list("files", ttl=300)
 async def get_list_allow_convert(current_user = Depends(verify_token)):
     """Get list of files that are allowed to be converted to dataset"""
     clerk_id = current_user.get("sub")
@@ -345,6 +350,7 @@ async def get_list_allow_convert(current_user = Depends(verify_token)):
 
 
 @router.get("/allow-extract", response_model=ApiResponse[List[FileResponse]])
+@cache_list("files", ttl=300)
 async def get_list_allow_extract(current_user = Depends(verify_token)):
     """Get list of files that are allowed to be extracted"""
     clerk_id = current_user.get("sub")

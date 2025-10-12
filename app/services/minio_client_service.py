@@ -128,23 +128,23 @@ class MinIOClientService:
                 f"Error getting URL for {bucket_name}/{object_name}: {e}")
             return ""
 
-    def upload_file(self, bucket_name: str, file: UploadFile, object_name: str) -> bool:
-        """Upload a file to bucket"""
-        try:
-            if not self.client.bucket_exists(bucket_name):
-                raise ValueError(f"Bucket {bucket_name} does not exist")
+    # def upload_file(self, bucket_name: str, file: UploadFile, object_name: str) -> bool:
+    #     """Upload a file to bucket"""
+    #     try:
+    #         if not self.client.bucket_exists(bucket_name):
+    #             raise ValueError(f"Bucket {bucket_name} does not exist")
 
-            self.client.put_object(
-                bucket_name=bucket_name,
-                object_name=object_name,
-                data=file.file,
-                length=file.size
-            )
-            return True
+    #         self.client.put_object(
+    #             bucket_name=bucket_name,
+    #             object_name=object_name,
+    #             data=file.file,
+    #             length=file.size
+    #         )
+    #         return True
 
-        except Exception as e:
-            logger.error(f"Error uploading file to {bucket_name}: {e}")
-            return False
+    #     except Exception as e:
+    #         logger.error(f"Error uploading file to {bucket_name}: {e}")
+    #         return False
 
     def upload_bytes(self, bucket_name: str, object_name: str, data: bytes, content_type: str = "application/octet-stream") -> bool:
         """Upload bytes data to bucket"""

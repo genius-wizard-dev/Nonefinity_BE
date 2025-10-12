@@ -47,9 +47,9 @@ providers:
     is_active: true
     support: ["embedding", "chat"]
 
-  together:
-    name: "Together"
-    provider: "together"
+  togetherai:
+    name: "Together AI"
+    provider: "togetherai"
     description: "Together API for LLMs and Embeddings"
     docs_url: "https://docs.together.ai/intro"
     base_url: "https://api.together.xyz/v1"

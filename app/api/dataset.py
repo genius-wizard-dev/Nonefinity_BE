@@ -67,7 +67,7 @@ async def create_dataset(
             user_id,
             request.dataset_name,
             request.description,
-            request.schema
+            request.data_schema
         )
         return created(data=result, message="Dataset created successfully")
     except ValueError as e:
@@ -119,6 +119,7 @@ async def list_dataset(
 
 
 @router.get("/{dataset_id}")
+@cache_list("datasets", ttl=300)
 async def get_dataset(
     dataset_id: str,
     current_user = Depends(verify_token)
@@ -152,6 +153,7 @@ async def delete_dataset(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{dataset_id}/data")
+@cache_list("datasets", ttl=300)
 async def get_dataset_data(
     dataset_id: str,
     current_user = Depends(verify_token),
@@ -171,6 +173,7 @@ async def get_dataset_data(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/query")
+@invalidate_cache("datasets")
 async def query_dataset(
     request: DatasetQueryRequest,
     current_user = Depends(verify_token)
@@ -240,6 +243,7 @@ async def update_dataset_schema(
 
 
 @router.get("/{dataset_id}/file-columns/{file_id}")
+@cache_list("datasets", ttl=300)
 async def get_file_columns(
     dataset_id: str,
     file_id: str,

@@ -4,7 +4,7 @@ from typing import Optional
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate, SecureKeyRequest, CredentialDetail,
+    CredentialCreate, CredentialUpdate, CredentialDetail,
     CredentialList
 )
 from app.schemas.response import ApiResponse, ApiError
@@ -16,7 +16,7 @@ from app.utils.api_response import created, ok
 from app.utils import get_logger
 from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.model import ModelType
-
+from app.schemas.credential import Credential
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -44,14 +44,15 @@ async def get_owner_and_service(current_user):
     return owner_id, credential_service
 
 @router.get("/model")
+@cache_list("credentials", ttl=300)
 async def get_model_credential(
-    credential_id: str = Query(..., description="Credential ID"),
+    id: str = Query(..., description="Credential ID"),
     current_user = Depends(verify_token)
 ):
     try:
       owner_id, credential_service = await get_owner_and_service(current_user)
-      print(owner_id, credential_id)
-      result = await credential_service.get_model_credential(owner_id, credential_id)
+      print(owner_id, id)
+      result = await credential_service.get_model_credential(owner_id, id)
       return ok(data=result, message="Model retrieved successfully")
     except Exception as e:
         logger.error(f"Error retrieving model: {e}")
@@ -203,12 +204,14 @@ async def get_credentials_by_provider(
         credentials = await credential_service.crud.get_by_provider(owner_id, provider_name)
 
         # Convert to response format
-        from app.schemas.credential import Credential
+
         credential_list = [
             Credential(
                 id=str(cred.id),
                 name=cred.name,
+                provider_id=cred.provider_id,
                 provider_name=cred.provider_name,
+                provider=cred.provider,
                 base_url=cred.base_url,
                 additional_headers=cred.additional_headers,
                 is_active=cred.is_active,

@@ -1,5 +1,6 @@
 
 from functools import wraps
+import json
 from typing import Callable, Optional, Union
 from datetime import timedelta
 from app.services.redis_service import redis_service, list_cache_key
@@ -26,11 +27,11 @@ def cache_list(
         async def wrapper(*args, **kwargs):
             # Extract user_id from the first argument (current_user dict)
             current_user = args[0] if args else kwargs.get('current_user')
-            if not current_user or 'user_id' not in current_user:
-                logger.warning("No user_id found in cache decorator, skipping cache")
+            if not current_user or 'sub' not in current_user:
+                logger.warning("No clerk_id found in cache decorator, skipping cache")
                 return await func(*args, **kwargs)
 
-            user_id = current_user['user_id']
+            user_id = current_user['sub']
 
             # Extract pagination and filter parameters
             skip = kwargs.get('skip', 0)
@@ -49,7 +50,9 @@ def cache_list(
                     cached_result = await redis_service.get(cache_key)
                     if cached_result is not None:
                         logger.info(f"Cache hit for {cache_key}")
-                        return cached_result
+                        # Reconstruct the JSONResponse from cached data
+                        from starlette.responses import JSONResponse
+                        return JSONResponse(content=cached_result)
                 except Exception as e:
                     logger.error(f"Error getting from cache: {e}")
 
@@ -57,9 +60,21 @@ def cache_list(
             logger.info(f"Cache miss for {cache_key}, fetching fresh data")
             result = await func(*args, **kwargs)
 
+            # Extract data from JSONResponse if it's a response object
+            cache_data = result
+            if hasattr(result, 'body') and hasattr(result, 'status_code'):
+                # This is a JSONResponse object, extract the full response data
+
+                try:
+                    body_data = json.loads(result.body.decode('utf-8'))
+                    cache_data = body_data
+                except (json.JSONDecodeError, AttributeError) as e:
+                    logger.warning(f"Could not extract data from response object: {e}")
+                    cache_data = result
+
             # Store in cache
             try:
-                await redis_service.set(cache_key, result, ttl)
+                await redis_service.set(cache_key, cache_data, ttl)
                 logger.info(f"Cached result for {cache_key}")
             except Exception as e:
                 logger.error(f"Error caching result: {e}")
