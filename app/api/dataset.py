@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing import Optional
 
 from app.services.dataset_service import DatasetService
 from app.services import user_service
@@ -12,10 +11,22 @@ from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.dataset import (
    DatasetUpdate, DatasetUpdateRequest,
     DatasetCreateRequest, DatasetConvertRequest, DatasetQueryRequest,
-    DatasetSchemaUpdateRequest
+    DatasetSchemaUpdateRequest, Dataset
 )
+from app.schemas.response import ApiResponse, ApiError
+
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    tags=["Datasets"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
 
@@ -32,13 +43,24 @@ async def get_user_and_service(current_user):
     return user_id, dataset_service
 
 
-@router.post("/create")
+@router.post(
+    "/create",
+    response_model=ApiResponse[Dataset],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Dataset",
+    description="Create a new dataset with defined schema",
+    responses={
+        201: {"description": "Dataset created successfully"},
+        400: {"description": "Invalid request or schema validation error"},
+        401: {"description": "Authentication required"},
+        422: {"description": "Validation error"}
+    }
+)
 @invalidate_cache("datasets")
 async def create_dataset(
     request: DatasetCreateRequest,
     current_user = Depends(verify_token)
 ):
-    """Create a new dataset"""
     try:
         user_id, dataset_service = await get_user_and_service(current_user)
         result = await dataset_service.create_dataset(
@@ -81,7 +103,7 @@ async def convert(
 
 
 @router.get("/list")
-@cache_list("datasets", ttl=300)  # Cache for 5 minutes
+@cache_list("datasets", ttl=300)
 async def list_dataset(
     current_user = Depends(verify_token),
     skip: int = Query(0),

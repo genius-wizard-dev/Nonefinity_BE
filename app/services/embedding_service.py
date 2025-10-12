@@ -1,10 +1,5 @@
-"""
-Service for creating and managing vector embedding tasks with external AI Tasks System
-"""
-
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import asyncio
-
 from app.utils.celery_client import embedding_client
 from app.utils.logging import get_logger
 from app.services.credential_service import CredentialService
@@ -12,6 +7,8 @@ from app.services.model_service import ModelService
 from app.services.provider_service import ProviderService
 from app.crud.task import TaskCRUD
 from app.schemas.embedding import EmbeddingRequest
+from app.crud.file import FileCRUD
+from app.crud.user import UserCRUD
 logger = get_logger(__name__)
 
 
@@ -21,7 +18,8 @@ class EmbeddingService:
         self.model_service = ModelService()
         self.provider_service = ProviderService()
         self.credential_service = CredentialService()
-
+        self.file_crud = FileCRUD()
+        self.user_crud = UserCRUD()
 
     async def create_embedding_task(
         self,
@@ -39,13 +37,22 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-            # Initialize default values
+
             model_id = "sentence-transformers/all-MiniLM-L6-v2"
             provider = "local"
             credential_data = {}
             model_name = "Default OSS"
+            user = await self.user_crud.get_by_id(id=user_id)
+            if not user:
+                raise ValueError(f"User with ID '{user_id}' not found")
 
-            # If model_id is provided, get model and credential information
+            secret_key = getattr(user, "minio_secret_key", None) if user else None
+            if not secret_key:
+                raise ValueError("User MinIO secret key not found")
+            file = await self.file_crud.get_by_id(id=embedding_data.file_id, owner_id=user_id)
+            if not file:
+                raise ValueError(f"File with ID '{embedding_data.file_id}' not found")
+
             if embedding_data.model_id:
 
                 model = await self.model_service.get_model(user_id, embedding_data.model_id)
@@ -60,28 +67,24 @@ class EmbeddingService:
                 if not provider_obj:
                     raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
 
-                # Set provider and credential data
                 provider = provider_obj.provider
                 model_name = model.name
                 credential_data = {
                     "api_key": credential.api_key,
                     "base_url": credential.base_url,
                     "additional_headers": credential.additional_headers,
-                    "provider": provider_obj.provider
+                    "provider": provider_obj.provider,
+                    "secret_key": secret_key
                 }
 
-            # Always use file embedding task (no text support)
+
             task_id = embedding_client.create_embedding_task(
                 user_id=user_id,
-                file_id=embedding_data.file_id,
+                object_name=file.file_path,
                 provider=provider,
                 model_id=model_id,
                 credential=credential_data
             )
-
-            logger.info(f"Embedding task created: {task_id} with provider: {provider}, model: {model_id}")
-
-            # Persist task to MongoDB for tracking
             try:
                 task_crud = TaskCRUD()
                 await task_crud.create({

@@ -12,12 +12,11 @@ class ProviderResponse(BaseModel):
     base_url: str
     logo_url: Optional[str] = None
     docs_url: Optional[str] = None
-    list_models_url: Optional[str] = None
+    models_url: Optional[str] = None
     api_key_header: str
     api_key_prefix: str
     is_active: bool
     support: List[str] = Field(default_factory=list)
-    tasks: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     tags: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: Optional[datetime] = None

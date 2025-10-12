@@ -1,21 +1,46 @@
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, status
 
 from app.schemas.provider import ProviderList, ProviderResponse, ProviderTaskConfigResponse
+from app.schemas.response import ApiResponse, ApiError
 from app.services.credential_service import CredentialService
 from app.services.provider_service import ProviderService
 from app.utils.api_response import ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    tags=["AI Providers"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
-@router.get("", response_model=ProviderList)
+@cache_list("providers", ttl=300)
+@router.get(
+    "",
+    response_model=ApiResponse[ProviderList],
+    status_code=status.HTTP_200_OK,
+    summary="List AI Providers",
+    description="Get a list of all available AI providers with their capabilities and configuration",
+    responses={
+        200: {"description": "Providers retrieved successfully"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def get_providers(
     active_only: bool = Query(True, description="Only return active providers")
 ):
-    """Get all AI providers"""
+    """
+    ```
+    """
     try:
         credential_service = CredentialService()
         result = await credential_service.get_providers(active_only)
@@ -26,6 +51,7 @@ async def get_providers(
 
 
 @router.get("/task/{task_type}")
+@cache_list("providers", ttl=300)
 async def get_providers_by_task(
     task_type: ModelType = Path(..., description="Task type (e.g., chat, embedding, moderation)"),
     active_only: bool = Query(True, description="Only return active providers")
@@ -42,12 +68,11 @@ async def get_providers_by_task(
                 base_url=provider.base_url,
                 logo_url=provider.logo_url,
                 docs_url=provider.docs_url,
-                list_models_url=provider.list_models_url,
+                models_url=provider.models_url,
                 api_key_header=provider.api_key_header,
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
                 support=provider.support,
-                tasks=provider.tasks,
                 tags=provider.tags,
                 created_at=provider.created_at,
                 updated_at=provider.updated_at
@@ -62,6 +87,7 @@ async def get_providers_by_task(
 
 
 @router.get("/{provider_name}")
+@cache_list("providers", ttl=300)
 async def get_provider_details(
     provider_name: str = Path(..., description="Provider name"),
     active_only: bool = Query(True, description="Only return if provider is active")
@@ -77,12 +103,11 @@ async def get_provider_details(
             base_url=provider.base_url,
             logo_url=provider.logo_url,
             docs_url=provider.docs_url,
-            list_models_url=provider.list_models_url,
+            models_url=provider.models_url,
             api_key_header=provider.api_key_header,
             api_key_prefix=provider.api_key_prefix,
             is_active=provider.is_active,
             support=provider.support,
-            tasks=provider.tasks,
             tags=provider.tags,
             created_at=provider.created_at,
             updated_at=provider.updated_at
@@ -96,6 +121,7 @@ async def get_provider_details(
 
 
 @router.get("/{provider_name}/tasks/{task_type}")
+@cache_list("providers", ttl=300)
 async def get_provider_task_config(
     provider_name: str = Path(..., description="Provider name"),
     task_type: ModelType = Path(..., description="Task type")

@@ -148,7 +148,7 @@ async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         success=False,
         message=exc.message,
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -158,7 +158,7 @@ async def _handle_http_exception(request: Request, exc: StarletteHTTPException) 
     body = ApiError(
         success=False,
         message=str(exc.detail)
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -181,7 +181,7 @@ async def _handle_validation_error(request: Request, exc: RequestValidationError
         success=False,
         message="Validation error",
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(
         content=body,
@@ -218,19 +218,19 @@ def _create_api_prefix(endpoint_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers with proper configuration"""
     routers_config = [
-        (webhooks_router, "webhooks", ["Webhooks"]),
-        (file_router, "file", ["File Management"]),
-        (embedding_router, "embedding", ["Vector Embedding"]),
-        (tasks_router, "tasks", ["Task Management"]),
+        (webhooks_router, "webhooks"),
+        (file_router, "file"),
+        (embedding_router, "embedding"),
+        (tasks_router, "tasks"),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
-          (auth_router, "auth", ["Authentication"]),
-          (duckdb_router, "duckdb", ["DuckDB Management"]),
-          (dataset_router, "datasets", ["Dataset Management"]),
-          (credential_router, "credentials", ["AI Credential Management"]),
-          (provider_router, "providers", ["AI Provider Management"]),
-          (model_router, "models", ["AI Model Management"])
+          (auth_router, "auth"),
+          (duckdb_router, "duckdb"),
+          (dataset_router, "datasets"),
+          (credential_router, "credentials"),
+          (provider_router, "providers"),
+          (model_router, "models")
       ])
       @app.get("/scalar", include_in_schema=False)
       async def scalar_html():
@@ -241,11 +241,10 @@ def include_routers(app: FastAPI) -> None:
             scalar_proxy_url="https://proxy.scalar.com",
         )
 
-    for router, prefix_name, tags in routers_config:
+    for router, prefix_name in routers_config:
         app.include_router(
             router,
-            prefix=_create_api_prefix(prefix_name),
-            tags=tags
+            prefix=_create_api_prefix(prefix_name)
         )
 
 

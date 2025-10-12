@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from app.crud.model import ModelCRUD
 from app.crud.credential import CredentialCRUD
 from app.models.model import Model, ModelType
-from app.schemas.model import ModelCreate, ModelUpdate, ModelResponse, ModelStats, ModelUpdateRequest
+from app.schemas.model import ModelCreate, ModelResponse, ModelStats, ModelUpdateRequest
 from app.core.exceptions import AppError
 from app.utils.logging import get_logger
 from app.services.credential_service import CredentialService
@@ -78,7 +78,7 @@ class ModelService:
                 raise AppError(message=error_message)
 
             # Create the model
-            model = await self.crud.create_with_owner(owner_id, model_data)
+            await self.crud.create_with_owner(owner_id, model_data)
 
             logger.info(f"Model created successfully for user {owner_id}")
             return True

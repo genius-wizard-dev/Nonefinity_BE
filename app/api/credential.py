@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_201_CREATED
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from typing import Optional
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate, SecureKeyRequest
+    CredentialCreate, CredentialUpdate, SecureKeyRequest, CredentialDetail,
+    CredentialList
 )
+from app.schemas.response import ApiResponse, ApiError
 from app.services.credential_service import CredentialService
 from app.services import user_service
 from app.core.exceptions import AppError
@@ -16,7 +18,17 @@ from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
-router = APIRouter()
+
+router = APIRouter(
+    tags=["Credentials"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
 
 async def get_owner_and_service(current_user):
@@ -31,14 +43,39 @@ async def get_owner_and_service(current_user):
 
     return owner_id, credential_service
 
+@router.get("/model")
+async def get_model_credential(
+    credential_id: str = Query(..., description="Credential ID"),
+    current_user = Depends(verify_token)
+):
+    try:
+      owner_id, credential_service = await get_owner_and_service(current_user)
+      print(owner_id, credential_id)
+      result = await credential_service.get_model_credential(owner_id, credential_id)
+      return ok(data=result, message="Model retrieved successfully")
+    except Exception as e:
+        logger.error(f"Error retrieving model: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve model")
 
-@router.post("")
+
+@router.post(
+    "",
+    response_model=ApiResponse[CredentialDetail],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Credential",
+    description="Create a new API credential for AI provider authentication",
+    responses={
+        201: {"description": "Credential created successfully"},
+        400: {"description": "Invalid request or validation error"},
+        401: {"description": "Authentication required"},
+        422: {"description": "Validation error"}
+    }
+)
 @invalidate_cache("credentials")
 async def create_credential(
     current_user = Depends(verify_token),
     credential_data: CredentialCreate = Body(..., description="Credential data")
 ):
-    """Create a new credential"""
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
 
@@ -54,16 +91,26 @@ async def create_credential(
         logger.error(f"Error creating credential: {e}")
         raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create credential")
 
-@router.get("")
-@cache_list("credentials", ttl=300)  # Cache for 5 minutes
+@router.get(
+    "",
+    response_model=ApiResponse[CredentialList],
+    status_code=status.HTTP_200_OK,
+    summary="List Credentials",
+    description="Get a paginated list of credentials for the current user with optional filtering",
+    responses={
+        200: {"description": "Credentials retrieved successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"}
+    }
+)
+@cache_list("credentials", ttl=300)
 async def list_credentials(
     current_user = Depends(verify_token),
-    skip: int = Query(0),
-    limit: int = Query(100),
-    active: Optional[bool] = Query(None),
-    task_type: Optional[ModelType] = Query(None)
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=100, description="Number of items to return"),
+    active: Optional[bool] = Query(None, description="Filter by active status"),
+    task_type: Optional[ModelType] = Query(None, description="Filter by supported task type")
 ):
-    """Get all credentials for the current user"""
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
         result = await credential_service.get_credentials(owner_id, skip, limit, active, task_type)
@@ -76,6 +123,7 @@ async def list_credentials(
 
 
 @router.get("/{credential_id}")
+@cache_list("credentials", ttl=300)
 async def get_credential(
     credential_id: str = Path(..., description="Credential ID"),
     current_user = Depends(verify_token)
@@ -144,7 +192,6 @@ async def delete_credential(
         raise HTTPException(status_code=500, detail="Failed to delete credential")
 
 
-
 @router.get("/provider/{provider_name}")
 async def get_credentials_by_provider(
     provider_name: str = Path(..., description="Provider name"),
@@ -182,49 +229,3 @@ async def get_credentials_by_provider(
         logger.error(f"Error retrieving credentials for provider: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve credentials")
 
-
-@router.get("/encryption/health")
-async def check_encryption_health(
-    current_user = Depends(verify_token)
-):
-    """Check encryption system health"""
-    try:
-        credential_service = CredentialService()
-        result = credential_service.validate_encryption_health()
-
-        if result["encryption_healthy"]:
-            return ok(data=result, message="Encryption system is healthy")
-        else:
-            return ok(data=result, message="Encryption system has issues")
-
-    except Exception as e:
-        logger.error(f"Error checking encryption health: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check encryption health")
-
-
-@router.post("/encryption/generate-key")
-async def generate_secure_key(
-    request: SecureKeyRequest,
-    current_user = Depends(verify_token)
-):
-    """Generate a cryptographically secure key for CREDENTIAL_SECRET_KEY"""
-    try:
-        length = request.length
-
-        from datetime import datetime
-        secure_key = CredentialService.generate_secure_key(length)
-
-        result = {
-            "secure_key": secure_key,
-            "length": length,
-            "timestamp": datetime.utcnow().isoformat(),
-            "recommendation": f"Set CREDENTIAL_SECRET_KEY={secure_key} in your .env file"
-        }
-
-        return ok(data=result, message="Secure key generated successfully")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error generating secure key: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate secure key")

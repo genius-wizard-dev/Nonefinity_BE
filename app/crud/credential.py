@@ -39,12 +39,7 @@ class CredentialCRUD(BaseCRUD[Credential, CredentialCreate, CredentialUpdate]):
 
     async def create_with_owner(self, owner_id: str, obj_in: CredentialCreate) -> Credential:
         """Create credential with owner_id"""
-        # Check for duplicate name
-        existing = await self.get_by_owner_and_name(owner_id, obj_in.name)
-        if existing:
-            raise ValueError(f"Credential with name '{obj_in.name}' already exists")
-
-        # Create credential with owner_id
+        # Check for duplicate nam
         data = obj_in.model_dump()
         data["owner_id"] = owner_id
 

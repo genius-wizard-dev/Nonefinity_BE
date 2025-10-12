@@ -2,25 +2,26 @@ import base64
 import aiohttp
 import secrets
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
-
+from app.services import redis_service
 from app.crud.credential import CredentialCRUD
 from app.crud.model import ModelCRUD
 from app.schemas.credential import (
-    CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
-    CredentialList
+    CredentialCreate, CredentialUpdate, CredentialDetail,
+    CredentialList, ModelCredentialResponse
 )
+import json
 from app.schemas.provider import ProviderResponse, ProviderList
 from app.services.provider_service import ProviderService
 from app.configs.settings import settings
 from app.core.exceptions import AppError
 from app.schemas.model import ModelType
 from app.utils import get_logger
-
+from app.utils.request import get
 logger = get_logger(__name__)
 
 
@@ -30,6 +31,7 @@ class CredentialService:
         self.model_crud = ModelCRUD()
         self._cipher_suite = None
         self._initialize_encryption()
+
 
     def _initialize_encryption(self):
         """Initialize encryption with key derivation from environment variables"""
@@ -111,71 +113,81 @@ class CredentialService:
                 status_code=500
             )
 
-
-
-    # def _mask_api_key(self, api_key: str) -> str:
-    #     """Mask API key, show first 6 chars, rest as a few • (not too long)"""
-    #     s = str(api_key or "")
-    #     if len(s) <= 6:
-    #         return "•" * len(s)
-    #     # Show first 6, then 4 * only, regardless of length
-    #     return s[:6] + "•" * 10
-
-    @staticmethod
-    def generate_secure_key(length: int = 32) -> str:
-        """Generate a cryptographically secure random key"""
-        return base64.urlsafe_b64encode(secrets.token_bytes(length)).decode('utf-8')
-
-    def validate_encryption_health(self) -> Dict[str, Any]:
-        """Validate that encryption/decryption is working properly"""
+    async def _verify_and_get_model_credential(self, base_url: str, api_key: str, provider: str) -> tuple[bool, str]:
+        """Get model credential, return (success, error_message)"""
         try:
-            test_data = "test-encryption-health-check"
-            encrypted = self._encrypt_api_key(test_data)
-            decrypted = self._decrypt_api_key(encrypted)
+            models = []
+            result = await get(base_url + "/models", bearer_token=api_key)
+            if isinstance(result, dict) and "error" in result:
+                error = result["error"]
+                error_message = error.get('message', str(error))
+                logger.error(f"API error when validating models: {error_message}")
+                return False, error_message
+            elif isinstance(result, dict) and isinstance(result.get("data"), list):
+                result = result.get("data")
+                models = [
+                  ModelCredentialResponse.model_validate(
+                      {**model, "owned_by": model.get("owned_by", provider)}
+                  ) for model in result
+                ]
+            elif isinstance(result, list):
+                models = [
+                  ModelCredentialResponse.model_validate(
+                      {**model, "owned_by": model.get("owned_by", provider)}
+                  ) for model in result
+                ]
+            else:
+                error_message = f"Unexpected response format: {result}"
+                logger.error(f"Unexpected response format when validating API key/models: {result}")
+                return False, error_message
 
-            is_healthy = (decrypted == test_data)
+            if models:
+                data = await redis_service.jget(f"provider:{provider}")
+                if data:
+                    return True, ""
+                else:
+                    await redis_service.jset(
+                        f"provider:{provider}",
+                        [model.model_dump() for model in models],
+                        ex=86400
+                    )
+                    return True, ""
+            else:
+                return False, "No models found"
 
-            return {
-                "encryption_healthy": is_healthy,
-                "test_passed": is_healthy,
-                "encryption_algorithm": "Fernet (AES 128)",
-                "kdf_iterations": settings.CREDENTIAL_KDF_ITERATIONS,
-                "timestamp": datetime.utcnow().isoformat()
-            }
         except Exception as e:
-            logger.error(f"Encryption health check failed: {e}")
-            return {
-                "encryption_healthy": False,
-                "test_passed": False,
-                "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            error_message = f"Failed to get model credential: {e}"
+            logger.error(error_message)
+            return False, error_message
 
     async def create_credential(self, owner_id: str, credential_data: CredentialCreate) -> bool:
         """Create a new credential with API key validation, return bool indicating success"""
         # Get provider information first for validation
+        existing_credential = await self.crud.get_by_owner_and_name(owner_id, credential_data.name)
+        if existing_credential:
+            raise ValueError(f"Credential with name '{credential_data.name}' already exists")
+
         provider = await ProviderService.get_provider_by_id(credential_data.provider_id)
         if not provider:
             raise ValueError(f"Provider with ID '{credential_data.provider_id}' not found or inactive")
 
-        # Auto-fill base_url from provider if not provided
         if not credential_data.base_url:
             credential_data.base_url = provider.base_url
 
-        # Test the API key before creating the credential
-        test_result = await self.verify_credential(
+
+        verify_token, error_message = await self._verify_and_get_model_credential(
             provider=provider.provider,
             api_key=credential_data.api_key,
             base_url=credential_data.base_url
         )
 
-        if not test_result.get('is_valid', False):
-            error_msg = test_result.get('message', 'Invalid API key')
-            error_details = test_result.get('error_details', '')
-            full_error = f"{error_msg}. {error_details}" if error_details else error_msg
-            raise ValueError(f"API key validation failed: {full_error}")
+        if not verify_token:
+            error_msg = 'Invalid API key'
+            if error_message:
+                error_msg = f"{error_msg}. Provider error: {error_message}"
+            raise ValueError(f"API key validation failed: {error_msg}")
 
-        # Encrypt the API key before saving
+
         encrypted_data = credential_data.model_copy()
         encrypted_data.api_key = self._encrypt_api_key(credential_data.api_key)
 
@@ -338,7 +350,6 @@ class CredentialService:
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
                 support=provider.support,
-                tasks=provider.tasks,
                 tags=provider.tags,
                 created_at=provider.created_at,
                 updated_at=provider.updated_at
@@ -351,97 +362,45 @@ class CredentialService:
             total=len(provider_list)
         )
 
-    async def verify_credential(
-        self,
-        owner_id: Optional[str] = None,
-        credential_id: Optional[str] = None,
-        provider: Optional[str] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Test a credential by making a simple API call"""
-        start_time = datetime.utcnow()
 
-        try:
-            # Get credential details
-            if credential_id and owner_id:
-                db_credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
-                if not db_credential:
-                    return {
-                        'is_valid': False,
-                        'message': 'Credential not found',
-                        'error_details': 'The specified credential does not exist'
-                    }
+    async def get_model_credential(self, owner_id: str, credential_id: str) -> List[ModelCredentialResponse]:
+        """Get model credential, use cache if available"""
+        credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
 
-                test_api_key = self._decrypt_api_key(db_credential.api_key)
-                verify_provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
-                test_base_url = db_credential.base_url or verify_provider.base_url
-            else:
-                # Ad-hoc testing
-                if not provider or not api_key:
-                    return {
-                        'is_valid': False,
-                        'message': 'Missing required parameters',
-                        'error_details': 'Provider name and API key are required'
-                    }
+        if not credential:
+            raise AppError(message="Credential not found", status_code=404)
+        provider = await ProviderService.get_provider_by_id(credential.provider_id)
+        data = await redis_service.jget(f"provider:{provider.provider}")
+        if data:
+            try:
+                cached_data = data
+                if isinstance(cached_data, list):
+                    return [ModelCredentialResponse.model_validate(model) for model in cached_data]
+                elif isinstance(cached_data, dict) and "data" in cached_data:
+                    return [ModelCredentialResponse.model_validate(model) for model in cached_data["data"]]
+                else:
+                    return [ModelCredentialResponse.model_validate(cached_data)]
+            except Exception as e:
+                logger.error(f"Failed to parse cached model data: {e}")
 
-                verify_provider = await ProviderService.get_provider_by_name(provider)
-                test_api_key = api_key
-                test_base_url = base_url or verify_provider.base_url
+        api_key = self._decrypt_api_key(credential.api_key)
+        credential_model = await get(credential.base_url + "/models", bearer_token=api_key)
 
-            # Prepare test request
-            headers = {
-                verify_provider.api_key_header: f"{verify_provider.api_key_prefix} {test_api_key}".strip(),
-                'Content-Type': 'application/json'
-            }
+        models = []
+        if isinstance(credential_model, dict) and "data" in credential_model:
+            models = [ModelCredentialResponse.model_validate(model) for model in credential_model["data"]]
+        elif isinstance(credential_model, list):
+            models = [ModelCredentialResponse.model_validate(model) for model in credential_model]
+        elif isinstance(credential_model, dict):
+            models = [ModelCredentialResponse.model_validate(credential_model)]
 
-            # Choose test endpoint based on provider
-            test_url = f"{test_base_url}/models"
+        if models:
+            try:
+                await redis_service.jset(f"provider:{provider.provider}", [model.model_dump() for model in models], ex=86400)
+            except Exception as e:
+                logger.error(f"Failed to cache model response: {e}")
 
-            # Make test request
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(test_url, headers=headers) as response:
-                    response_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-
-                    if response.status == 200:
-                        return {
-                            'is_valid': True,
-                            'message': 'Credential is valid and working',
-                            'response_time_ms': int(response_time)
-                        }
-                    elif response.status == 401:
-                        return {
-                            'is_valid': False,
-                            'message': 'Invalid API key',
-                            'response_time_ms': int(response_time),
-                            'error_details': 'The API key is invalid or expired'
-                        }
-                    elif response.status == 403:
-                        return {
-                            'is_valid': False,
-                            'message': 'Access forbidden',
-                            'response_time_ms': int(response_time),
-                            'error_details': 'The API key does not have permission'
-                        }
-                    else:
-                        error_text = await response.text()
-                        return {
-                            'is_valid': False,
-                            'message': f'API returned status {response.status}',
-                            'response_time_ms': int(response_time),
-                            'error_details': error_text[:200] if error_text else 'Unknown error'
-                        }
-
-        except Exception as e:
-            response_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-            logger.error(f"Error testing credential: {e}")
-            return {
-                'is_valid': False,
-                'message': 'Test failed',
-                'response_time_ms': int(response_time),
-                'error_details': str(e)
-            }
+        return models
 
 
 credential_service = CredentialService()

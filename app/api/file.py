@@ -1,24 +1,45 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from app.services import FileService, user_service
-from app.schemas.response import ApiResponse
+from app.schemas.response import ApiResponse, ApiError
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
-from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest, UploadUrlResponse, FileMetadataRequest
+from app.schemas.file import (
+    FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest,
+    UploadUrlResponse, FileMetadataRequest
+)
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils.cache_decorator import cache_list, invalidate_cache
 from typing import Optional, List
 
-router = APIRouter()
+router = APIRouter(
+    tags=["Files"],
+    responses={
+        400: {"model": ApiError, "description": "Bad Request"},
+        401: {"model": ApiError, "description": "Unauthorized"},
+        404: {"model": ApiError, "description": "Not Found"},
+        422: {"model": ApiError, "description": "Validation Error"},
+        500: {"model": ApiError, "description": "Internal Server Error"}
+    }
+)
 
-@router.post("/upload-url", response_model=ApiResponse[UploadUrlResponse])
-async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verify_token)):
-    """Get presigned upload URL for file upload
+@router.post(
+    "/upload-url",
+    response_model=ApiResponse[UploadUrlResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get Presigned Upload URL",
+    description="Generate a presigned URL for direct file upload to MinIO storage",
+    responses={
+        200: {"description": "Upload URL generated successfully"},
+        400: {"description": "Invalid request or user not found"},
+        401: {"description": "Authentication required"}
+    }
+)
 
-    Args:
-        request: Upload URL request with file metadata
-        current_user: Current user
-    """
+async def get_upload_url(
+    request: UploadUrlRequest,
+    current_user = Depends(verify_token)
+):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -40,15 +61,23 @@ async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verif
     except Exception:
         raise AppError("Failed to generate upload URL", status_code=HTTP_400_BAD_REQUEST)
 
-@router.post("/upload", response_model=ApiResponse[FileResponse])
+@router.post(
+    "/upload",
+    response_model=ApiResponse[FileResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Save File Metadata",
+    description="Save file metadata after successful upload to MinIO storage",
+    responses={
+        201: {"description": "File metadata saved successfully"},
+        400: {"description": "Invalid request or user not found"},
+        401: {"description": "Authentication required"}
+    }
+)
 @invalidate_cache("files")
-async def save_file_metadata(request: FileMetadataRequest, current_user = Depends(verify_token)):
-    """Save file metadata after upload to MinIO
-
-    Args:
-        request: File metadata after upload
-        current_user: Current user
-    """
+async def save_file_metadata(
+    request: FileMetadataRequest,
+    current_user = Depends(verify_token)
+):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -72,15 +101,25 @@ async def save_file_metadata(request: FileMetadataRequest, current_user = Depend
     except Exception:
         raise AppError("Failed to save file metadata", status_code=HTTP_400_BAD_REQUEST)
 
-@router.delete("/{file_id}", response_model=ApiResponse[bool])
+@router.delete(
+    "/{file_id}",
+    response_model=ApiResponse[bool],
+    status_code=status.HTTP_200_OK,
+    summary="Delete File",
+    description="Delete a file from storage and database",
+    responses={
+        200: {"description": "File deleted successfully"},
+        400: {"description": "File deletion failed"},
+        401: {"description": "Authentication required"},
+        404: {"description": "File not found"}
+    }
+)
 @invalidate_cache("files")
-async def delete_file(file_id: str, current_user = Depends(verify_token)):
-    """Delete file from raw/ folder
+async def delete_file(
+    file_id: str = Path(..., description="File ID to delete"),
+    current_user = Depends(verify_token)
+):
 
-    Args:
-        file_id: File ID
-        current_user: Current user
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -96,14 +135,20 @@ async def delete_file(file_id: str, current_user = Depends(verify_token)):
     return ok(message="File deleted successfully")
 
 
-@router.get("/list", response_model=ApiResponse[list[FileResponse]])
-@cache_list("files", ttl=300)  # Cache for 5 minutes
+@router.get(
+    "/list",
+    response_model=ApiResponse[List[FileResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="List Files",
+    description="Get a list of all files for the current user",
+    responses={
+        200: {"description": "Files retrieved successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"}
+    }
+)
+@cache_list("files", ttl=300)
 async def list_files(current_user = Depends(verify_token)):
-    """List all files in raw/ folder
-
-    Args:
-        current_user: Current user
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -121,13 +166,6 @@ async def list_files(current_user = Depends(verify_token)):
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
 @invalidate_cache("files")
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
-    """Rename file in raw/ folder
-
-    Args:
-        file_id: File ID
-        new_name: New name
-        current_user: Current user
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -146,12 +184,6 @@ async def rename_file(file_id: str, new_name: str, current_user = Depends(verify
 
 @router.get("/download/{file_id}", response_model=ApiResponse[str])
 async def get_download_url(file_id: str, current_user = Depends(verify_token)):
-    """Get presigned download URL for file from raw/ folder
-
-    Args:
-        file_id: File ID
-        current_user: Current user
-    """
     try:
         clerk_id = current_user.get("sub")
         user = await user_service.crud.get_by_clerk_id(clerk_id)
