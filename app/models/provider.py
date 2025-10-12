@@ -27,7 +27,7 @@ class Provider(TimeMixin, Document):
     base_url: str = Field(..., description="API base URL")
     logo_url: Optional[str] = Field(None, description="Provider logo URL")
     docs_url: Optional[str] = Field(None, description="Provider documentation URL")
-    list_models_url: Optional[str] = Field(None, description="Provider models URL")
+    models_url: Optional[str] = Field(None, description="Provider models URL")
     # API configuration
     api_key_header: str = Field(default="Authorization", description="Header for API key")
     api_key_prefix: str = Field(default="Bearer", description="Prefix for API key")
@@ -36,8 +36,7 @@ class Provider(TimeMixin, Document):
     is_active: bool = Field(default=True, description="Is provider active")
     support: List[str] = Field(default_factory=list, description="Supported tasks (embedding, chat, moderation, etc.)")
 
-    # Task configurations - stored as embedded documents for better performance
-    tasks: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Task configurations")
+
 
     # Additional metadata for better querying
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
@@ -51,33 +50,9 @@ class Provider(TimeMixin, Document):
                 raise ValueError(f"Unsupported task type: {task}")
         return v
 
-    @validator('tasks')
-    def validate_tasks(cls, v, values):
-        """Ensure tasks configuration matches supported tasks"""
-        if 'support' in values:
-            supported_tasks = values['support']
-            for task_name in v.keys():
-                if task_name not in supported_tasks:
-                    raise ValueError(f"Task '{task_name}' not in supported tasks")
-        return v
 
-    def get_task_config(self, task_type: str) -> Optional[Dict[str, Any]]:
-        """Get configuration for a specific task type"""
-        return self.tasks.get(task_type)
 
-    def supports_task(self, task_type: str) -> bool:
-        """Check if provider supports a specific task type"""
-        return task_type in self.support
 
-    def get_init_params(self, task_type: str) -> List[str]:
-        """Get initialization parameters for a specific task type"""
-        task_config = self.get_task_config(task_type)
-        return task_config.get('init_params', []) if task_config else []
-
-    def get_class_path(self, task_type: str) -> Optional[str]:
-        """Get class path for a specific task type"""
-        task_config = self.get_task_config(task_type)
-        return task_config.get('class_path') if task_config else None
 
     class Settings:
         name = "providers"

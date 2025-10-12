@@ -11,7 +11,6 @@ from app.schemas.model import ModelType
 logger = get_logger(__name__)
 
 router = APIRouter(
-    prefix="/providers",
     tags=["AI Providers"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -38,47 +37,6 @@ async def get_providers(
     active_only: bool = Query(True, description="Only return active providers")
 ):
     """
-    Get all AI providers
-
-    This endpoint retrieves a list of all available AI providers with their capabilities,
-    configuration, and supported task types.
-
-    **Query Parameters:**
-    - **active_only**: Show only active providers (default: true)
-
-    **Returns:**
-    - **providers**: List of provider objects with complete configuration
-    - **total**: Total number of providers
-
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "message": "Providers retrieved successfully",
-        "data": {
-            "providers": [
-                {
-                    "id": "507f1f77bcf86cd799439011",
-                    "provider": "openai",
-                    "name": "OpenAI",
-                    "description": "OpenAI API for GPT models",
-                    "base_url": "https://api.openai.com/v1",
-                    "logo_url": "https://openai.com/logo.png",
-                    "docs_url": "https://platform.openai.com/docs",
-                    "is_active": true,
-                    "support": ["chat", "embedding"],
-                    "tasks": {
-                        "chat": {
-                            "class_path": "app.providers.openai.OpenAIChatProvider",
-                            "init_params": ["api_key", "base_url"]
-                        }
-                    },
-                    "tags": ["gpt", "chat", "embedding"]
-                }
-            ],
-            "total": 1
-        }
-    }
     ```
     """
     try:
@@ -107,12 +65,11 @@ async def get_providers_by_task(
                 base_url=provider.base_url,
                 logo_url=provider.logo_url,
                 docs_url=provider.docs_url,
-                list_models_url=provider.list_models_url,
+                models_url=provider.models_url,
                 api_key_header=provider.api_key_header,
                 api_key_prefix=provider.api_key_prefix,
                 is_active=provider.is_active,
                 support=provider.support,
-                tasks=provider.tasks,
                 tags=provider.tags,
                 created_at=provider.created_at,
                 updated_at=provider.updated_at
@@ -142,12 +99,11 @@ async def get_provider_details(
             base_url=provider.base_url,
             logo_url=provider.logo_url,
             docs_url=provider.docs_url,
-            list_models_url=provider.list_models_url,
+            models_url=provider.models_url,
             api_key_header=provider.api_key_header,
             api_key_prefix=provider.api_key_prefix,
             is_active=provider.is_active,
             support=provider.support,
-            tasks=provider.tasks,
             tags=provider.tags,
             created_at=provider.created_at,
             updated_at=provider.updated_at

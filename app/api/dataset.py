@@ -17,7 +17,6 @@ from app.schemas.response import ApiResponse, ApiError
 logger = get_logger(__name__)
 
 router = APIRouter(
-    prefix="/datasets",
     tags=["Datasets"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},

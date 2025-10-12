@@ -14,7 +14,6 @@ from app.utils import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(
-    prefix="/models",
     tags=["AI Models"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -24,6 +23,7 @@ router = APIRouter(
         500: {"model": ApiError, "description": "Internal Server Error"}
     }
 )
+
 
 
 async def get_owner_and_service(current_user):
@@ -37,6 +37,9 @@ async def get_owner_and_service(current_user):
     model_service = ModelService()
 
     return owner_id, model_service
+
+
+
 
 
 @router.post(
@@ -56,41 +59,7 @@ async def create_model(
     request: ModelCreateRequest,
     current_user = Depends(verify_token)
 ):
-    """
-    Create a new AI model configuration
 
-    This endpoint creates a new AI model configuration that can be used for chat
-    completions or embedding generation. The model must be associated with a
-    valid credential that provides API access.
-
-    **Parameters:**
-    - **credential_id**: Associated credential ID (required)
-    - **name**: Display name for the model (required)
-    - **model**: AI model identifier (e.g., gpt-4, text-embedding-ada-002)
-    - **type**: Model type (chat or embedding)
-    - **description**: Optional description of the model
-    - **is_active**: Whether the model is active (default: true)
-
-    **Returns:**
-    - Complete model information including database ID and timestamps
-
-    **Example:**
-    ```json
-    {
-        "credential_id": "507f1f77bcf86cd799439011",
-        "name": "GPT-4 Chat Model",
-        "model": "gpt-4",
-        "type": "chat",
-        "description": "OpenAI GPT-4 model for chat completions",
-        "is_active": true
-    }
-    ```
-
-    **Note:**
-    - Model must be associated with a valid credential
-    - Model identifier must match the provider's naming convention
-    - Only one model can be set as default per type per user
-    """
     try:
         owner_id, model_service = await get_owner_and_service(current_user)
 

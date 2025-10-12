@@ -43,13 +43,12 @@ class ProviderService:
             'base_url': provider_data['base_url'],
             'logo_url': provider_data.get('logo_url'),
             'docs_url': provider_data.get('docs_url'),
-            'list_models_url': provider_data.get('list_models_url'),
+            'models_url': provider_data.get('models_url'),
             'api_key_header': provider_data.get('api_key_header', 'Authorization'),
             'api_key_prefix': provider_data.get('api_key_prefix', 'Bearer'),
             'is_active': provider_data.get('is_active', True),
             'support': provider_data.get('support', []),
-            'tasks': provider_data.get('tasks', {}),
-            'tags': []  # Can be added later for categorization
+            'tags': []
         }
 
         return {k: v for k, v in prepared_data.items() if v is not None}
@@ -195,7 +194,7 @@ class ProviderService:
 
         # Update allowed fields
         allowed_fields = {
-            'name', 'description', 'base_url', 'logo_url', 'docs_url', 'list_models_url',
+            'name', 'description', 'base_url', 'logo_url', 'docs_url', 'models_url',
             'api_key_header', 'api_key_prefix', 'is_active', 'support',
             'tasks', 'provider_type', 'tags'
         }

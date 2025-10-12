@@ -12,7 +12,6 @@ from app.utils.api_response import created, ok
 from typing import Optional, List
 
 router = APIRouter(
-    prefix="/files",
     tags=["Files"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -39,31 +38,6 @@ async def get_upload_url(
     request: UploadUrlRequest,
     current_user = Depends(verify_token)
 ):
-    """
-    Get presigned upload URL for file upload
-
-    This endpoint generates a presigned URL that allows direct file upload to MinIO storage
-    without going through the API server. The URL is valid for a limited time.
-
-    **Parameters:**
-    - **file_name**: Original name of the file to upload
-    - **file_type**: MIME type of the file (e.g., application/pdf, image/jpeg)
-    - **file_size**: Optional file size in bytes
-
-    **Returns:**
-    - **upload_url**: Presigned URL for direct upload
-    - **object_name**: Object name in MinIO storage
-    - **expires_in**: URL expiry time in minutes
-
-    **Example:**
-    ```json
-    {
-        "file_name": "document.pdf",
-        "file_type": "application/pdf",
-        "file_size": 1024000
-    }
-    ```
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)

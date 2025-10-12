@@ -24,7 +24,6 @@ from starlette.status import HTTP_400_BAD_REQUEST
 logger = get_logger(__name__)
 
 router = APIRouter(
-    prefix="/embeddings",
     tags=["Embeddings"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -34,7 +33,6 @@ router = APIRouter(
         500: {"model": ApiError, "description": "Internal Server Error"}
     }
 )
-
 
 async def get_owner_and_embedding_service(current_user):
     """Helper function to get owner and embedding service"""
@@ -48,11 +46,6 @@ async def get_owner_and_embedding_service(current_user):
     embedding_service = EmbeddingService()
 
     return owner_id, embedding_service
-
-
-
-
-
 
 @router.post(
     "/create",
@@ -71,47 +64,8 @@ async def create_embedding_task(
     request: EmbeddingRequest,
     current_user: dict = Depends(verify_token)
 ) -> JSONResponse:
-    """
-    Create an embedding task for file processing
-
-    This endpoint creates an asynchronous task to generate vector embeddings from a file.
-    The task runs in the background and can be monitored using the returned task ID.
-
-    **Parameters:**
-    - **file_id**: File identifier to process (required)
-    - **model_id**: Optional model identifier to use specific model and credentials
-
-    **Process:**
-    1. File is retrieved and processed into text chunks
-    2. Text chunks are converted to vector embeddings using the specified model
-    3. Embeddings are stored in the vector database
-    4. Task status can be monitored using the task ID
-
-    **Returns:**
-    - **task_id**: Unique identifier for monitoring task progress
-    - **success**: Boolean indicating if task was created successfully
-    - **message**: Human-readable status message
-    - **metadata**: Additional task information (estimated duration, etc.)
-
-    **Example:**
-    ```json
-    {
-        "file_id": "507f1f77bcf86cd799439011",
-        "model_id": "sentence-transformers/all-MiniLM-L6-v2"
-    }
-    ```
-
-    **Note:**
-    - Tasks run asynchronously
-    - Use the task ID to monitor progress via `/status/{task_id}`
-    - Large files may take several minutes to process
-    """
-
     try:
         owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
-        logger.info(f"Creating embedding task for user {owner_id}")
-
-        # Create embedding task
 
         result = await embedding_service.create_embedding_task(
             user_id=owner_id,

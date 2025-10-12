@@ -43,14 +43,12 @@ class RedisSettings(BaseSettings):
     REDIS_HOST: str = ""
     REDIS_PORT: int = 6379
     REDIS_PWD: str = ""
-    REDIS_PASSWORD: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="REDIS_")
 
     @property
     def redis_password(self) -> str:
-        # Prefer REDIS_PASSWORD if provided, otherwise fallback to REDIS_PWD
-        return self.REDIS_PASSWORD or self.REDIS_PWD
+        return self.REDIS_PWD
 
 
 class CelerySettings(BaseSettings):
@@ -68,7 +66,6 @@ class CelerySettings(BaseSettings):
     def get_broker_url(self) -> str:
         if self.CELERY_BROKER_URL:
             return self.CELERY_BROKER_URL
-        # Fallback to Redis settings
         from app.configs.settings import settings
         pwd = settings.redis_password
         if pwd:
@@ -79,7 +76,6 @@ class CelerySettings(BaseSettings):
     def get_result_backend(self) -> str:
         if self.CELERY_RESULT_BACKEND:
             return self.CELERY_RESULT_BACKEND
-        # Fallback to Redis settings
         from app.configs.settings import settings
         pwd = settings.redis_password
         if pwd:

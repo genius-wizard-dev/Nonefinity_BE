@@ -131,7 +131,7 @@ async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         success=False,
         message=exc.message,
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -141,7 +141,7 @@ async def _handle_http_exception(request: Request, exc: StarletteHTTPException) 
     body = ApiError(
         success=False,
         message=str(exc.detail)
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -164,7 +164,7 @@ async def _handle_validation_error(request: Request, exc: RequestValidationError
         success=False,
         message="Validation error",
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(
         content=body,

@@ -187,3 +187,14 @@ class SecureKeyResponse(BaseModel):
     length: int
     timestamp: str
     recommendation: str
+
+
+
+class ModelCredentialResponse(BaseModel):
+    """Response schema for model credential"""
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: Optional[str] = None
+
+

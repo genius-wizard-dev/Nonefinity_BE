@@ -3,55 +3,73 @@ providers:
     name: "OpenAI"
     provider: "openai"
     description: "OpenAI API for LLMs and Embeddings"
-    logo_url: "https://openai.com/logo.png"
     docs_url: "https://platform.openai.com/docs"
     base_url: "https://api.openai.com/v1"
-    list_models_url: "https://api.openai.com/v1/models"
+    models_url: "https://api.openai.com/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
     is_active: true
     support: ["embedding", "chat"]
-    tasks:
-      embedding:
-        class_path: "langchain_openai.embeddings.OpenAIEmbeddings"
-        init_params: ["model", "api_key"]
-      chat:
-        class_path: "langchain_openai.ChatOpenAI"
-        init_params: ["model", "api_key", "temperature"]
 
   openrouter:
     name: "OpenRouter"
     provider: "openrouter"
     description: "Multi-model proxy via OpenRouter"
-    logo_url: "https://openrouter.ai/logo.png"
     docs_url: "https://openrouter.ai/docs"
     base_url: "https://openrouter.ai/api/v1"
-    list_models_url: "https://openrouter.ai/api/v1/models"
+    models_url: "https://openrouter.ai/api/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
     is_active: true
     support: ["chat"]
-    tasks:
-      chat:
-        class_path: "langchain_openai.ChatOpenAI"
-        init_params: ["model", "api_key"]
 
   huggingface:
     name: "HuggingFace"
     provider: "huggingface"
     description: "Embeddings via HuggingFace Inference API"
-    logo_url: "https://huggingface.co/logo.png"
     docs_url: "https://huggingface.co/docs"
-    base_url: "https://api-inference.huggingface.co"
-    list_models_url: "https://api-inference.huggingface.co/models"
+    base_url: "https://router.huggingface.co/v1"
+    models_url: "https://router.huggingface.co/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
     is_active: true
-    support: ["embedding"]
-    tasks:
-      embedding:
-        class_path: "langchain_huggingface.HuggingFaceEmbeddings"
-        init_params: ["model_name"]
+    support: ["chat"]
+
+  nvidia:
+    name: "NVIDIA"
+    provider: "nvidia"
+    description: "NVIDIA API for LLMs and Embeddings"
+    docs_url: "https://docs.api.nvidia.com/"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    models_url: "https://integrate.api.nvidia.com/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["embedding", "chat"]
+
+  together:
+    name: "Together"
+    provider: "together"
+    description: "Together API for LLMs and Embeddings"
+    docs_url: "https://docs.together.ai/intro"
+    base_url: "https://api.together.xyz/v1"
+    models_url: "https://api.together.xyz/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["embedding", "chat"]
+
+  groq:
+    name: "Groq"
+    provider: "groq"
+    description: "Groq API for LLMs and Embeddings"
+    docs_url: "https://console.groq.com/docs/overview"
+    base_url: "https://api.groq.com/openai/v1"
+    models_url: " https://api.groq.com/openai/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]
 
   google:
     name: "Google Vertex AI"
@@ -60,15 +78,8 @@ providers:
     logo_url: "https://cloud.google.com/vertex-ai/images/logo.png"
     docs_url: "https://cloud.google.com/vertex-ai/docs"
     base_url: "https://generativelanguage.googleapis.com/v1beta"
-    list_models_url: "https://generativelanguage.googleapis.com/v1beta/models"
+    models_url: "https://generativelanguage.googleapis.com/v1beta/models"
     api_key_header: "x-goog-api-key"
     api_key_prefix: ""
     is_active: false
     support: ["embedding", "chat"]
-    tasks:
-      embedding:
-        class_path: "langchain_google_vertexai.embeddings.VertexAIEmbeddings"
-        init_params: ["model", "project", "location"]
-      chat:
-        class_path: "langchain_google_vertexai.VertexAI"
-        init_params: ["model", "project", "location", "temperature"]

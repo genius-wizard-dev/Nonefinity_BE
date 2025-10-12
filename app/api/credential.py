@@ -19,7 +19,6 @@ from app.schemas.model import ModelType
 logger = get_logger(__name__)
 
 router = APIRouter(
-    prefix="/credentials",
     tags=["Credentials"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -42,6 +41,20 @@ async def get_owner_and_service(current_user):
     credential_service = CredentialService()
 
     return owner_id, credential_service
+
+@router.get("/model")
+async def get_model_credential(
+    credential_id: str = Query(..., description="Credential ID"),
+    current_user = Depends(verify_token)
+):
+    try:
+      owner_id, credential_service = await get_owner_and_service(current_user)
+      print(owner_id, credential_id)
+      result = await credential_service.get_model_credential(owner_id, credential_id)
+      return ok(data=result, message="Model retrieved successfully")
+    except Exception as e:
+        logger.error(f"Error retrieving model: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve model")
 
 
 @router.post(
@@ -95,48 +108,6 @@ async def list_credentials(
     active: Optional[bool] = Query(None, description="Filter by active status"),
     task_type: Optional[ModelType] = Query(None, description="Filter by supported task type")
 ):
-    """
-    Get all credentials for the current user
-
-    This endpoint retrieves a paginated list of API credentials owned by the authenticated user.
-    Results can be filtered by active status and supported task type.
-
-    **Query Parameters:**
-    - **skip**: Number of items to skip (pagination)
-    - **limit**: Number of items to return (1-100, default: 100)
-    - **active**: Filter by active status (true/false)
-    - **task_type**: Filter by supported task type (chat/embedding)
-
-    **Returns:**
-    - **credentials**: List of credential objects with masked API keys
-    - **total**: Total number of credentials matching the criteria
-    - **page**: Current page number
-    - **size**: Number of items per page
-
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "message": "Credentials retrieved successfully",
-        "data": {
-            "credentials": [
-                {
-                    "id": "507f1f77bcf86cd799439011",
-                    "name": "OpenAI Production Key",
-                    "provider_id": "openai",
-                    "api_key": "sk-***masked***",
-                    "is_active": true,
-                    "usage_count": 150,
-                    "created_at": "2024-01-15T10:30:00Z"
-                }
-            ],
-            "total": 1,
-            "page": 1,
-            "size": 100
-        }
-    }
-    ```
-    """
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
         result = await credential_service.get_credentials(owner_id, skip, limit, active, task_type)
@@ -253,49 +224,3 @@ async def get_credentials_by_provider(
         logger.error(f"Error retrieving credentials for provider: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve credentials")
 
-
-@router.get("/encryption/health")
-async def check_encryption_health(
-    current_user = Depends(verify_token)
-):
-    """Check encryption system health"""
-    try:
-        credential_service = CredentialService()
-        result = credential_service.validate_encryption_health()
-
-        if result["encryption_healthy"]:
-            return ok(data=result, message="Encryption system is healthy")
-        else:
-            return ok(data=result, message="Encryption system has issues")
-
-    except Exception as e:
-        logger.error(f"Error checking encryption health: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check encryption health")
-
-
-@router.post("/encryption/generate-key")
-async def generate_secure_key(
-    request: SecureKeyRequest,
-    current_user = Depends(verify_token)
-):
-    """Generate a cryptographically secure key for CREDENTIAL_SECRET_KEY"""
-    try:
-        length = request.length
-
-        from datetime import datetime
-        secure_key = CredentialService.generate_secure_key(length)
-
-        result = {
-            "secure_key": secure_key,
-            "length": length,
-            "timestamp": datetime.utcnow().isoformat(),
-            "recommendation": f"Set CREDENTIAL_SECRET_KEY={secure_key} in your .env file"
-        }
-
-        return ok(data=result, message="Secure key generated successfully")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error generating secure key: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate secure key")

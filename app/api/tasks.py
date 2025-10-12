@@ -11,7 +11,6 @@ from beanie.odm.fields import PydanticObjectId
 
 
 router = APIRouter(
-    prefix="/tasks",
     tags=["Tasks"],
     responses={
         400: {"model": ApiError, "description": "Bad Request"},
@@ -29,8 +28,7 @@ async def _get_owner_id(current_user: dict) -> str:
     return str(user.id)
 
 
-@router.get(
-    "/",
+@router.get("",
     response_model=ApiResponse[List[Dict[str, Any]]],
     status_code=status.HTTP_200_OK,
     summary="List Tasks",
