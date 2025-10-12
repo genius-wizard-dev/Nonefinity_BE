@@ -56,60 +56,11 @@ async def get_user_and_service(current_user):
         422: {"description": "Validation error"}
     }
 )
+@invalidate_cache("datasets")
 async def create_dataset(
     request: DatasetCreateRequest,
     current_user = Depends(verify_token)
 ):
-    """
-    Create a new dataset
-
-    This endpoint creates a new dataset with a defined schema. The dataset can be used
-    to store and query structured data.
-
-    **Parameters:**
-    - **dataset_name**: Name of the dataset (required)
-    - **description**: Optional description of the dataset
-    - **schema**: List of schema fields defining the table structure (required)
-
-    **Schema Fields:**
-    - **column_name**: Name of the column
-    - **column_type**: Data type (string, integer, float, boolean, date, etc.)
-    - **desc**: Optional column description
-    - **old_name**: Optional old column name for renaming
-
-    **Returns:**
-    - Complete dataset information including ID and timestamps
-
-    **Example:**
-    ```json
-    {
-        "dataset_name": "Customer Data",
-        "description": "Customer information dataset",
-        "schema": [
-            {
-                "column_name": "customer_id",
-                "column_type": "integer",
-                "desc": "Unique customer identifier"
-            },
-            {
-                "column_name": "name",
-                "column_type": "string",
-                "desc": "Customer full name"
-            },
-            {
-                "column_name": "email",
-                "column_type": "string",
-                "desc": "Customer email address"
-            }
-        ]
-    }
-    ```
-
-    **Note:**
-    - Dataset names must be unique per user
-    - Schema must contain at least one field
-    - Column types must be valid SQL types
-    """
     try:
         user_id, dataset_service = await get_user_and_service(current_user)
         result = await dataset_service.create_dataset(
@@ -152,7 +103,7 @@ async def convert(
 
 
 @router.get("/list")
-@cache_list("datasets", ttl=300)  # Cache for 5 minutes
+@cache_list("datasets", ttl=300)
 async def list_dataset(
     current_user = Depends(verify_token),
     skip: int = Query(0),

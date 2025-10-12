@@ -6,6 +6,7 @@ from app.services.credential_service import CredentialService
 from app.services.provider_service import ProviderService
 from app.utils.api_response import ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
@@ -22,6 +23,7 @@ router = APIRouter(
 )
 
 
+@cache_list("providers", ttl=300)
 @router.get(
     "",
     response_model=ApiResponse[ProviderList],
@@ -49,6 +51,7 @@ async def get_providers(
 
 
 @router.get("/task/{task_type}")
+@cache_list("providers", ttl=300)
 async def get_providers_by_task(
     task_type: ModelType = Path(..., description="Task type (e.g., chat, embedding, moderation)"),
     active_only: bool = Query(True, description="Only return active providers")
@@ -84,6 +87,7 @@ async def get_providers_by_task(
 
 
 @router.get("/{provider_name}")
+@cache_list("providers", ttl=300)
 async def get_provider_details(
     provider_name: str = Path(..., description="Provider name"),
     active_only: bool = Query(True, description="Only return if provider is active")
@@ -117,6 +121,7 @@ async def get_provider_details(
 
 
 @router.get("/{provider_name}/tasks/{task_type}")
+@cache_list("providers", ttl=300)
 async def get_provider_task_config(
     provider_name: str = Path(..., description="Provider name"),
     task_type: ModelType = Path(..., description="Task type")

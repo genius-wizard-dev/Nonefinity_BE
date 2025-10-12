@@ -35,6 +35,7 @@ router = APIRouter(
         401: {"description": "Authentication required"}
     }
 )
+
 async def get_upload_url(
     request: UploadUrlRequest,
     current_user = Depends(verify_token)
@@ -72,35 +73,11 @@ async def get_upload_url(
         401: {"description": "Authentication required"}
     }
 )
+@invalidate_cache("files")
 async def save_file_metadata(
     request: FileMetadataRequest,
     current_user = Depends(verify_token)
 ):
-    """
-    Save file metadata after upload to MinIO
-
-    This endpoint saves file metadata to the database after a file has been successfully
-    uploaded to MinIO storage using the presigned URL.
-
-    **Parameters:**
-    - **object_name**: Object name in MinIO storage (from upload URL response)
-    - **file_name**: Original file name
-    - **file_type**: MIME type of the file
-    - **file_size**: File size in bytes (optional)
-
-    **Returns:**
-    - Complete file information including database ID and timestamps
-
-    **Example:**
-    ```json
-    {
-        "object_name": "raw/user123/document.pdf",
-        "file_name": "my-document.pdf",
-        "file_type": "application/pdf",
-        "file_size": 1024000
-    }
-    ```
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -137,26 +114,12 @@ async def save_file_metadata(
         404: {"description": "File not found"}
     }
 )
+@invalidate_cache("files")
 async def delete_file(
     file_id: str = Path(..., description="File ID to delete"),
     current_user = Depends(verify_token)
 ):
-    """
-    Delete file from storage and database
 
-    This endpoint permanently deletes a file from both MinIO storage and the database.
-    The operation cannot be undone.
-
-    **Parameters:**
-    - **file_id**: Unique identifier of the file to delete
-
-    **Returns:**
-    - Success status indicating whether the deletion was successful
-
-    **Note:**
-    - This operation is irreversible
-    - File will be removed from both storage and database
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -184,34 +147,8 @@ async def delete_file(
         500: {"description": "Internal server error"}
     }
 )
+@cache_list("files", ttl=300)
 async def list_files(current_user = Depends(verify_token)):
-    """
-    List all files for the current user
-
-    This endpoint retrieves a list of all files owned by the authenticated user.
-    Files are returned with complete metadata including size, type, and timestamps.
-
-    **Returns:**
-    - List of file objects with complete metadata
-    - Each file includes ID, name, type, size, and timestamps
-
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "message": "Files listed successfully",
-        "data": [
-            {
-                "id": "507f1f77bcf86cd799439011",
-                "file_name": "document.pdf",
-                "file_type": "application/pdf",
-                "file_size": 1024000,
-                "created_at": "2024-01-15T10:30:00Z"
-            }
-        ]
-    }
-    ```
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -229,13 +166,6 @@ async def list_files(current_user = Depends(verify_token)):
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
 @invalidate_cache("files")
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
-    """Rename file in raw/ folder
-
-    Args:
-        file_id: File ID
-        new_name: New name
-        current_user: Current user
-    """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
     user_id = str(user.id)
@@ -254,12 +184,6 @@ async def rename_file(file_id: str, new_name: str, current_user = Depends(verify
 
 @router.get("/download/{file_id}", response_model=ApiResponse[str])
 async def get_download_url(file_id: str, current_user = Depends(verify_token)):
-    """Get presigned download URL for file from raw/ folder
-
-    Args:
-        file_id: File ID
-        current_user: Current user
-    """
     try:
         clerk_id = current_user.get("sub")
         user = await user_service.crud.get_by_clerk_id(clerk_id)

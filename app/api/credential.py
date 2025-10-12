@@ -71,6 +71,7 @@ async def get_model_credential(
         422: {"description": "Validation error"}
     }
 )
+@invalidate_cache("credentials")
 async def create_credential(
     current_user = Depends(verify_token),
     credential_data: CredentialCreate = Body(..., description="Credential data")
@@ -102,6 +103,7 @@ async def create_credential(
         500: {"description": "Internal server error"}
     }
 )
+@cache_list("credentials", ttl=300)
 async def list_credentials(
     current_user = Depends(verify_token),
     skip: int = Query(0, ge=0, description="Number of items to skip"),
@@ -121,6 +123,7 @@ async def list_credentials(
 
 
 @router.get("/{credential_id}")
+@cache_list("credentials", ttl=300)
 async def get_credential(
     credential_id: str = Path(..., description="Credential ID"),
     current_user = Depends(verify_token)
@@ -187,7 +190,6 @@ async def delete_credential(
     except Exception as e:
         logger.error(f"Error deleting credential: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete credential")
-
 
 
 @router.get("/provider/{provider_name}")

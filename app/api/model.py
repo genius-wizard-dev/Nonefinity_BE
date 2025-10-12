@@ -40,9 +40,6 @@ async def get_owner_and_service(current_user):
     return owner_id, model_service
 
 
-
-
-
 @router.post(
     "",
     response_model=ApiResponse[ModelResponse],

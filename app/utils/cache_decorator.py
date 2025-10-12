@@ -1,6 +1,6 @@
-import asyncio
+
 from functools import wraps
-from typing import Any, Callable, Optional, Union
+from typing import Callable, Optional, Union
 from datetime import timedelta
 from app.services.redis_service import redis_service, list_cache_key
 from app.utils import get_logger
@@ -15,7 +15,7 @@ def cache_list(
 ):
     """
     Decorator to cache list method results
-    
+
     Args:
         prefix: Cache key prefix (e.g., 'datasets', 'models', 'credentials')
         ttl: Time to live in seconds or timedelta object
@@ -29,20 +29,20 @@ def cache_list(
             if not current_user or 'user_id' not in current_user:
                 logger.warning("No user_id found in cache decorator, skipping cache")
                 return await func(*args, **kwargs)
-            
+
             user_id = current_user['user_id']
-            
+
             # Extract pagination and filter parameters
             skip = kwargs.get('skip', 0)
             limit = kwargs.get('limit', 100)
-            
+
             # Extract filter parameters (exclude function-specific params)
             exclude_params = {'current_user', 'skip', 'limit'}
             filters = {k: v for k, v in kwargs.items() if k not in exclude_params}
-            
+
             # Generate cache key
             cache_key = list_cache_key(prefix, user_id, skip=skip, limit=limit, **filters)
-            
+
             # Try to get from cache first (unless skip_cache is True)
             if not skip_cache:
                 try:
@@ -52,20 +52,20 @@ def cache_list(
                         return cached_result
                 except Exception as e:
                     logger.error(f"Error getting from cache: {e}")
-            
+
             # Cache miss or error - fetch fresh data
             logger.info(f"Cache miss for {cache_key}, fetching fresh data")
             result = await func(*args, **kwargs)
-            
+
             # Store in cache
             try:
                 await redis_service.set(cache_key, result, ttl)
                 logger.info(f"Cached result for {cache_key}")
             except Exception as e:
                 logger.error(f"Error caching result: {e}")
-            
+
             return result
-        
+
         return wrapper
     return decorator
 
@@ -73,7 +73,7 @@ def cache_list(
 def invalidate_cache(prefix: str, user_id: Optional[str] = None):
     """
     Decorator to invalidate cache when data changes
-    
+
     Args:
         prefix: Cache key prefix to invalidate
         user_id: Specific user_id to invalidate (if None, invalidates all users)
@@ -83,7 +83,7 @@ def invalidate_cache(prefix: str, user_id: Optional[str] = None):
         async def wrapper(*args, **kwargs):
             # Execute the original function
             result = await func(*args, **kwargs)
-            
+
             # Invalidate cache after successful operation
             try:
                 if user_id:
@@ -92,15 +92,15 @@ def invalidate_cache(prefix: str, user_id: Optional[str] = None):
                 else:
                     # Invalidate for all users
                     pattern = f"{prefix}:*"
-                
+
                 deleted_count = await redis_service.delete_pattern(pattern)
                 logger.info(f"Invalidated {deleted_count} cache entries for pattern {pattern}")
-                
+
             except Exception as e:
                 logger.error(f"Error invalidating cache: {e}")
-            
+
             return result
-        
+
         return wrapper
     return decorator
 

@@ -7,7 +7,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
-from app.databases import redis_db
+from app.services import redis_service
 from app.crud.credential import CredentialCRUD
 from app.crud.model import ModelCRUD
 from app.schemas.credential import (
@@ -142,11 +142,11 @@ class CredentialService:
                 return False, error_message
 
             if models:
-                data = redis_db.jget(f"provider:{provider}")
+                data = await redis_service.jget(f"provider:{provider}")
                 if data:
                     return True, ""
                 else:
-                    redis_db.jset(
+                    await redis_service.jset(
                         f"provider:{provider}",
                         [model.model_dump() for model in models],
                         ex=86400
@@ -370,7 +370,7 @@ class CredentialService:
         if not credential:
             raise AppError(message="Credential not found", status_code=404)
         provider = await ProviderService.get_provider_by_id(credential.provider_id)
-        data = redis_db.jget(f"provider:{provider.provider}")
+        data = await redis_service.jget(f"provider:{provider.provider}")
         if data:
             try:
                 cached_data = data
@@ -396,7 +396,7 @@ class CredentialService:
 
         if models:
             try:
-                redis_db.jset(f"provider:{provider.provider}", [model.model_dump() for model in models], ex=86400)
+                await redis_service.jset(f"provider:{provider.provider}", [model.model_dump() for model in models], ex=86400)
             except Exception as e:
                 logger.error(f"Failed to cache model response: {e}")
 
