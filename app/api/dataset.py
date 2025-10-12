@@ -7,6 +7,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.dataset import (
    DatasetUpdate, DatasetUpdateRequest,
     DatasetCreateRequest, DatasetConvertRequest, DatasetQueryRequest,
@@ -124,6 +125,7 @@ async def create_dataset(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.post("/convert")
+@invalidate_cache("datasets")
 async def convert(
     request: DatasetConvertRequest,
     current_user = Depends(verify_token)
@@ -150,6 +152,7 @@ async def convert(
 
 
 @router.get("/list")
+@cache_list("datasets", ttl=300)  # Cache for 5 minutes
 async def list_dataset(
     current_user = Depends(verify_token),
     skip: int = Query(0),
@@ -179,6 +182,7 @@ async def get_dataset(
 
 
 @router.delete("/{dataset_id}")
+@invalidate_cache("datasets")
 async def delete_dataset(
     dataset_id: str,
     current_user = Depends(verify_token)
@@ -234,6 +238,7 @@ async def query_dataset(
 
 
 @router.put("/{dataset_id}")
+@invalidate_cache("datasets")
 async def update_dataset(
     dataset_id: str,
     update_data: DatasetUpdateRequest,
@@ -259,6 +264,7 @@ async def update_dataset(
 
 
 @router.put("/{dataset_id}/schema")
+@invalidate_cache("datasets")
 async def update_dataset_schema(
     dataset_id: str,
     request: DatasetSchemaUpdateRequest,
@@ -308,6 +314,7 @@ async def get_file_columns(
 
 
 @router.post("/{dataset_id}/insert/{file_id}")
+@invalidate_cache("datasets")
 async def insert_data_from_file(
     dataset_id: str,
     file_id: str,

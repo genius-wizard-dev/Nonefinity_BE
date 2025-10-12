@@ -65,6 +65,16 @@ async def _setup_databases() -> None:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")
         raise
 
+    # Initialize Redis connection
+    try:
+        from app.services.redis_service import redis_service
+        await redis_service.get_client()  # Test connection
+        logger.info("Redis connection established successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Redis: {str(e)}")
+        # Don't raise - Redis is optional for basic functionality
+        logger.warning("Redis caching will be disabled")
+
     # Initialize AI providers from YAML
     try:
         from app.services.provider_service import ProviderService
@@ -111,6 +121,13 @@ async def lifespan(app: FastAPI):
             await mongodb.disconnect()
             # Shutdown DuckDB instance manager
             shutdown_instance_manager()
+            # Close Redis connection
+            try:
+                from app.services.redis_service import redis_service
+                await redis_service.close()
+                logger.info("Redis connection closed successfully")
+            except Exception as e:
+                logger.error(f"Error closing Redis connection: {str(e)}")
             # No more connection pools to close - connections are created and closed per request
             logger.info("Application shutdown completed successfully")
         except Exception as e:

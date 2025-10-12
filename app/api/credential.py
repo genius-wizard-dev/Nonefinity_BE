@@ -14,6 +14,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
@@ -141,6 +142,7 @@ async def get_credential(
 
 
 @router.put("/{credential_id}")
+@invalidate_cache("credentials")
 async def update_credential(
     credential_id: str = Path(..., description="Credential ID"),
     update_data: CredentialUpdate = Body(..., description="Update data"),
@@ -166,6 +168,7 @@ async def update_credential(
 
 
 @router.delete("/{credential_id}")
+@invalidate_cache("credentials")
 async def delete_credential(
     credential_id: str = Path(..., description="Credential ID"),
     current_user = Depends(verify_token)

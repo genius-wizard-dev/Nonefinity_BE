@@ -9,6 +9,7 @@ from app.schemas.file import (
 )
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
+from app.utils.cache_decorator import cache_list, invalidate_cache
 from typing import Optional, List
 
 router = APIRouter(
@@ -226,6 +227,7 @@ async def list_files(current_user = Depends(verify_token)):
     return ok(data=files, message="Files listed successfully")
 
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
+@invalidate_cache("files")
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
     """Rename file in raw/ folder
 
@@ -379,6 +381,7 @@ async def get_file_types(current_user = Depends(verify_token)):
 
 
 @router.post("/batch/delete", response_model=ApiResponse[dict])
+@invalidate_cache("files")
 async def batch_delete_files(
     request: BatchDeleteRequest,
     current_user = Depends(verify_token)

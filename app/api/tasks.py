@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from app.services.user import user_service
 from app.utils.api_response import ok
 from app.utils.verify_token import verify_token
+from app.utils.cache_decorator import cache_list
 from app.crud.task import TaskCRUD
 from app.schemas.response import ApiResponse, ApiError
 from beanie.odm.fields import PydanticObjectId
