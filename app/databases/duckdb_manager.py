@@ -83,7 +83,7 @@ class DuckDBInstance:
               );
           """)
           self.con.execute(f"""
-                           SET SCHEMA '{self.catalog_name}';
+                           USE '{self.catalog_name}';
           """)
 
           logger.info("DuckDB instance initialized successfully for user: %s", self.user_id)

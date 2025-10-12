@@ -12,6 +12,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.model import ModelType
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ async def get_owner_and_service(current_user):
 
 
 @router.post("")
+@invalidate_cache("credentials")
 async def create_credential(
     current_user = Depends(verify_token),
     credential_data: CredentialCreate = Body(..., description="Credential data")
@@ -53,6 +55,7 @@ async def create_credential(
         raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create credential")
 
 @router.get("")
+@cache_list("credentials", ttl=300)  # Cache for 5 minutes
 async def list_credentials(
     current_user = Depends(verify_token),
     skip: int = Query(0),
@@ -94,6 +97,7 @@ async def get_credential(
 
 
 @router.put("/{credential_id}")
+@invalidate_cache("credentials")
 async def update_credential(
     credential_id: str = Path(..., description="Credential ID"),
     update_data: CredentialUpdate = Body(..., description="Update data"),
@@ -119,6 +123,7 @@ async def update_credential(
 
 
 @router.delete("/{credential_id}")
+@invalidate_cache("credentials")
 async def delete_credential(
     credential_id: str = Path(..., description="Credential ID"),
     current_user = Depends(verify_token)
