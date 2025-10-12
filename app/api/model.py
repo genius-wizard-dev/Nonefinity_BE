@@ -9,6 +9,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
+from app.utils.cache_decorator import cache_list, invalidate_cache
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -28,6 +29,7 @@ async def get_owner_and_service(current_user):
 
 
 @router.post("")
+@invalidate_cache("models")
 async def create_model(
     request: ModelCreateRequest,
     current_user = Depends(verify_token)
@@ -63,6 +65,7 @@ async def create_model(
 
 
 @router.get("")
+@cache_list("models", ttl=300)  # Cache for 5 minutes
 async def list_models(
     current_user = Depends(verify_token),
     skip: int = Query(0, ge=0),
@@ -157,6 +160,7 @@ async def get_model(
 
 
 @router.put("/{model_id}")
+@invalidate_cache("models")
 async def update_model(
     model_id: str = Path(..., description="Model ID"),
     request: ModelUpdateRequest = Body(...),
@@ -182,6 +186,7 @@ async def update_model(
 
 
 @router.delete("/{model_id}")
+@invalidate_cache("models")
 async def delete_model(
     model_id: str = Path(..., description="Model ID"),
     current_user = Depends(verify_token)
@@ -205,6 +210,7 @@ async def delete_model(
 
 
 @router.post("/{model_id}/set-default")
+@invalidate_cache("models")
 async def set_default_model(
     model_id: str = Path(..., description="Model ID"),
     current_user = Depends(verify_token)

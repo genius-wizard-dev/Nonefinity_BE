@@ -6,6 +6,7 @@ from app.core.exceptions import AppError
 from app.schemas.file import FileResponse, FileUpdate, BatchDeleteRequest, UploadUrlRequest, UploadUrlResponse, FileMetadataRequest
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
+from app.utils.cache_decorator import cache_list, invalidate_cache
 from typing import Optional, List
 
 router = APIRouter()
@@ -40,6 +41,7 @@ async def get_upload_url(request: UploadUrlRequest, current_user = Depends(verif
         raise AppError("Failed to generate upload URL", status_code=HTTP_400_BAD_REQUEST)
 
 @router.post("/upload", response_model=ApiResponse[FileResponse])
+@invalidate_cache("files")
 async def save_file_metadata(request: FileMetadataRequest, current_user = Depends(verify_token)):
     """Save file metadata after upload to MinIO
 
@@ -71,6 +73,7 @@ async def save_file_metadata(request: FileMetadataRequest, current_user = Depend
         raise AppError("Failed to save file metadata", status_code=HTTP_400_BAD_REQUEST)
 
 @router.delete("/{file_id}", response_model=ApiResponse[bool])
+@invalidate_cache("files")
 async def delete_file(file_id: str, current_user = Depends(verify_token)):
     """Delete file from raw/ folder
 
@@ -94,6 +97,7 @@ async def delete_file(file_id: str, current_user = Depends(verify_token)):
 
 
 @router.get("/list", response_model=ApiResponse[list[FileResponse]])
+@cache_list("files", ttl=300)  # Cache for 5 minutes
 async def list_files(current_user = Depends(verify_token)):
     """List all files in raw/ folder
 
@@ -115,6 +119,7 @@ async def list_files(current_user = Depends(verify_token)):
     return ok(data=files, message="Files listed successfully")
 
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
+@invalidate_cache("files")
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
     """Rename file in raw/ folder
 
@@ -268,6 +273,7 @@ async def get_file_types(current_user = Depends(verify_token)):
 
 
 @router.post("/batch/delete", response_model=ApiResponse[dict])
+@invalidate_cache("files")
 async def batch_delete_files(
     request: BatchDeleteRequest,
     current_user = Depends(verify_token)
