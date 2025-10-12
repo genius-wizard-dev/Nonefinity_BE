@@ -10,7 +10,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
-from app.utils.cache_decorator import cache_list, invalidate_cache
+from app.utils.cache_decorator import invalidate_cache
 
 logger = get_logger(__name__)
 

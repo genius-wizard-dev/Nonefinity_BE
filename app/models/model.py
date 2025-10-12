@@ -22,7 +22,7 @@ class Model(TimeMixin, Document):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
-
+    dimension: Optional[int] = Field(None, description="Embedding dimension (only present if type is embedding)")
 
     class Settings:
         name = "models"

@@ -184,7 +184,7 @@ class DatasetCreateRequest(BaseModel):
     """Schema for creating dataset via JSON"""
     dataset_name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None)
-    schema: List[DataSchemaField] = Field(..., min_items=1, description="Table schema")
+    data_schema: List[DataSchemaField] = Field(..., min_items=1, description="Table schema")
 
     @validator('dataset_name')
     def validate_dataset_name(cls, v):

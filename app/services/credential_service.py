@@ -1,8 +1,5 @@
 import base64
-import aiohttp
-import secrets
-from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any, List
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -14,7 +11,6 @@ from app.schemas.credential import (
     CredentialCreate, CredentialUpdate, CredentialDetail,
     CredentialList, ModelCredentialResponse
 )
-import json
 from app.schemas.provider import ProviderResponse, ProviderList
 from app.services.provider_service import ProviderService
 from app.configs.settings import settings
@@ -228,6 +224,7 @@ class CredentialService:
                     id=str(cred.id),
                     name=cred.name,
                     provider_id=cred.provider_id,
+                    provider=provider.provider if provider else None,
                     provider_name=provider.name if provider else None,
                     base_url=cred.base_url,
                     additional_headers=cred.additional_headers,
@@ -268,6 +265,7 @@ class CredentialService:
             name=db_credential.name,
             provider_id=db_credential.provider_id,
             provider_name=provider.name if provider else None,
+            provider=provider.provider if provider else None,
             base_url=db_credential.base_url,
             additional_headers=db_credential.additional_headers,
             is_active=db_credential.is_active,
@@ -363,44 +361,48 @@ class CredentialService:
         )
 
 
+    def _parse_cached_model_data(self, cached_data: Any) -> List[ModelCredentialResponse]:
+        """Parse cached model data and return list of ModelCredentialResponse"""
+        try:
+            if isinstance(cached_data, list):
+                return [ModelCredentialResponse.model_validate(model) for model in cached_data]
+            elif isinstance(cached_data, dict) and "data" in cached_data:
+                return [ModelCredentialResponse.model_validate(model) for model in cached_data["data"]]
+            else:
+                return [ModelCredentialResponse.model_validate(cached_data)]
+        except Exception as e:
+            logger.error(f"Failed to parse cached model data: {e}")
+            return []
+
     async def get_model_credential(self, owner_id: str, credential_id: str) -> List[ModelCredentialResponse]:
         """Get model credential, use cache if available"""
         credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
 
         if not credential:
             raise AppError(message="Credential not found", status_code=404)
+
         provider = await ProviderService.get_provider_by_id(credential.provider_id)
         data = await redis_service.jget(f"provider:{provider.provider}")
         if data:
-            try:
-                cached_data = data
-                if isinstance(cached_data, list):
-                    return [ModelCredentialResponse.model_validate(model) for model in cached_data]
-                elif isinstance(cached_data, dict) and "data" in cached_data:
-                    return [ModelCredentialResponse.model_validate(model) for model in cached_data["data"]]
-                else:
-                    return [ModelCredentialResponse.model_validate(cached_data)]
-            except Exception as e:
-                logger.error(f"Failed to parse cached model data: {e}")
+            return self._parse_cached_model_data(data)
 
+        # If cache is not available, use the existing verification function
         api_key = self._decrypt_api_key(credential.api_key)
-        credential_model = await get(credential.base_url + "/models", bearer_token=api_key)
+        success, error_message = await self._verify_and_get_model_credential(
+            base_url=credential.base_url,
+            api_key=api_key,
+            provider=provider.provider
+        )
 
-        models = []
-        if isinstance(credential_model, dict) and "data" in credential_model:
-            models = [ModelCredentialResponse.model_validate(model) for model in credential_model["data"]]
-        elif isinstance(credential_model, list):
-            models = [ModelCredentialResponse.model_validate(model) for model in credential_model]
-        elif isinstance(credential_model, dict):
-            models = [ModelCredentialResponse.model_validate(credential_model)]
+        if not success:
+            raise AppError(message=f"Failed to get model credential: {error_message}", status_code=400)
 
-        if models:
-            try:
-                await redis_service.jset(f"provider:{provider.provider}", [model.model_dump() for model in models], ex=86400)
-            except Exception as e:
-                logger.error(f"Failed to cache model response: {e}")
+        # Get the cached data after verification
+        cached_data = await redis_service.jget(f"provider:{provider.provider}")
+        if cached_data:
+            return self._parse_cached_model_data(cached_data)
 
-        return models
+        return []
 
 
 credential_service = CredentialService()

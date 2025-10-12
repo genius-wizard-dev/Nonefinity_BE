@@ -13,6 +13,7 @@ class ModelCreate(BaseModel):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
+    dimension: Optional[int] = Field(None, description="Embedding dimension (only present if type is embedding)")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -22,7 +23,8 @@ class ModelCreate(BaseModel):
                 "model": "gpt-4",
                 "type": "chat",
                 "description": "OpenAI GPT-4 model for chat completions",
-                "is_active": True
+                "is_active": True,
+                "dimension": 1536
             }
         }
     )
@@ -55,7 +57,7 @@ class ModelResponse(BaseModel):
     type: ModelType = Field(..., description="Model type")
     description: Optional[str] = Field(None, description="Model description")
     is_active: bool = Field(..., description="Whether the model is active")
-
+    dimension: Optional[int] = Field(None, description="Embedding dimension (only present if type is embedding)")
     # Timestamps
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
@@ -73,7 +75,8 @@ class ModelResponse(BaseModel):
                 "description": "OpenAI GPT-4 model for chat completions",
                 "is_active": True,
                 "created_at": "2024-01-15T10:30:00Z",
-                "updated_at": "2024-01-15T10:30:00Z"
+                "updated_at": "2024-01-15T10:30:00Z",
+                "dimension": 1536
             }
         }
     )
@@ -100,7 +103,8 @@ class ModelListResponse(BaseModel):
                         "description": "OpenAI GPT-4 model",
                         "is_active": True,
                         "created_at": "2024-01-15T10:30:00Z",
-                        "updated_at": "2024-01-15T10:30:00Z"
+                        "updated_at": "2024-01-15T10:30:00Z",
+                        "dimension": 1536
                     }
                 ],
                 "total": 1,
@@ -139,7 +143,7 @@ class ModelCreateRequest(BaseModel):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
-
+    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

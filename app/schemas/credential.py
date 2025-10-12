@@ -70,6 +70,7 @@ class Credential(BaseModel):
     id: str = Field(..., description="Unique credential identifier")
     name: str = Field(..., description="Credential name")
     provider_id: str = Field(..., description="AI provider ID")
+    provider: Optional[str] = Field(None, description="Human-readable provider name")
     provider_name: Optional[str] = Field(None, description="Human-readable provider name")
     base_url: Optional[str] = Field(None, description="Custom base URL")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -84,6 +85,7 @@ class Credential(BaseModel):
                 "id": "507f1f77bcf86cd799439011",
                 "name": "OpenAI Production Key",
                 "provider_id": "openai",
+                "provider": "openai",
                 "provider_name": "OpenAI",
                 "base_url": "https://api.openai.com/v1",
                 "additional_headers": {
@@ -108,6 +110,7 @@ class CredentialDetail(Credential):
                 "id": "507f1f77bcf86cd799439011",
                 "name": "OpenAI Production Key",
                 "provider_id": "openai",
+                "provider": "openai",
                 "provider_name": "OpenAI",
                 "api_key": "sk-***masked***",
                 "base_url": "https://api.openai.com/v1",

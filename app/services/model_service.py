@@ -7,8 +7,8 @@ from app.schemas.model import ModelCreate, ModelResponse, ModelStats, ModelUpdat
 from app.core.exceptions import AppError
 from app.utils.logging import get_logger
 from app.services.credential_service import CredentialService
-import aiohttp
-
+from langchain_openai import OpenAIEmbeddings
+from openai import NotFoundError, UnprocessableEntityError, BadRequestError
 logger = get_logger(__name__)
 
 class ModelService:
@@ -18,40 +18,24 @@ class ModelService:
         self.credential_service = CredentialService()
 
 
-    async def _check_model(self, model: str, base_url: str, additional_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
-        """
-        Check if a model exists by calling the provider's list_models_url/model endpoint.
-        Returns a tuple of (success, error_message).
-        """
-        url = f"{base_url}/models/{model}"
+    def _verify_and_get_embed_dimension(self, model: str, base_url, api_key) -> int:
+        """Get the embedding dimension for a model"""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10, headers=additional_headers) as resp:
-                    if resp.status == 200:
-                        return True, ""
-                    # Try to parse error response
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {}
-                    if (
-                        resp.status == 404 or
-                        (
-                            isinstance(data, dict)
-                            and "error" in data
-                            and data["error"].get("code") == "model_not_found"
-                        )
-                    ):
-                        error_msg = data.get("error", {}).get("message", "Model not found")
-                        logger.error(f"Model check failed: {error_msg}")
-                        return False, error_msg
-                    # Other errors
-                    error_text = await resp.text()
-                    logger.error(f"Unexpected error when checking model: {error_text}")
-                    return False, f"Unexpected error: {error_text}"
+            embeddings = OpenAIEmbeddings(model=model, base_url=base_url, api_key=api_key)
+            result = embeddings.embed_query("Check!")
+            return len(result)
+        except NotFoundError as e:
+            logger.error(f"Model not found: {e}")
+            raise AppError(message=f"{e.response.json()["error"]["message"]}", status_code=404)
+        except UnprocessableEntityError as e:
+            logger.error(f"Model is not supported: {e}")
+            raise AppError(message=f"Model is not supported", status_code=400)
+        except BadRequestError as e:
+            logger.error(f"Model is not supported: {e}")
+            raise AppError(message=f"{e.response.json()["error"]["message"]}", status_code=400)
         except Exception as e:
-            logger.error(f"Exception during model check: {str(e)}")
-            return False, str(e)
+            logger.error(f"Model is not supported: {e}")
+            raise AppError(message=f"Model is not supported", status_code=500)
 
 
     async def create_model(self, owner_id: str, model_data: ModelCreate) -> bool:
@@ -69,13 +53,15 @@ class ModelService:
             if await self.crud.check_name_exists(owner_id, model_data.name):
                 logger.error(f"Model name '{model_data.name}' already exists for user {owner_id}")
                 return False
+
             api_key = self.credential_service._decrypt_api_key(credential.api_key)
-            headers = credential.additional_headers or {}
-            headers["Authorization"] = f"Bearer {api_key}"
-            model_exists, error_message = await self._check_model(model_data.model, credential.base_url, headers)
-            if not model_exists:
-                logger.error(f"Model {model_data.model} not found for user {owner_id}: {error_message}")
-                raise AppError(message=error_message)
+
+            if model_data.type == ModelType.EMBEDDING:
+              embed_dimension = self._verify_and_get_embed_dimension(model_data.model, credential.base_url, api_key)
+              if embed_dimension:
+                model_data.dimension = embed_dimension
+              else:
+                  return False
 
             # Create the model
             await self.crud.create_with_owner(owner_id, model_data)
@@ -84,7 +70,6 @@ class ModelService:
             return True
 
         except AppError:
-            # Re-raise AppError to preserve the specific error message
             raise
         except Exception as e:
             logger.error(f"Failed to create model for user {owner_id}: {str(e)}")
@@ -211,15 +196,30 @@ class ModelService:
 
     def _to_response(self, model: Model) -> ModelResponse:
         """Convert model to response format"""
-        return ModelResponse(
-            id=str(model.id),
-            owner_id=model.owner_id,
-            credential_id=model.credential_id,
-            name=model.name,
-            model=model.model,
-            type=model.type,
-            description=model.description,
-            is_active=model.is_active,
-            created_at=model.created_at,
-            updated_at=model.updated_at
-        )
+        if model.type == ModelType.EMBEDDING:
+            return ModelResponse(
+                id=str(model.id),
+                owner_id=model.owner_id,
+                credential_id=model.credential_id,
+                name=model.name,
+                model=model.model,
+                type=model.type,
+                description=model.description,
+                is_active=model.is_active,
+                created_at=model.created_at,
+                updated_at=model.updated_at,
+                dimension=model.dimension
+            )
+        else:
+            return ModelResponse(
+                id=str(model.id),
+                owner_id=model.owner_id,
+                credential_id=model.credential_id,
+                name=model.name,
+                model=model.model,
+                type=model.type,
+                description=model.description,
+                is_active=model.is_active,
+                created_at=model.created_at,
+                updated_at=model.updated_at
+            )

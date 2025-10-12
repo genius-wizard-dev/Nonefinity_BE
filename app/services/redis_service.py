@@ -1,5 +1,4 @@
 import json
-import asyncio
 from typing import Any, Optional, Union
 from datetime import timedelta
 import redis.asyncio as redis

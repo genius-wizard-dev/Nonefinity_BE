@@ -1,4 +1,4 @@
-from typing import Annotated, Optional, List, Dict, Any
+from typing import Annotated, Optional, List
 from beanie import Document, Indexed
 from pydantic import Field, validator
 from pymongo import IndexModel
