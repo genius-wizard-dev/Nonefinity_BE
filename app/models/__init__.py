@@ -7,6 +7,7 @@ from app.models.provider import Provider, ProviderTaskConfig
 from app.models.credential import Credential
 from app.models.model import Model
 from app.models.task import Task
+from app.models.knowledge_store import KnowledgeStore
 
 # Export all models for easy import
 __all__ = [
@@ -18,7 +19,8 @@ __all__ = [
     "Provider",
     "ProviderTaskConfig",
     "Credential",
-    "Model"
+    "Model",
+    "KnowledgeStore"
 ]
 
 # List of all document models for Beanie initialization
@@ -30,5 +32,6 @@ DOCUMENT_MODELS = [
     ProviderTaskConfig,
     Credential,
     Model,
-    Task
+    Task,
+    KnowledgeStore
 ]

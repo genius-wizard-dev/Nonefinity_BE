@@ -147,7 +147,6 @@ async def delete_file(
         500: {"description": "Internal server error"}
     }
 )
-@cache_list("files", ttl=300)
 async def list_files(current_user = Depends(verify_token)):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)

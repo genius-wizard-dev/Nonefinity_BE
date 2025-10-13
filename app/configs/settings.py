@@ -96,8 +96,6 @@ class QdrantSettings(BaseSettings):
     QDRANT_HOST: str
     QDRANT_PORT: int
     QDRANT_API_KEY: str | None = None
-    QDRANT_COLLECTION: str
-    QDRANT_HTTPS: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="QDRANT_")
 

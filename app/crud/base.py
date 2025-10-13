@@ -42,13 +42,13 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         query = dict(filter_ or {})
         if not include_deleted and "is_deleted" in self.model.__fields__:
             query["is_deleted"] = False
+        if owner_id:
+            query["owner_id"] = owner_id
         cursor = self.model.find(query)
         if skip:
             cursor = cursor.skip(skip)
         if limit:
             cursor = cursor.limit(limit)
-        if owner_id:
-            cursor = cursor.filter({"owner_id": owner_id})
         return await cursor.to_list()
 
     async def create(self, obj_in: CreateSchemaT | Dict[str, Any]) -> ModelT:

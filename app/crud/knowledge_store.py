@@ -1,0 +1,44 @@
+from app.crud.base import BaseCRUD
+from app.models.knowledge_store import KnowledgeStore
+from app.schemas.knowledge_store import KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest
+from typing import Optional, List, Dict, Any
+
+
+class KnowledgeStoreCRUD(BaseCRUD[KnowledgeStore, KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest]):
+    def __init__(self):
+        super().__init__(KnowledgeStore)
+
+    async def get_by_owner_and_name(self, owner_id: str, name: str) -> Optional[KnowledgeStore]:
+        """Get knowledge store by owner ID and name."""
+        return await self.get_one(
+            filter_={"owner_id": owner_id, "name": name},
+            include_deleted=False
+        )
+
+    async def get_by_collection_name(self, collection_name: str) -> Optional[KnowledgeStore]:
+        """Get knowledge store by collection name."""
+        return await self.get_one(
+            filter_={"collection_name": collection_name},
+            include_deleted=False
+        )
+
+    async def list_by_owner(
+        self,
+        owner_id: str,
+        limit: int = 50,
+        skip: int = 0,
+        status: Optional[str] = None
+    ) -> List[KnowledgeStore]:
+        """List knowledge stores by owner."""
+        # Note: status filtering is handled in the service layer by checking Qdrant
+        return await self.list(
+            filter_={"owner_id": owner_id},
+            limit=limit,
+            skip=skip,
+            include_deleted=False,
+            owner_id=owner_id
+        )
+
+
+# Global instance
+knowledge_store_crud = KnowledgeStoreCRUD()
