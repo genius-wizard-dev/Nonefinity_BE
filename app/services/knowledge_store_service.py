@@ -69,6 +69,7 @@ class KnowledgeStoreService:
 
             # Get status from Qdrant for the response
             status = qdrant_info["status"]
+            points_count = qdrant_info["points_count"] if qdrant_info else 0
 
             # Create response with all fields including status
             result = KnowledgeStoreResponse(
@@ -79,7 +80,8 @@ class KnowledgeStoreService:
                 distance=knowledge_store.distance,
                 status=status,
                 created_at=knowledge_store.created_at,
-                updated_at=knowledge_store.updated_at
+                updated_at=knowledge_store.updated_at,
+                points_count=points_count
             )
             return result
 
@@ -107,6 +109,7 @@ class KnowledgeStoreService:
         # Get status from Qdrant
         qdrant_info = self.qdrant.get_collection_info(knowledge_store.collection_name)
         status = qdrant_info["status"] if qdrant_info else "unknown"
+        points_count = qdrant_info["points_count"] if qdrant_info else 0
 
         result = KnowledgeStoreResponse(
             id=str(knowledge_store.id),
@@ -116,7 +119,8 @@ class KnowledgeStoreService:
             distance=knowledge_store.distance,
             status=status,
             created_at=knowledge_store.created_at,
-            updated_at=knowledge_store.updated_at
+            updated_at=knowledge_store.updated_at,
+            points_count=points_count
         )
         return result
 
@@ -194,6 +198,7 @@ class KnowledgeStoreService:
         # Get status from Qdrant
         qdrant_info = self.qdrant.get_collection_info(updated_knowledge_store.collection_name)
         status = qdrant_info["status"] if qdrant_info else "unknown"
+        points_count = qdrant_info["points_count"] if qdrant_info else 0
 
         result = KnowledgeStoreResponse(
             id=str(updated_knowledge_store.id),
@@ -203,7 +208,8 @@ class KnowledgeStoreService:
             distance=updated_knowledge_store.distance,
             status=status,
             created_at=updated_knowledge_store.created_at,
-            updated_at=updated_knowledge_store.updated_at
+            updated_at=updated_knowledge_store.updated_at,
+            points_count=points_count
         )
         return result
 
