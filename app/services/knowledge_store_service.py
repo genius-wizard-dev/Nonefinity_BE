@@ -314,5 +314,35 @@ class KnowledgeStoreService:
                 detail=f"Failed to scroll data: {str(e)}"
             )
 
+    async def get_knowledge_store_dimension(self, dimension: int, owner_id: str) -> List[KnowledgeStoreResponse]:
+        """Get knowledge stores by dimension."""
+        knowledge_stores = await self.crud.get_by_owner_and_dimension(owner_id, dimension)
+        if not knowledge_stores:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail="No knowledge stores found with this dimension"
+            )
+
+        # Get status from Qdrant for each knowledge store
+        knowledge_store_responses = []
+        for ks in knowledge_stores:
+            qdrant_info = self.qdrant.get_collection_info(ks.collection_name)
+            status = qdrant_info["status"] if qdrant_info else "unknown"
+            points_count = qdrant_info["points_count"] if qdrant_info else 0
+
+            result = KnowledgeStoreResponse(
+                id=str(ks.id),
+                name=ks.name,
+                description=ks.description,
+                dimension=ks.dimension,
+                distance=ks.distance,
+                status=status,
+                created_at=ks.created_at,
+                updated_at=ks.updated_at,
+                points_count=points_count
+            )
+            knowledge_store_responses.append(result)
+
+        return knowledge_store_responses
 
 knowledge_store_service = KnowledgeStoreService()

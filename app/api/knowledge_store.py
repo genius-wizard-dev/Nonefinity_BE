@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Path, Body, status, HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
-from typing import Optional
+from typing import Optional, List
 
 from app.schemas.knowledge_store import (
     KnowledgeStoreCreateRequest,
@@ -307,3 +307,26 @@ async def scroll_knowledge_store_data(
     except Exception as e:
         logger.error(f"Error scrolling data: {e}")
         raise HTTPException(status_code=500, detail="Failed to scroll data")
+
+
+@router.get(
+  "/dimension/{dimension}",
+  response_model=ApiResponse[List[KnowledgeStoreResponse]],
+  status_code=status.HTTP_200_OK,
+  summary="Get Knowledge Stores by Dimension",
+  description="Get knowledge stores by dimension",
+)
+async def get_knowledge_store_dimension(
+  dimension: int,
+  current_user = Depends(verify_token)):
+  try:
+    owner_id, service = await get_owner_and_service(current_user)
+    result = await service.get_knowledge_store_dimension(dimension, owner_id)
+    return ok(data=result, message="Knowledge stores retrieved successfully")
+  except HTTPException:
+    raise
+  except AppError as e:
+    raise HTTPException(status_code=e.status_code, detail=e.message)
+  except Exception as e:
+    logger.error(f"Error retrieving knowledge store dimension: {e}")
+    raise HTTPException(status_code=500, detail="Failed to retrieve knowledge store dimension")
