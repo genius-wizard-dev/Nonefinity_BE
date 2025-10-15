@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from qdrant_client.http import models as qm
 
 from app.tasks import celery_app
-from app.services.qdrant_service import qdrant
+from app.databases.qdrant import qdrant
 from app.utils import get_logger
 from .utils import create_embeddings
 
@@ -19,7 +19,8 @@ def search_similar(
     credential: Dict[str, Any],
     user_id: Optional[str] = None,
     file_id: Optional[str] = None,
-    limit: int = 5
+    limit: int = 5,
+    collection_name: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Search for similar vectors based on query text
@@ -43,7 +44,7 @@ def search_similar(
         provider=provider,
         model=model_id,
         texts=[query_text],
-        credential=credential or {}
+        credential=credential
     )
     query_vec = vectors[0]
 
@@ -63,8 +64,11 @@ def search_similar(
             ))
         flt = qm.Filter(must=must)
 
+    # Determine collection name
+    target_collection = collection_name or f"user_{user_id}_embeddings" if user_id else "default_embeddings"
+
     # Search in Qdrant
-    results = qdrant.search(vector=query_vec, limit=limit, filter_=flt)
+    results = qdrant.search(vector=query_vec, collection_name=target_collection, limit=limit, filter_=flt)
 
     return [
         {

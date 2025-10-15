@@ -7,7 +7,7 @@ from uuid import uuid4
 from qdrant_client.http import models as qm
 
 from app.tasks import celery_app
-from app.services.qdrant_service import qdrant
+from app.databases.qdrant import qdrant
 from app.utils import get_logger
 from .utils import simple_text_split, create_embeddings
 
@@ -15,7 +15,16 @@ logger = get_logger(__name__)
 
 
 @celery_app.task(name="tasks.embedding.run_text_embedding")
-def run_text_embedding(user_id: str, text: str, provider: str, model_id: str, credential: Dict[str, Any]) -> Dict[str, Any]:
+def run_text_embedding(
+    user_id: str,
+    text: str,
+    provider: str,
+    model_id: str,
+    credential: Dict[str, Any],
+    knowledge_store_id: str = None,
+    collection_name: str = None,
+    dimension: int = None
+) -> Dict[str, Any]:
     """
     Create embeddings for direct text input using LangChain or local models
 
@@ -56,8 +65,12 @@ def run_text_embedding(user_id: str, text: str, provider: str, model_id: str, cr
             "total_chunks": 0
         }
 
+    # Determine collection name and dimension
+    target_collection = collection_name or f"user_{user_id}_embeddings"
+    vector_dimension = dimension or len(vectors[0]) if vectors else 384
+
     # Ensure collection exists
-    qdrant.ensure_collection(vector_size=len(vectors[0]))
+    qdrant.ensure_collection(vector_size=vector_dimension, collection_name=target_collection)
 
     # Create points for Qdrant
     points: List[qm.PointStruct] = []
@@ -68,6 +81,7 @@ def run_text_embedding(user_id: str, text: str, provider: str, model_id: str, cr
             payload={
                 "user_id": user_id,
                 "file_id": None,
+                "knowledge_store_id": knowledge_store_id,
                 "chunk_index": idx,
                 "text": chunks[idx],
             },
@@ -75,14 +89,16 @@ def run_text_embedding(user_id: str, text: str, provider: str, model_id: str, cr
         points.append(point)
 
     # Upsert to Qdrant
-    qdrant.upsert_points(points)
+    qdrant.upsert_points(points, collection_name=target_collection)
 
     return {
         "user_id": user_id,
         "file_id": None,
+        "knowledge_store_id": knowledge_store_id,
         "provider": provider,
         "model_id": model_id,
         "total_chunks": len(chunks),
         "successful_chunks": len(points),
+        "collection_name": target_collection,
         "success": True
     }

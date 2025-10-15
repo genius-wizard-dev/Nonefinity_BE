@@ -105,7 +105,7 @@ async def list_models(
     limit: int = Query(50, ge=1, le=100, description="Number of items to return"),
     type: Optional[ModelType] = Query(None, description="Filter by model type (chat or embedding)"),
     credential_id: Optional[str] = Query(None, description="Filter by credential ID"),
-    active_only: bool = Query(False, description="Show only active models")
+    active_only: bool = Query(True, description="Show only active models")
 ):
     """
     Get all models for the current user
@@ -118,7 +118,7 @@ async def list_models(
     - **limit**: Number of items to return (1-100, default: 50)
     - **type**: Filter by model type (chat or embedding)
     - **credential_id**: Filter by specific credential ID
-    - **active_only**: Show only active models (default: false)
+    - **active_only**: Show only active models (default: true)
 
     **Returns:**
     - **models**: List of model objects with complete metadata

@@ -75,3 +75,7 @@ class ScrollDataResponse(BaseModel):
     scroll_id: Optional[str] = Field(None, description="Scroll ID for next page")
     has_more: bool = Field(..., description="Whether there are more points to scroll")
     total_scrolled: int = Field(..., description="Total number of points scrolled so far")
+
+
+class DeleteVectorsRequest(BaseModel):
+    point_ids: list[str] = Field(..., min_length=1, description="List of point IDs to delete")

@@ -68,22 +68,28 @@ class AITasksClient:
     def create_embedding_task(
         self,
         user_id: str,
-        file_id: str = None,
-
+        object_name: str,
         provider: str = "huggingface",
         model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
-        credential: Dict[str, Any] = None
+        credential: Dict[str, Any] = None,
+        file_id: str = None,
+        knowledge_store_id: str = None,
+        collection_name: str = None,
+        dimension: int = None
     ) -> str:
         """
         Create an embedding task
 
         Args:
             user_id: User identifier
-            file_id: File identifier (if processing file from storage)
-            text: Text to embed
+            object_name: Object name in MinIO storage
             provider: Embedding provider (openai, huggingface)
             model_id: Model identifier
             credential: Dictionary containing API keys
+            file_id: File identifier
+            knowledge_store_id: Knowledge store identifier
+            collection_name: Qdrant collection name
+            dimension: Vector dimension
 
         Returns:
             Task ID
@@ -91,7 +97,7 @@ class AITasksClient:
         try:
             logger.info(
                 f"Creating embedding task for user {user_id}, provider {provider}, "
-                f"model {model_id}, chunks count: 0"
+                f"model {model_id}, object: {object_name}"
             )
 
             # Send task to queue
@@ -99,10 +105,14 @@ class AITasksClient:
                 'tasks.embedding.run_embedding',
                 kwargs={
                     'user_id': user_id,
-                    'file_id': file_id,
+                    'object_name': object_name,
                     'provider': provider,
                     'model_id': model_id,
-                    'credential': credential or {}
+                    'credential': credential or {},
+                    'file_id': file_id,
+                    'knowledge_store_id': knowledge_store_id,
+                    'collection_name': collection_name,
+                    'dimension': dimension
                 },
                 queue='embeddings'
             )
@@ -120,7 +130,10 @@ class AITasksClient:
         text: str,
         provider: str = "huggingface",
         model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
-        credential: Dict[str, Any] = None
+        credential: Dict[str, Any] = None,
+        knowledge_store_id: str = None,
+        collection_name: str = None,
+        dimension: int = None
     ) -> str:
         """
         Create a text embedding task for direct text input
@@ -131,6 +144,9 @@ class AITasksClient:
             provider: Embedding provider (openai, huggingface, google)
             model_id: Model identifier
             credential: Dictionary containing API keys
+            knowledge_store_id: Knowledge store identifier
+            collection_name: Qdrant collection name
+            dimension: Vector dimension
 
         Returns:
             Task ID
@@ -149,7 +165,10 @@ class AITasksClient:
                     'text': text,
                     'provider': provider,
                     'model_id': model_id,
-                    'credential': credential or {}
+                    'credential': credential or {},
+                    'knowledge_store_id': knowledge_store_id,
+                    'collection_name': collection_name,
+                    'dimension': dimension
                 },
                 queue='embeddings'
             )

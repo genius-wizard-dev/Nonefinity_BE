@@ -7,10 +7,10 @@ from fastapi.responses import JSONResponse
 
 from app.schemas.embedding import (
     EmbeddingRequest,
+    TextEmbeddingRequest,
     SearchRequest,
     TaskResponse,
     TaskStatusResponse,
-    TaskResultResponse,
     TaskCancelResponse
 )
 from app.schemas.response import ApiResponse, ApiError
@@ -48,6 +48,21 @@ async def get_owner_and_embedding_service(current_user):
     return owner_id, embedding_service
 
 
+def create_task_response(result: dict, success_message: str) -> JSONResponse:
+    """Helper function to create standardized task response"""
+    response_data = TaskResponse(
+        success=result["success"],
+        task_id=result["task_id"],
+        message=result["message"],
+        metadata=result.get("metadata")
+    )
+
+    return ok(
+        data=response_data.model_dump(),
+        message=success_message
+    )
+
+
 
 @router.post(
     "/create",
@@ -57,7 +72,7 @@ async def get_owner_and_embedding_service(current_user):
     description="Create an embedding task for processing files or text into vector embeddings",
     responses={
         202: {"description": "Task created successfully"},
-        400: {"description": "Invalid request or file not found"},
+        400: {"description": "Invalid request or missing model configuration"},
         401: {"description": "Authentication required"},
         500: {"description": "Task creation failed"}
     }
@@ -80,17 +95,7 @@ async def create_embedding_task(
                 detail=result.get("error", "Failed to create embedding task")
             )
 
-        response_data = TaskResponse(
-            success=result["success"],
-            task_id=result["task_id"],
-            message=result["message"],
-            metadata=result.get("metadata")
-        )
-
-        return ok(
-            data=response_data.model_dump(),
-            message="Embedding task created successfully"
-        )
+        return create_task_response(result, "Embedding task created successfully")
 
     except HTTPException:
         raise
@@ -103,6 +108,87 @@ async def create_embedding_task(
 
 
 @router.post(
+    "/text",
+    response_model=ApiResponse[TaskResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Create Text Embedding Task",
+    description="Create an embedding task for processing text into vector embeddings",
+    responses={
+        202: {"description": "Text embedding task created successfully"},
+        400: {"description": "Invalid request or missing model configuration"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Text embedding task creation failed"}
+    }
+)
+async def create_text_embedding_task(
+    request: TextEmbeddingRequest,
+    current_user: dict = Depends(verify_token)
+) -> JSONResponse:
+    """
+    Create a text embedding task
+
+    This endpoint creates an asynchronous task to process text input and generate
+    vector embeddings using AI models. The text is split into chunks and embedded
+    using the specified model.
+
+    **Parameters:**
+    - **text**: Text to embed (required, 1-10000 characters)
+    - **model_id**: Model identifier for embedding generation (required)
+    - **knowledge_store_id**: Optional knowledge store to store embeddings
+
+    **Process:**
+    1. Text is validated and split into appropriate chunks
+    2. Chunks are processed using the specified AI model
+    3. Vector embeddings are generated and stored in Qdrant
+    4. Task progress is tracked and can be monitored
+
+    **Returns:**
+    - **task_id**: Unique identifier for monitoring embedding progress
+    - **success**: Boolean indicating if task was initiated successfully
+    - **message**: Human-readable status message
+    - **metadata**: Additional embedding information
+
+    **Example:**
+    ```json
+    {
+        "text": "This is a sample text to embed",
+        "model_id": "507f1f77bcf86cd799439011",
+        "knowledge_store_id": "507f1f77bcf86cd799439012"
+    }
+    ```
+
+    **Note:**
+    - Text is automatically chunked for optimal embedding
+    - Use the task ID to monitor progress via `/status/{task_id}` (polling pattern)
+    - Results are included in the status response when task completes
+    """
+    try:
+        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
+
+        result = await embedding_service.create_text_embedding_task(
+            user_id=owner_id,
+            text_data=request
+        )
+
+        if not result.get("success", False):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to create text embedding task")
+            )
+
+        return create_task_response(result, "Text embedding task created successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create text embedding task: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create text embedding task: {str(e)}"
+        )
+
+
+@router.post(
     "/search",
     response_model=ApiResponse[TaskResponse],
     status_code=status.HTTP_202_ACCEPTED,
@@ -110,7 +196,7 @@ async def create_embedding_task(
     description="Create a similarity search task to find relevant content using vector embeddings",
     responses={
         202: {"description": "Search task created successfully"},
-        400: {"description": "Invalid request or missing credentials"},
+        400: {"description": "Invalid request or missing model/credential configuration"},
         401: {"description": "Authentication required"},
         500: {"description": "Search task creation failed"}
     }
@@ -128,9 +214,9 @@ async def create_search_task(
 
     **Parameters:**
     - **query_text**: Text to search for (required)
-    - **provider**: AI provider (huggingface, openai, local)
-    - **model_id**: Model identifier for embedding generation
-    - **credential_id**: Optional credential ID for API access
+    - **provider**: AI provider (openai, google, nvidia, togetherai, groq)
+    - **model_id**: Model identifier for embedding generation (required)
+    - **credential_id**: Credential ID for API access (required)
     - **file_id**: Optional filter to search within specific file
     - **limit**: Number of results to return (1-100, default: 5)
 
@@ -150,8 +236,9 @@ async def create_search_task(
     ```json
     {
         "query_text": "machine learning algorithms",
-        "provider": "huggingface",
-        "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+        "provider": "openai",
+        "model_id": "507f1f77bcf86cd799439013",
+        "credential_id": "507f1f77bcf86cd799439014",
         "file_id": "507f1f77bcf86cd799439011",
         "limit": 10
     }
@@ -160,7 +247,7 @@ async def create_search_task(
     **Note:**
     - Search results are ranked by similarity score
     - Results include original text chunks and source information
-    - Use the task ID to retrieve results via `/result/{task_id}`
+    - Use the task ID to monitor progress via `/status/{task_id}` (polling pattern)
     """
 
     try:
@@ -184,17 +271,7 @@ async def create_search_task(
                 detail=result.get("error", "Failed to create search task")
             )
 
-        response_data = TaskResponse(
-            success=result["success"],
-            task_id=result["task_id"],
-            message=result["message"],
-            metadata=result.get("metadata")
-        )
-
-        return ok(
-            data=response_data.model_dump(),
-            message="Search task created successfully"
-        )
+        return create_task_response(result, "Search task created successfully")
 
     except HTTPException:
         raise
@@ -210,7 +287,7 @@ async def create_search_task(
     "/status/{task_id}",
     response_model=TaskStatusResponse,
     summary="Get Task Status",
-    description="Get the current status of an embedding task"
+    description="Get the current status of an embedding task. Use this endpoint for polling task progress."
 )
 async def get_task_status(
     task_id: str = Path(..., description="Task identifier"),
@@ -219,17 +296,35 @@ async def get_task_status(
     """
     Get the status of an embedding task
 
+    This endpoint is designed for polling by the frontend to check task progress.
+    The response includes both status information and results (if completed).
+
     - **task_id**: Task identifier returned from submit endpoint
 
-    Returns current status, progress information, and metadata
+    **Polling Pattern:**
+    1. Frontend calls this endpoint every few seconds
+    2. Check `ready` field to determine if task is complete
+    3. If `ready: true`, check `successful` field for completion status
+    4. If `successful: true`, use the `result` field for task output
+
+    **Response States:**
+    - `PENDING`: Task is waiting to be processed
+    - `STARTED`: Task has started processing
+    - `PROGRESS`: Task is in progress (check `meta` for progress info)
+    - `SUCCESS`: Task completed successfully
+    - `FAILURE`: Task failed (check `error` field)
+    - `RETRY`: Task is being retried
+    - `REVOKED`: Task was cancelled
+
+    Returns current status, progress information, and results (if available)
     """
 
     try:
         _, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.debug(f"Getting status for task: {task_id}")
 
-        # Get task status from service
-        status_data = embedding_service.get_task_status(task_id)
+        # Get task status from service (use async version for better MongoDB integration)
+        status_data = await embedding_service.get_task_status_async(task_id)
 
         response_data = TaskStatusResponse(**status_data)
 
@@ -243,46 +338,6 @@ async def get_task_status(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get task status: {str(e)}"
-        )
-
-
-@router.get(
-    "/result/{task_id}",
-    response_model=TaskResultResponse,
-    summary="Get Task Result",
-    description="Get the result of a completed embedding task"
-)
-async def get_task_result(
-    task_id: str = Path(..., description="Task identifier"),
-    current_user: dict = Depends(verify_token)
-) -> JSONResponse:
-    """
-    Get the result of a completed embedding task
-
-    - **task_id**: Task identifier returned from submit endpoint
-
-    Returns the embedding results if the task is completed successfully
-    """
-
-    try:
-        logger.debug(f"Getting result for task: {task_id}")
-        owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
-
-        # Get task result from service
-        result_data = embedding_service.get_task_result(task_id)
-
-        response_data = TaskResultResponse(**result_data)
-
-        return ok(
-            data=response_data.model_dump(),
-            message="Task result retrieved successfully"
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to get task result for {task_id}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get task result: {str(e)}"
         )
 
 
@@ -308,8 +363,8 @@ async def cancel_task(
         owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
         logger.info(f"Cancelling task: {task_id}")
 
-        # Cancel task via service
-        cancel_data = embedding_service.cancel_task(task_id)
+        # Cancel task via service (use async version for better MongoDB integration)
+        cancel_data = await embedding_service.cancel_task_async(task_id)
 
         response_data = TaskCancelResponse(**cancel_data)
 
@@ -325,37 +380,3 @@ async def cancel_task(
             detail=f"Failed to cancel task: {str(e)}"
         )
 
-
-# @router.get(
-#     "/active",
-#     response_model=ActiveTasksResponse,
-#     summary="Get Active Tasks",
-#     description="Get information about currently active embedding tasks"
-# )
-# async def get_active_tasks(current_user: dict = Depends(verify_token)) -> JSONResponse:
-#     """
-#     Get information about currently active embedding tasks
-
-#     Returns information about all active tasks across all workers
-#     """
-
-#     try:
-#         owner_id, embedding_service = await get_owner_and_embedding_service(current_user)
-#         logger.debug("Getting active tasks information")
-
-#         # Get active tasks from service
-#         active_data = embedding_service.get_active_tasks()
-
-#         response_data = ActiveTasksResponse(**active_data)
-
-#         return ok(
-#             data=response_data.model_dump(),
-#             message="Active tasks retrieved successfully"
-#         )
-
-#     except Exception as e:
-#         logger.error(f"Failed to get active tasks: {e}")
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Failed to get active tasks: {str(e)}"
-#         )

@@ -1,5 +1,6 @@
 from app.databases.qdrant import qdrant
 from app.crud.knowledge_store import knowledge_store_crud
+from app.crud.task import task_crud
 from app.schemas.knowledge_store import KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest, KnowledgeStoreResponse, KnowledgeStoreListResponse, ScrollDataRequest, ScrollDataResponse
 from app.models.knowledge_store import KnowledgeStore
 from qdrant_client.models import Distance
@@ -214,13 +215,21 @@ class KnowledgeStoreService:
         return result
 
     async def delete_knowledge_store(self, knowledge_store_id: str, owner_id: str) -> bool:
-        """Delete a knowledge store."""
+        """Delete a knowledge store and all related tasks."""
         knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
         if not knowledge_store:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
                 detail="Knowledge store not found"
             )
+
+        # Delete all related tasks from MongoDB
+        try:
+            deleted_count = await task_crud.delete_by_knowledge_store_id(knowledge_store_id, owner_id)
+            logger.info(f"Deleted {deleted_count} task(s) related to knowledge store {knowledge_store_id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete related tasks for knowledge store {knowledge_store_id}: {e}")
+            # Continue with knowledge store deletion even if task deletion fails
 
         # Delete collection from Qdrant
         success = self.qdrant.delete_collection(knowledge_store.collection_name)
@@ -294,9 +303,8 @@ class KnowledgeStoreService:
             for point in points:
                 point_dict = {
                     "id": point.id,
-                    "vector": point.vector,
-                    "payload": point.payload,
-                    "score": getattr(point, 'score', None)
+                    "text": point.payload.get("text", "") if point.payload else "",
+                    "vector": point.vector
                 }
                 points_data.append(point_dict)
 
@@ -344,5 +352,63 @@ class KnowledgeStoreService:
             knowledge_store_responses.append(result)
 
         return knowledge_store_responses
+
+    async def delete_vectors(self, knowledge_store_id: str, point_ids: List[str], owner_id: str) -> int:
+        """
+        Delete specific vectors/points from a knowledge store's Qdrant collection.
+        Only the owner can delete vectors.
+
+        Args:
+            knowledge_store_id: The knowledge store ID
+            point_ids: List of point IDs to delete
+            owner_id: The owner's user ID
+
+        Returns:
+            Number of vectors deleted
+
+        Raises:
+            HTTPException: If knowledge store not found or access denied
+        """
+        try:
+            # Get knowledge store and verify ownership
+            knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+            if not knowledge_store:
+                raise HTTPException(
+                    status_code=HTTP_404_NOT_FOUND,
+                    detail="Knowledge store not found or access denied"
+                )
+
+            # Verify that the knowledge store belongs to the user
+            if knowledge_store.owner_id != owner_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied - you don't own this knowledge store"
+                )
+
+            # Delete points from Qdrant collection
+            success = self.qdrant.delete_documents(
+                ids=point_ids,
+                collection_name=knowledge_store.collection_name
+            )
+
+            if not success:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail="Failed to delete vectors from Qdrant"
+                )
+
+            logger.info(f"Successfully deleted {len(point_ids)} vectors from knowledge store {knowledge_store_id}")
+            return len(point_ids)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting vectors: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=f"Failed to delete vectors: {str(e)}"
+            )
 
 knowledge_store_service = KnowledgeStoreService()
