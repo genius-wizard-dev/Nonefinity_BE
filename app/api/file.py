@@ -349,7 +349,7 @@ async def get_list_allow_convert(current_user = Depends(verify_token)):
 
 
 @router.get("/allow-extract", response_model=ApiResponse[List[FileResponse]])
-@cache_list("files", ttl=300)
+
 async def get_list_allow_extract(current_user = Depends(verify_token)):
     """Get list of files that are allowed to be extracted"""
     clerk_id = current_user.get("sub")

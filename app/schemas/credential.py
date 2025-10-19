@@ -130,8 +130,8 @@ class CredentialList(BaseModel):
     """Schema for credential list response"""
     credentials: List[CredentialDetail] = Field(..., description="List of credentials")
     total: int = Field(..., ge=0, description="Total number of credentials")
-    page: int = Field(..., ge=1, description="Current page number")
-    size: int = Field(..., ge=1, description="Number of items per page")
+    skip: int = Field(..., ge=0, description="Number of items skipped")
+    limit: int = Field(..., ge=1, description="Number of items per page")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -147,8 +147,8 @@ class CredentialList(BaseModel):
                     }
                 ],
                 "total": 1,
-                "page": 1,
-                "size": 100
+                "skip": 0,
+                "limit": 100
             }
         }
     )

@@ -8,6 +8,7 @@ from app.models.credential import Credential
 from app.models.model import Model
 from app.models.task import Task
 from app.models.knowledge_store import KnowledgeStore
+from app.models.chat import Chat, ChatHistory
 
 # Export all models for easy import
 __all__ = [
@@ -20,7 +21,10 @@ __all__ = [
     "ProviderTaskConfig",
     "Credential",
     "Model",
-    "KnowledgeStore"
+    "KnowledgeStore",
+    "Chat",
+    "ChatHistory",
+    "Task"
 ]
 
 # List of all document models for Beanie initialization
@@ -33,5 +37,7 @@ DOCUMENT_MODELS = [
     Credential,
     Model,
     Task,
-    KnowledgeStore
+    KnowledgeStore,
+    Chat,
+    ChatHistory
 ]

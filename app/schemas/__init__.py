@@ -10,6 +10,11 @@ from app.schemas.provider import (
     ProviderResponse, ProviderTaskConfigResponse, ProviderDetailResponse,
     ProviderList
 )
+from app.schemas.chat import (
+    ChatBase, ChatCreate, ChatUpdate, ChatResponse, ChatListResponse,
+    ChatMessageBase, ChatMessageCreate, ChatMessageResponse,
+    ChatCreateRequest, ChatUpdateRequest
+)
 
 __all__ = [
     "Pagination",
@@ -37,5 +42,16 @@ __all__ = [
     "ProviderResponse",
     "ProviderTaskConfigResponse",
     "ProviderDetailResponse",
-    "ProviderList"
+    "ProviderList",
+    # Chat schemas
+    "ChatBase",
+    "ChatCreate",
+    "ChatUpdate",
+    "ChatResponse",
+    "ChatListResponse",
+    "ChatMessageBase",
+    "ChatMessageCreate",
+    "ChatMessageResponse",
+    "ChatCreateRequest",
+    "ChatUpdateRequest"
 ]
