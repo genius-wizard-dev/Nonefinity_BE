@@ -1,5 +1,5 @@
-from .file_embedding import file_embedding
-from .text_embedding import text_embedding
-from .search_tasks import search_tasks
+from .file_embedding import run_embedding
+from .text_embedding import run_text_embedding
+from .search_tasks import search_similar
 
-__all__ = ["file_embedding", "text_embedding", "search_tasks"]
+__all__ = ["run_embedding", "run_text_embedding", "search_similar"]

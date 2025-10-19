@@ -6,9 +6,10 @@ from app.services.credential_service import CredentialService
 from app.services.model_service import ModelService
 from app.services.provider_service import ProviderService
 from app.crud.task import TaskCRUD
-from app.schemas.embedding import EmbeddingRequest
+from app.schemas.embedding import EmbeddingRequest, TextEmbeddingRequest
 from app.crud.file import FileCRUD
 from app.crud.user import UserCRUD
+from app.crud.knowledge_store import knowledge_store_crud
 logger = get_logger(__name__)
 
 
@@ -37,11 +38,6 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-
-            model_id = "sentence-transformers/all-MiniLM-L6-v2"
-            provider = "local"
-            credential_data = {}
-            model_name = "Default OSS"
             user = await self.user_crud.get_by_id(id=user_id)
             if not user:
                 raise ValueError(f"User with ID '{user_id}' not found")
@@ -49,45 +45,69 @@ class EmbeddingService:
             secret_key = getattr(user, "minio_secret_key", None) if user else None
             if not secret_key:
                 raise ValueError("User MinIO secret key not found")
+
             file = await self.file_crud.get_by_id(id=embedding_data.file_id, owner_id=user_id)
             if not file:
                 raise ValueError(f"File with ID '{embedding_data.file_id}' not found")
 
-            if embedding_data.model_id:
+            # Get knowledge store if provided
+            knowledge_store = None
+            if embedding_data.knowledge_store_id:
+                knowledge_store = await knowledge_store_crud.get_by_id(
+                    id=embedding_data.knowledge_store_id,
+                    owner_id=user_id
+                )
+                if not knowledge_store:
+                    raise ValueError(f"Knowledge store with ID '{embedding_data.knowledge_store_id}' not found")
 
-                model = await self.model_service.get_model(user_id, embedding_data.model_id)
-                if not model:
-                    raise ValueError(f"Model with ID '{embedding_data.model_id}' not found")
-                model_id = model.model
-                credential = await self.credential_service.get_credential(user_id, model.credential_id)
-                if not credential:
-                    raise ValueError(f"Credential with ID '{model.credential_id}' not found")
+            # Get model configuration (required)
+            model = await self.model_service.get_model(user_id, embedding_data.model_id)
+            if not model:
+                raise ValueError(f"Model with ID '{embedding_data.model_id}' not found")
 
-                provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
-                if not provider_obj:
-                    raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
+            # Check if model is active
+            if not model.is_active:
+                raise ValueError(f"Model '{model.name}' is not active. Please activate the model or choose another one.")
 
-                provider = provider_obj.provider
-                model_name = model.name
-                credential_data = {
-                    "api_key": credential.api_key,
-                    "base_url": credential.base_url,
-                    "additional_headers": credential.additional_headers,
-                    "provider": provider_obj.provider,
-                    "secret_key": secret_key
-                }
+            credential = await self.credential_service.get_credential(user_id, model.credential_id)
+            if not credential:
+                raise ValueError(f"Credential with ID '{model.credential_id}' not found")
+
+            provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
+            if not provider_obj:
+                raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
+
+            provider = provider_obj.provider
+            model_id = model.model
+            model_name = model.name
+            credential_data = {
+                "api_key": credential.api_key,
+                "base_url": credential.base_url,
+                "additional_headers": credential.additional_headers,
+                "provider": provider_obj.provider,
+                "secret_key": secret_key
+            }
 
 
-            task_id = embedding_client.create_embedding_task(
-                user_id=user_id,
-                object_name=file.file_path,
-                provider=provider,
-                model_id=model_id,
-                credential=credential_data
-            )
+            # Create embedding task with knowledge store info
+            task_kwargs = {
+                "user_id": user_id,
+                "object_name": file.file_path,
+                "provider": provider,
+                "model_id": model_id,
+                "credential": credential_data,
+                "file_id": embedding_data.file_id
+            }
+
+            if knowledge_store:
+                task_kwargs["knowledge_store_id"] = embedding_data.knowledge_store_id
+                task_kwargs["collection_name"] = knowledge_store.collection_name
+                task_kwargs["dimension"] = knowledge_store.dimension
+
+            task_id = embedding_client.create_embedding_task(**task_kwargs)
             try:
                 task_crud = TaskCRUD()
-                await task_crud.create({
+                task_data = {
                     "task_id": task_id,
                     "task_type": "embedding",
                     "user_id": user_id,
@@ -96,9 +116,18 @@ class EmbeddingService:
                     "model_id": model_id,
                     "status": "STARTED",
                     "metadata": {
-                        "model_name": model_name
+                        "model_name": model_name,
+                        "file_name": file.file_name
                     }
-                })
+                }
+
+                if knowledge_store:
+                    task_data["knowledge_store_id"] = embedding_data.knowledge_store_id
+                    task_data["metadata"]["knowledge_store_name"] = knowledge_store.name
+                    task_data["metadata"]["collection_name"] = knowledge_store.collection_name
+                    task_data["metadata"]["dimension"] = knowledge_store.dimension
+
+                await task_crud.create(task_data)
             except Exception as e:
                 logger.warning(f"Failed to persist embedding task document: {e}")
 
@@ -118,6 +147,127 @@ class EmbeddingService:
 
         except Exception as e:
             logger.error(f"Error creating embedding task: {e}")
+            return {
+                "success": False,
+                "error": f"Service error: {str(e)}",
+                "task_id": None
+            }
+
+    async def create_text_embedding_task(
+        self,
+        user_id: str,
+        text_data: TextEmbeddingRequest,
+    ) -> Dict[str, Any]:
+        """
+        Create a text embedding task using model configuration from database
+
+        Args:
+            user_id: User identifier
+            text_data: TextEmbeddingRequest containing text and optional model_id
+
+        Returns:
+            Dict containing task creation result
+        """
+        try:
+            user = await self.user_crud.get_by_id(id=user_id)
+            if not user:
+                raise ValueError(f"User with ID '{user_id}' not found")
+
+            # Get knowledge store if provided
+            knowledge_store = None
+            if text_data.knowledge_store_id:
+                knowledge_store = await knowledge_store_crud.get_by_id(
+                    id=text_data.knowledge_store_id,
+                    owner_id=user_id
+                )
+                if not knowledge_store:
+                    raise ValueError(f"Knowledge store with ID '{text_data.knowledge_store_id}' not found")
+
+            # Get model configuration (required)
+            model = await self.model_service.get_model(user_id, text_data.model_id)
+            if not model:
+                raise ValueError(f"Model with ID '{text_data.model_id}' not found")
+
+            # Check if model is active
+            if not model.is_active:
+                raise ValueError(f"Model '{model.name}' is not active. Please activate the model or choose another one.")
+
+            credential = await self.credential_service.get_credential(user_id, model.credential_id)
+            if not credential:
+                raise ValueError(f"Credential with ID '{model.credential_id}' not found")
+
+            provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
+            if not provider_obj:
+                raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
+
+            provider = provider_obj.provider
+            model_id = model.model
+            model_name = model.name
+            credential_data = {
+                "api_key": credential.api_key,
+                "base_url": credential.base_url,
+                "additional_headers": credential.additional_headers,
+                "provider": provider_obj.provider,
+            }
+
+            # Create text embedding task
+            task_kwargs = {
+                "user_id": user_id,
+                "text": text_data.text,
+                "provider": provider,
+                "model_id": model_id,
+                "credential": credential_data
+            }
+
+            if knowledge_store:
+                task_kwargs["knowledge_store_id"] = text_data.knowledge_store_id
+                task_kwargs["collection_name"] = knowledge_store.collection_name
+                task_kwargs["dimension"] = knowledge_store.dimension
+
+            task_id = embedding_client.create_text_embedding_task(**task_kwargs)
+
+            try:
+                task_crud = TaskCRUD()
+                task_data = {
+                    "task_id": task_id,
+                    "task_type": "text_embedding",
+                    "user_id": user_id,
+                    "file_id": None,
+                    "provider": provider,
+                    "model_id": model_id,
+                    "status": "STARTED",
+                    "metadata": {
+                        "model_name": model_name,
+                        "text_length": len(text_data.text)
+                    }
+                }
+
+                if knowledge_store:
+                    task_data["knowledge_store_id"] = text_data.knowledge_store_id
+                    task_data["metadata"]["knowledge_store_name"] = knowledge_store.name
+                    task_data["metadata"]["collection_name"] = knowledge_store.collection_name
+                    task_data["metadata"]["dimension"] = knowledge_store.dimension
+
+                await task_crud.create(task_data)
+            except Exception as e:
+                logger.warning(f"Failed to persist text embedding task document: {e}")
+
+            return {
+                "success": True,
+                "task_id": task_id,
+                "message": "Text embedding task created",
+                "metadata": {
+                    "user_id": user_id,
+                    "model_name": model_name,
+                    "model_identifier": model_id,
+                    "provider": provider,
+                    "text_length": len(text_data.text),
+                    "knowledge_store_id": text_data.knowledge_store_id
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error creating text embedding task: {e}")
             return {
                 "success": False,
                 "error": f"Service error: {str(e)}",
@@ -153,24 +303,21 @@ class EmbeddingService:
             logger.info(
                 f"Creating search task for user {user_id}, credential {credential_id}")
 
-            # For local/HuggingFace sentence-transformers used locally, credential is optional
-            credential_data = {}
-            if provider.lower() not in ("huggingface", "hf", "local"):
-                # Initialize credential service for non-local providers
-                credential_service = CredentialService()
-                db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
-                if not db_credential:
-                    return {
-                        "success": False,
-                        "error": "Credential not found",
-                        "task_id": None
-                    }
-                decrypted_api_key = credential_service._decrypt_api_key(
-                    db_credential.api_key)
-                credential_data = {
-                    "api_key": decrypted_api_key,
-                    "base_url": db_credential.base_url
+            # Initialize credential service for AI providers
+            credential_service = CredentialService()
+            db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
+            if not db_credential:
+                return {
+                    "success": False,
+                    "error": "Credential not found",
+                    "task_id": None
                 }
+            decrypted_api_key = credential_service._decrypt_api_key(
+                db_credential.api_key)
+            credential_data = {
+                "api_key": decrypted_api_key,
+                "base_url": db_credential.base_url
+            }
 
             # Create search task via AI Tasks Client
             task_id = embedding_client.search_embeddings(
@@ -221,66 +368,223 @@ class EmbeddingService:
             }
 
     @staticmethod
+    async def get_task_status_async(task_id: str) -> Dict[str, Any]:
+        """
+        Async version to get enhanced task status with MongoDB metadata
+        """
+        try:
+            # Get real-time status from Celery
+            celery_status = embedding_client.get_task_status(task_id)
+
+            # Get task metadata from MongoDB
+            from app.crud.task import TaskCRUD
+            task_crud = TaskCRUD()
+
+            task_doc = await task_crud.get_by_task_id(task_id)
+
+            if task_doc:
+                # ✨ Merge Celery status with MongoDB metadata
+                enhanced_status = {
+                    "task_id": task_id,
+                    "status": celery_status.get("status"),
+                    "ready": celery_status.get("ready"),
+                    "successful": celery_status.get("successful"),
+                    "failed": celery_status.get("failed"),
+                    "result": celery_status.get("result"),
+                    "error": celery_status.get("error"),
+                    "meta": celery_status.get("meta"),
+
+                    # ✨ Add MongoDB metadata for UI consistency
+                    "task_type": task_doc.task_type,
+                    "user_id": task_doc.user_id,
+                    "file_id": task_doc.file_id,
+                    "knowledge_store_id": task_doc.knowledge_store_id,
+                    "provider": task_doc.provider,
+                    "model_id": task_doc.model_id,
+                    "created_at": task_doc.created_at.isoformat() if task_doc.created_at else None,
+                    "updated_at": task_doc.updated_at.isoformat() if task_doc.updated_at else None,
+                }
+
+                # ✨ Add enhanced metadata from MongoDB
+                if task_doc.metadata:
+                    if isinstance(enhanced_status["meta"], dict):
+                        enhanced_status["meta"].update(task_doc.metadata)
+                    elif isinstance(enhanced_status["meta"], str):
+                        # If meta is string, create dict and add MongoDB metadata
+                        enhanced_status["meta"] = {
+                            "status_message": enhanced_status["meta"],
+                            **task_doc.metadata
+                        }
+                    else:
+                        enhanced_status["meta"] = task_doc.metadata
+
+                # ✨ Sync status to MongoDB if different
+                celery_status_val = celery_status.get("status")
+                db_status = task_doc.status
+
+                if celery_status_val != db_status:
+                    update_data = {"status": celery_status_val}
+
+                    # Update metadata with result if task completed
+                    if celery_status_val == "SUCCESS" and celery_status.get("result"):
+                        if not task_doc.metadata:
+                            task_doc.metadata = {}
+                        update_data["metadata"] = {**task_doc.metadata, "result": celery_status.get("result")}
+
+                    # Update error if task failed
+                    if celery_status_val in ["FAILURE", "ERROR"] and celery_status.get("error"):
+                        update_data["error"] = celery_status.get("error")
+
+                    await task_crud.update(task_doc, update_data)
+                    logger.info(f"🔄 Synced task {task_id} status from {db_status} to {celery_status_val} in MongoDB")
+
+                return enhanced_status
+            else:
+                # Task not found in MongoDB, return Celery data only
+                logger.warning(f"⚠️ Task {task_id} not found in MongoDB, returning Celery data only")
+                return celery_status
+
+        except Exception as e:
+            logger.error(f"❌ Error getting enhanced status for {task_id}: {e}")
+            return embedding_client.get_task_status(task_id)
+
+    @staticmethod
     def get_task_status(task_id: str) -> Dict[str, Any]:
         """
         Get the status of an embedding task by task ID
+        Returns merged data from Celery (real-time status) and MongoDB (metadata)
+        Also syncs status to MongoDB as a fallback if signals didn't update
 
         Args:
             task_id: Task identifier
 
         Returns:
-            Dict containing task status and information
+            Dict containing task status and information with complete metadata
         """
 
         try:
             logger.debug(f"Getting embedding task status: {task_id}")
-            status = embedding_client.get_task_status(task_id)
-            # Status persistence handled by Celery signals now
-            return status
+
+            # Try to run async version
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If already in async context, we need to use asyncio.create_task
+                    # But since we can't await in sync function, fallback to sync approach
+                    raise RuntimeError("Already in async context")
+                else:
+                    # If not in async context, run it directly
+                    return loop.run_until_complete(EmbeddingService.get_task_status_async(task_id))
+            except (RuntimeError, Exception) as async_error:
+                logger.warning(f"⚠️ Async approach failed for {task_id}: {async_error}, using sync fallback")
+
+                # ✨ Sync fallback approach
+                celery_status = embedding_client.get_task_status(task_id)
+
+                # Try to get MongoDB data synchronously (limited functionality)
+                try:
+                    from app.crud.task import TaskCRUD
+                    task_crud = TaskCRUD()
+
+                    # Create new event loop for this operation
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+
+                    try:
+                        task_doc = new_loop.run_until_complete(task_crud.get_by_task_id(task_id))
+
+                        if task_doc:
+                            # Merge data
+                            enhanced_status = {
+                                **celery_status,
+                                "task_type": task_doc.task_type,
+                                "user_id": task_doc.user_id,
+                                "file_id": task_doc.file_id,
+                                "knowledge_store_id": task_doc.knowledge_store_id,
+                                "provider": task_doc.provider,
+                                "model_id": task_doc.model_id,
+                                "created_at": task_doc.created_at.isoformat() if task_doc.created_at else None,
+                                "updated_at": task_doc.updated_at.isoformat() if task_doc.updated_at else None,
+                            }
+
+                            # Sync status if needed
+                            celery_status_val = celery_status.get("status")
+                            if celery_status_val != task_doc.status:
+                                update_data = {"status": celery_status_val}
+                                if celery_status_val == "SUCCESS" and celery_status.get("result"):
+                                    if not task_doc.metadata:
+                                        task_doc.metadata = {}
+                                    update_data["metadata"] = {**task_doc.metadata, "result": celery_status.get("result")}
+
+                                new_loop.run_until_complete(task_crud.update(task_doc, update_data))
+                                logger.info(f"🔄 Synced task {task_id} status to {celery_status_val} in MongoDB")
+
+                            return enhanced_status
+                        else:
+                            return celery_status
+
+                    finally:
+                        new_loop.close()
+
+                except Exception as sync_error:
+                    logger.warning(f"⚠️ Sync MongoDB access failed for {task_id}: {sync_error}")
+                    return celery_status
 
         except Exception as e:
-            logger.error(
-                f"Error getting embedding task status for {task_id}: {e}")
-            return {
-                "task_id": task_id,
-                "status": "ERROR",
-                "ready": False,
-                "successful": False,
-                "failed": True,
-                "result": None,
-                "error": f"Service error: {str(e)}",
-                "meta": None
-            }
+            logger.error(f"❌ Error getting task status for {task_id}: {e}")
+            # Final fallback to Celery data only
+            try:
+                return embedding_client.get_task_status(task_id)
+            except Exception as fallback_error:
+                logger.error(f"❌ Fallback also failed for {task_id}: {fallback_error}")
+                return {
+                    "task_id": task_id,
+                    "status": "ERROR",
+                    "ready": False,
+                    "successful": False,
+                    "failed": True,
+                    "result": None,
+                    "error": f"Service error: {str(e)}",
+                    "meta": None
+                }
+
 
     @staticmethod
-    def get_task_result(task_id: str) -> Dict[str, Any]:
+    async def cancel_task_async(task_id: str) -> Dict[str, Any]:
         """
-        Get the result of a completed embedding task
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing task result or error information
+        Async version to cancel a running embedding task and update MongoDB
         """
-
         try:
-            logger.debug(f"Getting embedding task result: {task_id}")
-            result = embedding_client.get_task_result(task_id)
-            # Completion persistence handled by Celery signals now
-            return result
+            logger.info(f"Cancelling embedding task: {task_id}")
+
+            # Cancel in Celery
+            celery_result = embedding_client.cancel_task(task_id)
+
+            # Update MongoDB status
+            from app.crud.task import TaskCRUD
+            task_crud = TaskCRUD()
+
+            task_doc = await task_crud.get_by_task_id(task_id)
+            if task_doc:
+                # Map Celery status to MongoDB status
+                mongodb_status = "REVOKED" if celery_result.get("status") == "CANCELLED" else celery_result.get("status")
+
+                await task_crud.update(task_doc, {
+                    "status": mongodb_status,
+                    "error": celery_result.get("error")
+                })
+                logger.info(f"🔄 Updated task {task_id} status to {mongodb_status} in MongoDB")
+            else:
+                logger.warning(f"⚠️ Task {task_id} not found in MongoDB during cancellation")
+
+            return celery_result
 
         except Exception as e:
-            logger.error(
-                f"Error getting embedding task result for {task_id}: {e}")
+            logger.error(f"❌ Error cancelling embedding task {task_id}: {e}")
             return {
                 "task_id": task_id,
                 "status": "ERROR",
-                "ready": False,
-                "successful": False,
-                "failed": True,
-                "result": None,
-                "error": f"Service error: {str(e)}"
+                "error": f"Failed to cancel task: {str(e)}"
             }
 
     @staticmethod
@@ -297,19 +601,43 @@ class EmbeddingService:
 
         try:
             logger.info(f"Cancelling embedding task: {task_id}")
-            res = embedding_client.cancel_task(task_id)
-            # Persist cancel
+
+            # Cancel in Celery
+            celery_result = embedding_client.cancel_task(task_id)
+
+            # ✨ Update MongoDB status properly
             try:
+                from app.crud.task import TaskCRUD
                 task_crud = TaskCRUD()
-                doc = asyncio.get_event_loop().run_until_complete(task_crud.get_by_task_id(task_id))  # type: ignore
-                if doc:
-                    asyncio.get_event_loop().run_until_complete(task_crud.update(doc, {"status": res.get("status")}))  # type: ignore
-            except Exception:
-                pass
-            return res
+
+                # Create new event loop for this operation
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+
+                try:
+                    task_doc = new_loop.run_until_complete(task_crud.get_by_task_id(task_id))
+                    if task_doc:
+                        # Map Celery status to MongoDB status
+                        mongodb_status = "REVOKED" if celery_result.get("status") == "CANCELLED" else celery_result.get("status")
+
+                        new_loop.run_until_complete(task_crud.update(task_doc, {
+                            "status": mongodb_status,
+                            "error": celery_result.get("error")
+                        }))
+                        logger.info(f"🔄 Updated task {task_id} status to {mongodb_status} in MongoDB")
+                    else:
+                        logger.warning(f"⚠️ Task {task_id} not found in MongoDB during cancellation")
+
+                finally:
+                    new_loop.close()
+
+            except Exception as mongo_error:
+                logger.warning(f"⚠️ Failed to update MongoDB for cancelled task {task_id}: {mongo_error}")
+
+            return celery_result
 
         except Exception as e:
-            logger.error(f"Error cancelling embedding task {task_id}: {e}")
+            logger.error(f"❌ Error cancelling embedding task {task_id}: {e}")
             return {
                 "task_id": task_id,
                 "status": "ERROR",

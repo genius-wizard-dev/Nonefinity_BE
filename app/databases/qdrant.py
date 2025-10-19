@@ -81,13 +81,13 @@ class QdrantDB:
 
             if not exists:
                 self.client.create_collection(
-                    collection_name=self.collection_name,
+                    collection_name=collection_name,
                     vectors_config=VectorParams(
                         size=vector_size,
                         distance=distance
                     ),
                 )
-                logger.info(f"Created Qdrant collection '{self.collection_name}' with size {vector_size}")
+                logger.info(f"Created Qdrant collection '{collection_name}' with size {vector_size}")
         except Exception as e:
             logger.error(f"Failed to ensure Qdrant collection: {e}")
             raise
@@ -224,8 +224,39 @@ class QdrantDB:
             return False
 
 
+    def upsert_points(self, points: List[Any], collection_name: str) -> bool:
+        """Upsert points directly to Qdrant collection."""
+        try:
+            self.client.upsert(
+                collection_name=collection_name,
+                points=points
+            )
+            logger.info(f"Upserted {len(points)} points to collection '{collection_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to upsert points to Qdrant: {e}")
+            raise
 
-
+    def search(
+        self,
+        vector: List[float],
+        collection_name: str,
+        limit: int = 5,
+        filter_: Optional[Any] = None
+    ) -> List[Any]:
+        """Search for similar vectors in the collection."""
+        try:
+            results = self.client.search(
+                collection_name=collection_name,
+                query_vector=vector,
+                limit=limit,
+                query_filter=filter_
+            )
+            logger.info(f"Found {len(results)} results in collection '{collection_name}'")
+            return results
+        except Exception as e:
+            logger.error(f"Failed to search in Qdrant: {e}")
+            raise
 
     def create_collection(self, collection_name: str, vector_size: int = 384, distance: Distance = Distance.COSINE) -> bool:
         """Create a new collection with specified parameters."""

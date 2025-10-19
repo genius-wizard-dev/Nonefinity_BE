@@ -39,6 +39,12 @@ class KnowledgeStoreCRUD(BaseCRUD[KnowledgeStore, KnowledgeStoreCreateRequest, K
             owner_id=owner_id
         )
 
+    async def get_by_owner_and_dimension(self, owner_id: str, dimension: int) -> List[KnowledgeStore]:
+        """Get knowledge stores by owner ID and dimension."""
+        return await self.list(
+            filter_={"dimension": dimension, "owner_id": owner_id},
+            include_deleted=False,
+        )
 
 # Global instance
 knowledge_store_crud = KnowledgeStoreCRUD()

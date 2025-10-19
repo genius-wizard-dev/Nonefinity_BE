@@ -438,4 +438,6 @@ class FileService:
             filter_={"owner_id": user_id, "file_type": {"$in": allowed_types}}
         )
 
+        logger.info(f"Files: {files}")
+
         return files

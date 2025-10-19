@@ -9,13 +9,32 @@ from pydantic import BaseModel, Field, validator, ConfigDict
 class EmbeddingRequest(BaseModel):
     """Schema for embedding request"""
     file_id: str = Field(..., description="File identifier to process")
-    model_id: Optional[str] = Field(None, description="Model identifier")
+    model_id: str = Field(..., description="Model identifier")
+    knowledge_store_id: Optional[str] = Field(None, description="Knowledge store identifier")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "file_id": "507f1f77bcf86cd799439011",
-                "model_id": "sentence-transformers/all-MiniLM-L6-v2"
+                "model_id": "507f1f77bcf86cd799439013",
+                "knowledge_store_id": "507f1f77bcf86cd799439012"
+            }
+        }
+    )
+
+
+class TextEmbeddingRequest(BaseModel):
+    """Schema for text embedding request"""
+    text: str = Field(..., description="Text to embed", min_length=1, max_length=10000)
+    model_id: str = Field(..., description="Model identifier")
+    knowledge_store_id: Optional[str] = Field(None, description="Knowledge store identifier")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "This is a sample text to embed",
+                "model_id": "507f1f77bcf86cd799439011",
+                "knowledge_store_id": "507f1f77bcf86cd799439012"
             }
         }
     )
@@ -24,18 +43,10 @@ class EmbeddingRequest(BaseModel):
 class SearchRequest(BaseModel):
     """Schema for similarity search request"""
 
-    credential_id: Optional[str] = Field(
-        default=None,
-        description=(
-            "Credential identifier for API key. Optional for 'huggingface'/'hf'/"
-            "'local' providers using free open-source models."
-        ),
-    )
+    credential_id: str = Field(..., description="Credential identifier for API key")
     query_text: str = Field(..., description="Text to search for", min_length=1, max_length=1000)
-    provider: str = Field(
-        default="huggingface", description="AI provider (e.g., 'huggingface', 'local', 'openai')")
-    model_id: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2", description="Model identifier")
+    provider: str = Field(..., description="AI provider (e.g., 'openai', 'google', 'nvidia')")
+    model_id: str = Field(..., description="Model identifier")
     file_id: Optional[str] = Field(None, description="Optional filter by file")
     limit: int = Field(
         default=5, description="Number of results to return", ge=1, le=100)
@@ -48,26 +59,18 @@ class SearchRequest(BaseModel):
 
     @validator('provider')
     def validate_provider(cls, v):
-        allowed = ['openai', 'huggingface', 'hf', 'local']
+        allowed = ['openai', 'google', 'nvidia', 'togetherai', 'groq']
         if v.lower() not in allowed:
             raise ValueError(f"Provider must be one of {allowed}")
         return v.lower()
-
-    @validator('credential_id')
-    def validate_credential_with_provider(cls, v, values):
-        provider = values.get('provider', 'huggingface')
-        if provider not in ('huggingface', 'hf', 'local') and not v:
-            raise ValueError(
-                "credential_id is required for non-local providers")
-        return v
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "credential_id": "507f1f77bcf86cd799439011",
                 "query_text": "machine learning algorithms",
-                "provider": "huggingface",
-                "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+                "provider": "openai",
+                "model_id": "507f1f77bcf86cd799439013",
                 "file_id": "507f1f77bcf86cd799439012",
                 "limit": 10
             }
@@ -136,7 +139,7 @@ class TaskResponse(BaseModel):
 
 
 class TaskStatusResponse(BaseModel):
-    """Schema for task status response"""
+    """Schema for task status response - includes both status and result data with complete metadata"""
 
     task_id: str = Field(..., description="Task identifier")
     status: str = Field(..., description="Task status (PENDING, STARTED, SUCCESS, FAILURE, RETRY, REVOKED)")
@@ -146,13 +149,31 @@ class TaskStatusResponse(BaseModel):
     failed: Optional[bool] = Field(
         default=None, description="Whether task failed")
     result: Optional[Dict[str, Any]] = Field(
-        default=None, description="Task result if available")
+        default=None, description="Task result if available (includes embeddings, chunks, etc.)")
     error: Optional[str] = Field(
         default=None, description="Error message if failed")
     meta: Optional[Union[str, Dict[str, Any]]] = Field(
         default=None,
-        description="Additional task metadata"
+        description="Additional task metadata (progress info, processing stats, etc.)"
     )
+
+    # ✨ Additional MongoDB metadata for UI consistency
+    task_type: Optional[str] = Field(
+        default=None, description="Task type (embedding, text_embedding, search)")
+    user_id: Optional[str] = Field(
+        default=None, description="User ID who created the task")
+    file_id: Optional[str] = Field(
+        default=None, description="File ID if this is a file embedding task")
+    knowledge_store_id: Optional[str] = Field(
+        default=None, description="Knowledge store ID if specified")
+    provider: Optional[str] = Field(
+        default=None, description="AI provider used")
+    model_id: Optional[str] = Field(
+        default=None, description="Model ID used")
+    created_at: Optional[str] = Field(
+        default=None, description="Task creation timestamp")
+    updated_at: Optional[str] = Field(
+        default=None, description="Task last update timestamp")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -163,51 +184,37 @@ class TaskStatusResponse(BaseModel):
                 "successful": True,
                 "failed": False,
                 "result": {
-                    "embeddings_count": 100,
-                    "processing_time": 45.2
+                    "user_id": "507f1f77bcf86cd799439011",
+                    "file_id": "507f1f77bcf86cd799439012",
+                    "knowledge_store_id": "507f1f77bcf86cd799439013",
+                    "provider": "openai",
+                    "model_id": "text-embedding-ada-002",
+                    "total_chunks": 100,
+                    "successful_chunks": 98,
+                    "collection_name": "user_123_embeddings",
+                    "success": True
                 },
                 "error": None,
                 "meta": {
                     "progress": 100,
-                    "chunks_processed": 100
-                }
-            }
-        }
-    )
-
-
-class TaskResultResponse(BaseModel):
-    """Schema for task result response"""
-
-    task_id: str = Field(..., description="Task identifier")
-    status: str = Field(..., description="Task status")
-    ready: bool = Field(..., description="Whether task is ready")
-    successful: Optional[bool] = Field(
-        default=None, description="Whether task was successful")
-    failed: Optional[bool] = Field(
-        default=None, description="Whether task failed")
-    result: Optional[Dict[str, Any]] = Field(
-        default=None, description="Task result")
-    error: Optional[str] = Field(
-        default=None, description="Error message if failed")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "task_id": "celery-task-123456789",
-                "status": "SUCCESS",
-                "ready": True,
-                "successful": True,
-                "failed": False,
-                "result": {
-                    "embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
-                    "chunks": ["First text chunk", "Second text chunk"],
-                    "processing_time": 45.2
+                    "chunks_processed": 100,
+                    "processing_time": 45.2,
+                    "model_name": "OpenAI Ada 002",
+                    "file_name": "document.pdf"
                 },
-                "error": None
+                "task_type": "embedding",
+                "user_id": "507f1f77bcf86cd799439011",
+                "file_id": "507f1f77bcf86cd799439012",
+                "knowledge_store_id": "507f1f77bcf86cd799439013",
+                "provider": "openai",
+                "model_id": "text-embedding-ada-002",
+                "created_at": "2024-01-15T10:30:00Z",
+                "updated_at": "2024-01-15T10:35:00Z"
             }
         }
     )
+
+
 
 
 class EmbeddingResult(BaseModel):

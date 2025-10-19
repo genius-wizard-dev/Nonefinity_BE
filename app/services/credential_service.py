@@ -240,8 +240,8 @@ class CredentialService:
         return CredentialList(
             credentials=credential_list,
             total=total,
-            page=skip // limit + 1 if limit > 0 else 1,
-            size=limit
+            skip=skip,
+            limit=limit
         )
 
     async def get_credential(self, owner_id: str, credential_id: str) -> CredentialDetail:

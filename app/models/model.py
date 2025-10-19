@@ -3,8 +3,9 @@ from beanie import Document, Indexed
 from pydantic import Field
 from pymongo import IndexModel
 from enum import Enum
-
+from bson import ObjectId
 from app.models.time_mixin import TimeMixin
+from app.models.credential import Credential
 
 
 class ModelType(str, Enum):
@@ -23,6 +24,14 @@ class Model(TimeMixin, Document):
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
     dimension: Optional[int] = Field(None, description="Embedding dimension (only present if type is embedding)")
+
+    async def get_credential(self) -> Optional[Credential]:
+        """Get the associated credential for this model"""
+        return await Credential.find_one(
+            Credential.id == ObjectId(self.credential_id) ,
+            Credential.owner_id == self.owner_id,
+            Credential.is_active == True
+        )
 
     class Settings:
         name = "models"

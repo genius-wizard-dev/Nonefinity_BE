@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Path, Body, status, HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
-from typing import Optional
+from typing import Optional, List
 
 from app.schemas.knowledge_store import (
     KnowledgeStoreCreateRequest,
@@ -8,7 +8,8 @@ from app.schemas.knowledge_store import (
     KnowledgeStoreResponse,
     KnowledgeStoreListResponse,
     ScrollDataRequest,
-    ScrollDataResponse
+    ScrollDataResponse,
+    DeleteVectorsRequest
 )
 from app.schemas.response import ApiResponse, ApiError
 from app.services.knowledge_store_service import KnowledgeStoreService
@@ -307,3 +308,70 @@ async def scroll_knowledge_store_data(
     except Exception as e:
         logger.error(f"Error scrolling data: {e}")
         raise HTTPException(status_code=500, detail="Failed to scroll data")
+
+
+@router.get(
+  "/dimension/{dimension}",
+  response_model=ApiResponse[List[KnowledgeStoreResponse]],
+  status_code=status.HTTP_200_OK,
+  summary="Get Knowledge Stores by Dimension",
+  description="Get knowledge stores by dimension",
+)
+async def get_knowledge_store_dimension(
+  dimension: int,
+  current_user = Depends(verify_token)):
+  try:
+    owner_id, service = await get_owner_and_service(current_user)
+    result = await service.get_knowledge_store_dimension(dimension, owner_id)
+    return ok(data=result, message="Knowledge stores retrieved successfully")
+  except HTTPException:
+    raise
+  except AppError as e:
+    raise HTTPException(status_code=e.status_code, detail=e.message)
+  except Exception as e:
+    logger.error(f"Error retrieving knowledge store dimension: {e}")
+    raise HTTPException(status_code=500, detail="Failed to retrieve knowledge store dimension")
+
+
+@router.post(
+    "/{knowledge_store_id}/delete-vectors",
+    response_model=ApiResponse[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Delete Vectors from Knowledge Store",
+    description="Delete specific vectors/points from a knowledge store's Qdrant collection",
+    responses={
+        200: {"description": "Vectors deleted successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Access denied - not the owner"},
+        404: {"description": "Knowledge store not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def delete_vectors(
+    knowledge_store_id: str = Path(..., description="Knowledge store ID"),
+    request: DeleteVectorsRequest = Body(...),
+    current_user = Depends(verify_token)
+):
+    """Delete specific vectors from a knowledge store. Only the owner can delete vectors."""
+    try:
+        owner_id, service = await get_owner_and_service(current_user)
+
+        # Delete vectors (this will check ownership internally)
+        deleted_count = await service.delete_vectors(knowledge_store_id, request.point_ids, owner_id)
+
+        return ok(
+            data={
+                "deleted_count": deleted_count,
+                "point_ids": request.point_ids
+            },
+            message=f"Successfully deleted {deleted_count} vector(s)"
+        )
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Error deleting vectors: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to delete vectors")

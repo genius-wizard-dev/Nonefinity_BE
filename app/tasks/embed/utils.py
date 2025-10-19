@@ -2,31 +2,39 @@
 Embedding utilities for text processing and vector generation
 """
 from typing import List, Dict, Any
-from sentence_transformers import SentenceTransformer
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.utils import get_logger
 
 
 logger = get_logger(__name__)
 
 
-
-def hf_local_embed(batch_texts: List[str], model: str) -> List[List[float]]:
+def simple_text_split(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
     """
-    Create embeddings using HuggingFace SentenceTransformers locally
+    Split text into chunks using RecursiveCharacterTextSplitter
 
     Args:
-        batch_texts: List of texts to embed
-        model: Model name for SentenceTransformer
+        text: Input text to split
+        chunk_size: Maximum size of each chunk
+        chunk_overlap: Overlap between chunks
 
     Returns:
-        List of embedding vectors
+        List of text chunks
     """
-    embedder = SentenceTransformer(model)
-    vectors = embedder.encode(
-        batch_texts, show_progress_bar=False, normalize_embeddings=False)
-    return [v.tolist() for v in vectors]
+    if not text or not text.strip():
+        return []
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""]
+    )
+
+    chunks = text_splitter.split_text(text.strip())
+    return [chunk for chunk in chunks if chunk.strip()]
 
 
 def langchain_embed(provider: str, model: str, texts: List[str], credential: Dict[str, Any]) -> List[List[float]]:
@@ -53,6 +61,7 @@ def langchain_embed(provider: str, model: str, texts: List[str], credential: Dic
                 google_api_key=credential.get("api_key")
             )
         else:
+            # Use OpenAI-compatible API for all other providers
             embeddings = OpenAIEmbeddings(
                 model=model,
                 api_key=credential.get("api_key"),
@@ -72,10 +81,10 @@ def langchain_embed(provider: str, model: str, texts: List[str], credential: Dic
 
 def create_embeddings(provider: str, model: str, texts: List[str], credential: Dict[str, Any]) -> List[List[float]]:
     """
-    Create embeddings using either LangChain (if credentials provided) or local models
+    Create embeddings using LangChain with configured AI models
 
     Args:
-        provider: Provider name (huggingface, openai, google, local)
+        provider: Provider name (openai, google, etc.)
         model: Model name
         texts: List of texts to embed
         credential: Credentials dictionary
@@ -84,18 +93,14 @@ def create_embeddings(provider: str, model: str, texts: List[str], credential: D
         List of embedding vectors
 
     Raises:
-        ValueError: If provider is not supported
+        ValueError: If provider is not supported or credentials are missing
     """
+    if not credential or not any(credential.values()):
+        raise ValueError("Credentials are required for AI model embedding. Please configure your model credentials.")
+
     p = (provider or "").lower()
-    has_credentials = credential and any(credential.values())
 
-    if has_credentials:
-        if p in ("openai", "huggingface", "google"):
-            return langchain_embed(provider, model, texts, credential)
-        else:
-            logger.warning(f"Provider {provider} not supported with LangChain, falling back to local")
+    if p in ("openai", "google", "nvidia", "togetherai", "groq"):
+        return langchain_embed(provider, model, texts, credential)
 
-    if p in ("huggingface", "hf", "local"):
-        return hf_local_embed(texts, model=model)
-
-    raise ValueError(f"Unsupported provider: {provider}. Use 'huggingface', 'local', or provide credentials for 'openai', 'google'")
+    raise ValueError(f"Unsupported provider: {provider}. Supported providers: openai, google, nvidia, togetherai, groq")
