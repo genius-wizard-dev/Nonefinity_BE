@@ -156,7 +156,7 @@ class CredentialService:
             logger.error(error_message)
             return False, error_message
 
-    async def create_credential(self, owner_id: str, credential_data: CredentialCreate) -> bool:
+    async def create_credential(self, owner_id: str, credential_data: CredentialCreate):
         """Create a new credential with API key validation, return bool indicating success"""
         # Get provider information first for validation
         existing_credential = await self.crud.get_by_owner_and_name(owner_id, credential_data.name)
@@ -190,12 +190,12 @@ class CredentialService:
         try:
             db_credential = await self.crud.create_with_owner(owner_id, encrypted_data)
             if db_credential:
-                return True
+                return db_credential
             else:
-                return False
+                return None
         except Exception as e:
             logger.error(f"Failed to create credential: {e}")
-            return False
+            return None
 
     async def get_credentials(
         self,
@@ -275,7 +275,7 @@ class CredentialService:
             usage_count=usage_count
         )
 
-    async def update_credential(self, owner_id: str, credential_id: str, update_data: CredentialUpdate) -> bool:
+    async def update_credential(self, owner_id: str, credential_id: str, update_data: CredentialUpdate):
         """Update credential"""
         db_credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
         if not db_credential:
@@ -318,18 +318,18 @@ class CredentialService:
 
         updated_credential = await self.crud.update(db_credential, update_dict)
         if not updated_credential:
-            return False
+            return None
 
-        return True
+        return updated_credential
 
-    async def delete_credential(self, owner_id: str, credential_id: str) -> bool:
+    async def delete_credential(self, owner_id: str, credential_id: str):
         """Delete credential (soft delete)"""
         db_credential = await self.crud.get_by_owner_and_id(owner_id, credential_id)
         if not db_credential:
             return False
 
         await self.crud.soft_delete(db_credential, soft_delete=True)
-        return True
+        return db_credential
 
     async def get_providers(self, active_only: bool = True) -> ProviderList:
         """Get all AI providers"""

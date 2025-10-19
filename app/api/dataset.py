@@ -142,8 +142,8 @@ async def delete_dataset(
     """Delete dataset by ID"""
     try:
         user_id, dataset_service = await get_user_and_service(current_user)
-        result = await dataset_service.delete_dataset(user_id, dataset_id)
-        return ok(data=result, message="Dataset deleted successfully")
+        deleted_dataset = await dataset_service.delete_dataset(user_id, dataset_id)
+        return ok(data=deleted_dataset, message="Dataset deleted successfully")
 
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -208,8 +208,8 @@ async def update_dataset(
             description=update_data.description
         )
 
-        await dataset_service.update_dataset(user_id, dataset_id, dataset_update)
-        return ok(message="Dataset updated successfully")
+        updated_dataset = await dataset_service.update_dataset(user_id, dataset_id, dataset_update)
+        return ok(data=updated_dataset, message="Dataset updated successfully")
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:

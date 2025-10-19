@@ -80,12 +80,12 @@ async def create_credential(
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
 
-        success = await credential_service.create_credential(owner_id, credential_data)
+        created_credential = await credential_service.create_credential(owner_id, credential_data)
 
-        if not success:
+        if not created_credential:
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Failed to create credential")
 
-        return created(message="Credential created successfully")
+        return created(data=created_credential, message="Credential created successfully")
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -157,12 +157,12 @@ async def update_credential(
 
         owner_id, credential_service = await get_owner_and_service(current_user)
 
-        success = await credential_service.update_credential(owner_id, credential_id, update_data)
+        updated_credential = await credential_service.update_credential(owner_id, credential_id, update_data)
 
-        if not success:
+        if not updated_credential:
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Failed to update credential")
 
-        return ok(message="Credential updated successfully")
+        return ok(data=updated_credential, message="Credential updated successfully")
     except ValueError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -180,12 +180,12 @@ async def delete_credential(
     """Delete a credential"""
     try:
         owner_id, credential_service = await get_owner_and_service(current_user)
-        success = await credential_service.delete_credential(owner_id, credential_id)
+        deleted_credential = await credential_service.delete_credential(owner_id, credential_id)
 
-        if not success:
+        if not deleted_credential:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Credential not found")
 
-        return ok( message="Credential deleted successfully")
+        return ok(data=deleted_credential, message="Credential deleted successfully")
     except HTTPException:
         raise
     except Exception as e:
