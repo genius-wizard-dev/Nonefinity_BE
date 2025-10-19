@@ -251,6 +251,7 @@ async def get_messages(
 
 @router.delete(
     "/{chat_id}/messages",
+    response_model=ApiResponse[ChatResponse],
     status_code=status.HTTP_200_OK,
     summary="Clear History",
     description="Clear all messages from chat history"
@@ -262,8 +263,8 @@ async def clear_history(
     """Clear chat history"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-        await chat_service.clear_history(owner_id, chat_id)
-        return ok(message="Chat history cleared successfully")
+        updated_chat = await chat_service.clear_history(owner_id, chat_id)
+        return ok(data=updated_chat, message="Chat history cleared successfully")
 
     except HTTPException:
         raise

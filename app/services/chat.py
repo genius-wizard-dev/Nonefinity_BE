@@ -145,10 +145,10 @@ class ChatService:
 
             # Update chat
             # Handle None values explicitly for embedding_model_id and knowledge_store_id
-            if 'embedding_model_id' in update_dict and update_dict['embedding_model_id'] is None:
-                chat.embedding_model_id = None
-            if 'knowledge_store_id' in update_dict and update_dict['knowledge_store_id'] is None:
-                chat.knowledge_store_id = None
+            if 'embedding_model_id' in update_dict:
+                chat.embedding_model_id = update_dict['embedding_model_id']
+            if 'knowledge_store_id' in update_dict:
+                chat.knowledge_store_id = update_dict['knowledge_store_id']
 
             # Update other fields normally
             for key, value in update_dict.items():
@@ -275,7 +275,7 @@ class ChatService:
                 status_code=HTTP_400_BAD_REQUEST
             )
 
-    async def clear_history(self, owner_id: str, chat_id: str) -> bool:
+    async def clear_history(self, owner_id: str, chat_id: str) -> ChatResponse:
         """Clear chat history"""
         try:
             chat = await self.crud.get_by_owner_and_id(owner_id, chat_id)
@@ -293,7 +293,8 @@ class ChatService:
                 chat.message_count = 0
                 await chat.save()
 
-            return success
+            # Return updated chat data
+            return self._to_response(chat)
 
         except AppError:
             raise

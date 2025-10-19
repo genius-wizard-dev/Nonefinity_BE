@@ -445,7 +445,6 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-
           self.duckdb.execute(f"DROP TABLE {dataset.name}")
           logger.info(f"Deleted dataset: {dataset.name} for user {user_id}")
       except Exception as e:
@@ -453,7 +452,7 @@ class DatasetService:
         raise AppError(f"Error when deleting dataset: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
 
       await self.crud.delete(dataset)
-      return True
+      return dataset
 
 
     async def get_dataset_data(self, user_id: str, dataset_id: str, skip: int = 0, limit: int = 100):
@@ -521,7 +520,8 @@ class DatasetService:
       if 'name' in update_dict and update_dict['name'] != dataset.name:
         self.duckdb.execute(f"ALTER TABLE {dataset.name} RENAME TO {update_dict['name']}")
 
-      await self.crud.update(dataset, update_dict)
+      updated_dataset = await self.crud.update(dataset, update_dict)
+      return updated_dataset
 
     async def update_dataset_schema(self, user_id: str, dataset_id: str, descriptions: dict):
         """Update dataset schema descriptions in MongoDB only"""
