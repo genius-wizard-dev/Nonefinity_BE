@@ -42,9 +42,16 @@ class ChatHistory(TimeMixin, Document):
     """Chat history model - separate collection for message storage"""
     chat_id: Annotated[str, Indexed()] = Field(..., description="Chat ID this message belongs to")
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
-    role: str = Field(..., description="Message role (user, assistant, system)")
-    content: str = Field(..., description="Message content")
+    role: str = Field(..., description="Message role (user, assistant, system, tool)")
+    content: str = Field("", description="Message content")
     message_order: int = Field(..., description="Order of message in chat")
+
+    # Enhanced fields for tool execution and AI flow
+    message_type: str = Field("text", description="Type: text, tool_call, tool_result, thinking, approval_request")
+    metadata: Optional[dict] = Field(None, description="Additional metadata (tool name, args, results, etc.)")
+
+    # For grouping related messages (e.g., tool call + result)
+    parent_message_id: Optional[str] = Field(None, description="Parent message ID for nested messages")
 
     class Settings:
         name = "chat_histories"
@@ -52,6 +59,7 @@ class ChatHistory(TimeMixin, Document):
             IndexModel([("chat_id", 1), ("message_order", 1)]),
             IndexModel([("owner_id", 1), ("created_at", -1)]),
             IndexModel([("chat_id", 1), ("created_at", 1)]),
+            IndexModel([("chat_id", 1), ("parent_message_id", 1)]),
         ]
 
 

@@ -239,7 +239,13 @@ class ChatService:
 
             # Add message to chat history
             history_message = await self.history_crud.create_message(
-                chat_id, owner_id, message_data.role, message_data.content
+                chat_id=chat_id,
+                owner_id=owner_id,
+                role=message_data.role,
+                content=message_data.content,
+                message_type=message_data.message_type,
+                metadata=message_data.metadata,
+                parent_message_id=message_data.parent_message_id
             )
 
             # Update message count in chat
@@ -252,6 +258,9 @@ class ChatService:
                 role=history_message.role,
                 content=history_message.content,
                 message_order=history_message.message_order,
+                message_type=history_message.message_type,
+                metadata=history_message.metadata,
+                parent_message_id=history_message.parent_message_id,
                 created_at=history_message.created_at
             )
 
@@ -261,6 +270,43 @@ class ChatService:
             logger.error(f"Error adding message to chat {chat_id} for user {owner_id}: {str(e)}")
             raise AppError(
                 message=f"Error adding message: {str(e)}",
+                status_code=HTTP_400_BAD_REQUEST
+            )
+
+    async def save_conversation_batch(self, owner_id: str, chat_id: str, messages: List[dict]) -> bool:
+        """Save a batch of messages (complete conversation flow with tool calls, results, etc.)"""
+        try:
+            chat = await self.crud.get_by_owner_and_id(owner_id, chat_id)
+            if not chat:
+                raise AppError(
+                    message="Chat not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+
+            # Save all messages in order
+            for msg in messages:
+                await self.history_crud.create_message(
+                    chat_id=chat_id,
+                    owner_id=owner_id,
+                    role=msg.get('role', 'assistant'),
+                    content=msg.get('content', ''),
+                    message_type=msg.get('message_type', 'text'),
+                    metadata=msg.get('metadata'),
+                    parent_message_id=msg.get('parent_message_id')
+                )
+
+            # Update message count
+            chat.message_count += len(messages)
+            await chat.save()
+
+            return True
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Error saving conversation batch for chat {chat_id}: {str(e)}")
+            raise AppError(
+                message=f"Error saving conversation: {str(e)}",
                 status_code=HTTP_400_BAD_REQUEST
             )
 
@@ -282,6 +328,9 @@ class ChatService:
                     role=msg.role,
                     content=msg.content,
                     message_order=msg.message_order,
+                    message_type=msg.message_type,
+                    metadata=msg.metadata,
+                    parent_message_id=msg.parent_message_id,
                     created_at=msg.created_at
                 )
                 for msg in messages
@@ -345,8 +394,15 @@ class ChatService:
             updated_at=chat.updated_at
         )
 
-    async def stream_agent_response(self, owner_id: str, chat_id: str, question: str):
-        """Stream agent response as async generator"""
+    async def stream_agent_response(self, owner_id: str, chat_id: str, question: str, resume_data: dict = None):
+        """Stream agent response as async generator
+
+        Args:
+            owner_id: User ID
+            chat_id: Chat session ID
+            question: User question (for new conversation)
+            resume_data: Resume data for continuing after approval (optional)
+        """
         try:
             user = await self._user_crud.get_by_id(owner_id)
             if not user:
@@ -376,7 +432,6 @@ class ChatService:
                     status_code=HTTP_404_NOT_FOUND
                 )
 
-
             api_key = self._credential_service._decrypt_api_key(credential.api_key)
             base_url = credential.base_url if credential.base_url else None
             provider = await self._provider_service.get_provider_by_id(credential.provider_id)
@@ -390,60 +445,126 @@ class ChatService:
                 tools = dataset_tools
             else:
                 tools = []
-            agent = get_agent(tools, llm_config, [], context)
+            agent = await get_agent(tools, llm_config, [])
             config = RunnableConfig(configurable={"thread_id": chat_id})
-            query = HumanMessage(content=question)
-            messages = {
-                "messages": [query]
-            }
 
+            # Prepare input based on whether we're resuming or starting new
+            if resume_data:
+                # Resuming from interrupt
+                from langgraph.types import Command
+                messages_input = Command(resume=resume_data)
+            else:
+                # New conversation
+                query = HumanMessage(content=question)
+                messages_input = {"messages": [query]}
 
             # Stream chunks from agent
-            for chunk in agent.stream(messages, config=config, stream_mode="updates"):
+            for chunk in agent.stream(messages_input, config=config, stream_mode="updates", context=context):
                 for step, data in chunk.items():
-                    # Handle regular message updates
-                    if not step == "__interrupt__" and not step == "HumanInTheLoopMiddleware.after_model":
-                        try:
-                            blocks = data['messages'][-1].content_blocks
-                            content_type = blocks[0]['type']
-                            if content_type == "text":
-                              content_text = blocks[0]['text']
-                              yield {
-                                "id": str(data.id),
-                                "type": step,
-                                "content": content_text,
-                                "type": content_type,
-                            }
-                            elif content_type == "tool_call":
-                              yield {
-                                "id": str(data.id),
-                                "type": step,
-                                "tool": blocks[0]['tool_call']['name'],
-                                "status": "pending",
-                                "args": blocks[0]['tool_call']['args'],
-                                "description": blocks[0]['tool_call']['description'],
-                              }
-                        except Exception as e:
-                          logger.error(f"Error processing step {step}: {str(e)}")
-                          pass
+                    # Skip internal steps
+                    if step == "HumanInTheLoopMiddleware.after_model":
+                        continue
+
+                    # Handle __interrupt__ for approval requests
                     if step == "__interrupt__":
                         if isinstance(data, tuple) and isinstance(data[0], Interrupt):
                             interrupt_value = data[0].value
                             action_requests = interrupt_value.get('action_requests', [])
                             review_configs = interrupt_value.get('review_configs', [])
                             interrupt_id = data[0].id
-                            for action in action_requests:
+
+                            for idx, action in enumerate(action_requests):
+                                review_config = review_configs[idx] if idx < len(review_configs) else {}
                                 yield {
-                                    "id": str(interrupt_id),
-                                    "type": step,
-                                    "action_name": action.get('name', review_configs.get('action_name', 'unknown')),
-                                    "allowed_decisions": review_configs.get('allowed_decisions', []),
-                          }
+                                    "event": "approval_request",
+                                    "data": {
+                                        "id": str(interrupt_id),
+                                        "step": step,
+                                        "tool_name": action.get('name', 'unknown'),
+                                        "args": action.get('args', {}),
+                                        "description": action.get('description', ''),
+                                        "allowed_decisions": review_config.get('allowed_decisions', ['approve', 'reject', 'edit']),
+                                    }
+                                }
+                        continue
+
+                    # Handle model and tools steps
+                    try:
+                        if 'messages' not in data or not data['messages']:
+                            continue
+
+                        message = data['messages'][-1]
+
+                        # Handle AIMessage (from model)
+                        if step == "model" and hasattr(message, 'tool_calls'):
+                            # AI is making tool calls
+                            if message.tool_calls:
+                                for tool_call in message.tool_calls:
+                                    yield {
+                                        "event": "tool_call",
+                                        "data": {
+                                            "id": tool_call.get('id', ''),
+                                            "step": step,
+                                            "tool_name": tool_call.get('name', ''),
+                                            "args": tool_call.get('args', {}),
+                                            "status": "pending"
+                                        }
+                                    }
+                            # AI is responding with text
+                            elif hasattr(message, 'content') and message.content:
+                                # Extract text content from message
+                                content_text = ""
+                                if isinstance(message.content, str):
+                                    content_text = message.content
+                                elif isinstance(message.content, list):
+                                    # Handle content blocks format
+                                    for block in message.content:
+                                        if isinstance(block, dict) and block.get('type') == 'text':
+                                            content_text += block.get('text', '')
+                                        elif isinstance(block, str):
+                                            content_text += block
+
+                                if content_text:
+                                    yield {
+                                        "event": "content",
+                                        "data": {
+                                            "id": str(getattr(message, 'id', '')),
+                                            "step": step,
+                                            "content": content_text,
+                                            "role": "assistant"
+                                        }
+                                    }
+
+                        # Handle ToolMessage (tool results)
+                        elif step == "tools":
+                            tool_content = message.content if hasattr(message, 'content') else str(message)
+                            tool_name = message.name if hasattr(message, 'name') else 'unknown'
+                            tool_call_id = message.tool_call_id if hasattr(message, 'tool_call_id') else ''
+
+                            yield {
+                                "event": "tool_result",
+                                "data": {
+                                    "id": tool_call_id,
+                                    "step": step,
+                                    "tool_name": tool_name,
+                                    "result": tool_content,
+                                    "status": "completed"
+                                }
+                            }
+
+                    except Exception as e:
+                        logger.error(f"Error processing step {step}: {str(e)}")
+                        logger.exception(e)
+
         except AppError:
             raise
         except Exception as e:
+            logger.error(f"Stream error: {str(e)}")
+            logger.exception(e)
             yield {
-                "type": "error",
-                "message": str(e)
+                "event": "error",
+                "data": {
+                    "message": str(e)
+                }
             }
 

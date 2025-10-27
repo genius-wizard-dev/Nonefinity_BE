@@ -303,30 +303,24 @@ async def stream_chat(
         # Create streaming generator
         async def event_generator():
             try:
-                # Save user message
-                await chat_service.add_message(owner_id, chat_id, message_data)
-
                 # Send start event
-                yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
+                yield f"event: start\ndata: {json.dumps({'message': 'Stream started'})}\n\n"
 
                 # Stream agent response
                 async for chunk in chat_service.stream_agent_response(owner_id, chat_id, message_data.content):
-                    if chunk.get("type") == "content":
-                        # Send content chunk
-                        yield f"data: {json.dumps({'type': 'content', 'content': chunk.get('content', '')})}\n\n"
-                    elif chunk.get("type") == "tool_call":
-                        # Send tool call info
-                        yield f"data: {json.dumps({'type': 'tool_call', 'tool': chunk.get('tool', ''), 'status': chunk.get('status', '')})}\n\n"
-                    elif chunk.get("type") == "error":
-                        # Send error
-                        yield f"data: {json.dumps({'type': 'error', 'message': chunk.get('message', '')})}\n\n"
+                    event_type = chunk.get("event", "message")
+                    event_data = chunk.get("data", {})
+
+                    # Send event with proper SSE format
+                    yield f"event: {event_type}\ndata: {json.dumps(event_data)}\n\n"
 
                 # Send end event
-                yield f"data: {json.dumps({'type': 'end', 'content': ''})}\n\n"
+                yield f"event: end\ndata: {json.dumps({'message': 'Stream completed'})}\n\n"
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                logger.exception(e)
+                yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
         return StreamingResponse(
             event_generator(),
@@ -334,7 +328,8 @@ async def stream_chat(
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*"
             }
         )
 
@@ -344,4 +339,115 @@ async def stream_chat(
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Stream chat failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Approval endpoint for tool execution
+@router.post(
+    "/{chat_id}/approve",
+    summary="Approve/Reject/Edit Tool Execution",
+    description="Handle user decision for tool execution approval"
+)
+async def approve_tool_execution(
+    request: Request,
+    chat_id: str = Path(..., description="Chat ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Handle tool execution approval, rejection, or editing"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+
+        # Verify chat exists
+        chat = await chat_service.crud.get_by_owner_and_id(owner_id, chat_id)
+        if not chat:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Chat not found"
+            )
+
+        # Parse request body
+        body = await request.json()
+        decision_type = body.get('type', 'approve')  # approve, reject, or edit
+        resume_data = body.get('resume_data')  # Resume data structure
+
+        # Create streaming generator for resumed execution
+        async def event_generator():
+            try:
+                yield f"event: resume\ndata: {json.dumps({'message': 'Resuming execution'})}\n\n"
+
+                # Stream agent response with resume data
+                async for chunk in chat_service.stream_agent_response(
+                    owner_id, chat_id, "", resume_data=resume_data
+                ):
+                    event_type = chunk.get("event", "message")
+                    event_data = chunk.get("data", {})
+                    yield f"event: {event_type}\ndata: {json.dumps(event_data)}\n\n"
+
+                yield f"event: end\ndata: {json.dumps({'message': 'Stream completed'})}\n\n"
+
+            except Exception as e:
+                logger.error(f"Approval streaming error: {str(e)}")
+                logger.exception(e)
+                yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Approve tool execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Batch save conversation
+@router.post(
+    "/{chat_id}/save-conversation",
+    status_code=status.HTTP_201_CREATED,
+    summary="Save Conversation Batch",
+    description="Save complete conversation flow including tool calls and results"
+)
+async def save_conversation(
+    request: Request,
+    chat_id: str = Path(..., description="Chat ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Save a batch of messages representing complete conversation flow"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+
+        # Parse request body
+        body = await request.json()
+        messages = body.get('messages', [])
+
+        if not messages:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="No messages provided"
+            )
+
+        # Save conversation batch
+        success = await chat_service.save_conversation_batch(owner_id, chat_id, messages)
+
+        return ok(
+            data={"saved": len(messages)},
+            message=f"Saved {len(messages)} messages successfully"
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Save conversation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

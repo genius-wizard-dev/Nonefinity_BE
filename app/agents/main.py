@@ -13,12 +13,12 @@ logger = get_logger(__name__)
 
 
 
-def get_agent(tools: List[BaseTool], llm_config: LLMConfig, middleware: List[AgentMiddleware], context_schema: AgentContext):
+async def get_agent(tools: List[BaseTool], llm_config: LLMConfig, middleware: List[AgentMiddleware]):
   return create_agent(
     model=llm_config.get_model(),
     tools=tools,
     middleware=middleware,
-    context_schema=context_schema,
+    context_schema=AgentContext,
     state_schema=AgentState,
     checkpointer=InMemorySaver(),
     system_prompt=SYSTEM_PROMPT

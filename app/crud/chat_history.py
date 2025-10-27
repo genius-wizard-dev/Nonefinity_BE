@@ -9,7 +9,16 @@ class ChatHistoryCRUD(BaseCRUD[ChatHistory, ChatMessageCreate, None]):
     def __init__(self):
         super().__init__(ChatHistory)
 
-    async def create_message(self, chat_id: str, owner_id: str, role: str, content: str) -> ChatHistory:
+    async def create_message(
+        self,
+        chat_id: str,
+        owner_id: str,
+        role: str,
+        content: str,
+        message_type: str = "text",
+        metadata: dict = None,
+        parent_message_id: str = None
+    ) -> ChatHistory:
         """Create a new message in chat history"""
         from app.utils import get_logger
         logger = get_logger(__name__)
@@ -35,7 +44,10 @@ class ChatHistoryCRUD(BaseCRUD[ChatHistory, ChatMessageCreate, None]):
             "owner_id": owner_id,
             "role": role,
             "content": content,
-            "message_order": next_order
+            "message_order": next_order,
+            "message_type": message_type,
+            "metadata": metadata,
+            "parent_message_id": parent_message_id
         }
 
         logger.info(f"📝 Creating message with data: {message_data}")

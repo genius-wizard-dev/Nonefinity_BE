@@ -147,8 +147,11 @@ class ChatListResponse(BaseModel):
 # Chat History / Message schemas
 class ChatMessageBase(BaseModel):
     """Base schema for chat message"""
-    role: str = Field(..., description="Message role (user, assistant, system)")
-    content: str = Field(..., description="Message content")
+    role: str = Field(..., description="Message role (user, assistant, system, tool)")
+    content: str = Field("", description="Message content")
+    message_type: str = Field("text", description="Type: text, tool_call, tool_result, thinking, approval_request")
+    metadata: Optional[dict] = Field(None, description="Additional metadata (tool info, args, results, etc.)")
+    parent_message_id: Optional[str] = Field(None, description="Parent message ID for nested messages")
 
 
 class ChatMessageCreate(ChatMessageBase):
@@ -169,8 +172,11 @@ class ChatMessageResponse(BaseModel):
     id: str = Field(..., description="Message ID")
     chat_id: str = Field(..., description="Chat ID")
     role: str = Field(..., description="Message role")
-    content: str = Field(..., description="Message content")
+    content: str = Field("", description="Message content")
     message_order: int = Field(..., description="Message order")
+    message_type: str = Field("text", description="Message type")
+    metadata: Optional[dict] = Field(None, description="Additional metadata")
+    parent_message_id: Optional[str] = Field(None, description="Parent message ID")
     created_at: datetime = Field(..., description="Creation timestamp")
 
     model_config = ConfigDict(
