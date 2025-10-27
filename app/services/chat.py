@@ -9,7 +9,21 @@ from app.schemas.chat import (
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 from app.utils import get_logger
-
+from app.agents.main import get_agent
+from app.agents.llms import LLMConfig
+from app.agents.tools import dataset_tools
+from app.crud.model import ModelCRUD
+from app.crud.credential import CredentialCRUD
+from langchain_core.messages import HumanMessage
+from langchain.messages import HumanMessage
+from langchain_core.runnables.config import RunnableConfig
+import uuid
+from app.agents.context import AgentContext
+from app.services.dataset_service import DatasetService
+from app.services.provider_service import ProviderService
+from app.crud.user import UserCRUD
+from app.services.credential_service import CredentialService
+from langgraph.types import Interrupt
 logger = get_logger(__name__)
 
 
@@ -19,6 +33,13 @@ class ChatService:
     def __init__(self):
         self.crud = chat_crud
         self.history_crud = chat_history_crud
+        self._model_crud = ModelCRUD()
+        self._credential_crud = CredentialCRUD()
+        self._provider_service = ProviderService()
+        self._user_crud = UserCRUD()
+        self._credential_service = CredentialService()
+
+
 
     async def create_chat(self, owner_id: str, chat_data: ChatCreate) -> ChatResponse:
         """Create a new chat"""
@@ -323,3 +344,106 @@ class ChatService:
             created_at=chat.created_at,
             updated_at=chat.updated_at
         )
+
+    async def stream_agent_response(self, owner_id: str, chat_id: str, question: str):
+        """Stream agent response as async generator"""
+        try:
+            user = await self._user_crud.get_by_id(owner_id)
+            if not user:
+                raise AppError(
+                    message="User not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            chat = await self.crud.get_by_owner_and_id(owner_id, chat_id)
+            if not chat:
+                raise AppError(
+                    message="Chat not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            dataset_service = DatasetService(access_key=str(user.id), secret_key=str(user.minio_secret_key))
+            context = AgentContext(user_id=owner_id, dataset_service=dataset_service)
+            model = await self._model_crud.get_by_owner_and_id(owner_id, chat.chat_model_id)
+            if not model:
+                raise AppError(
+                    message="Model not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+
+            credential = await self._credential_crud.get_by_owner_and_id(owner_id, model.credential_id)
+            if not credential:
+                raise AppError(
+                    message="Credential not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+
+
+            api_key = self._credential_service._decrypt_api_key(credential.api_key)
+            base_url = credential.base_url if credential.base_url else None
+            provider = await self._provider_service.get_provider_by_id(credential.provider_id)
+            if not provider:
+                raise AppError(
+                    message="Provider not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            llm_config = LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
+            if chat.dataset_ids:
+                tools = dataset_tools
+            else:
+                tools = []
+            agent = get_agent(tools, llm_config, [], context)
+            config = RunnableConfig(configurable={"thread_id": chat_id})
+            query = HumanMessage(content=question)
+            messages = {
+                "messages": [query]
+            }
+
+
+            # Stream chunks from agent
+            for chunk in agent.stream(messages, config=config, stream_mode="updates"):
+                for step, data in chunk.items():
+                    # Handle regular message updates
+                    if not step == "__interrupt__" and not step == "HumanInTheLoopMiddleware.after_model":
+                        try:
+                            blocks = data['messages'][-1].content_blocks
+                            content_type = blocks[0]['type']
+                            if content_type == "text":
+                              content_text = blocks[0]['text']
+                              yield {
+                                "id": str(data.id),
+                                "type": step,
+                                "content": content_text,
+                                "type": content_type,
+                            }
+                            elif content_type == "tool_call":
+                              yield {
+                                "id": str(data.id),
+                                "type": step,
+                                "tool": blocks[0]['tool_call']['name'],
+                                "status": "pending",
+                                "args": blocks[0]['tool_call']['args'],
+                                "description": blocks[0]['tool_call']['description'],
+                              }
+                        except Exception as e:
+                          logger.error(f"Error processing step {step}: {str(e)}")
+                          pass
+                    if step == "__interrupt__":
+                        if isinstance(data, tuple) and isinstance(data[0], Interrupt):
+                            interrupt_value = data[0].value
+                            action_requests = interrupt_value.get('action_requests', [])
+                            review_configs = interrupt_value.get('review_configs', [])
+                            interrupt_id = data[0].id
+                            for action in action_requests:
+                                yield {
+                                    "id": str(interrupt_id),
+                                    "type": step,
+                                    "action_name": action.get('name', review_configs.get('action_name', 'unknown')),
+                                    "allowed_decisions": review_configs.get('allowed_decisions', []),
+                          }
+        except AppError:
+            raise
+        except Exception as e:
+            yield {
+                "type": "error",
+                "message": str(e)
+            }
+

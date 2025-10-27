@@ -1,6 +1,8 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status
+from fastapi.responses import StreamingResponse
 from starlette.status import HTTP_400_BAD_REQUEST
+import json
 
 from app.schemas.chat import (
     ChatCreateRequest, ChatUpdateRequest, ChatResponse, ChatListResponse,
@@ -272,4 +274,74 @@ async def clear_history(
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Clear history failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Streaming endpoint
+@router.post(
+    "/{chat_id}/stream",
+    summary="Stream Chat Response",
+    description="Send a message and receive streaming response (SSE)"
+)
+async def stream_chat(
+    message_data: ChatMessageCreate,
+    chat_id: str = Path(..., description="Chat ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Stream chat response using Server-Sent Events"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+
+        # Verify chat exists
+        chat = await chat_service.crud.get_by_owner_and_id(owner_id, chat_id)
+        if not chat:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Chat not found"
+            )
+
+        # Create streaming generator
+        async def event_generator():
+            try:
+                # Save user message
+                await chat_service.add_message(owner_id, chat_id, message_data)
+
+                # Send start event
+                yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
+
+                # Stream agent response
+                async for chunk in chat_service.stream_agent_response(owner_id, chat_id, message_data.content):
+                    if chunk.get("type") == "content":
+                        # Send content chunk
+                        yield f"data: {json.dumps({'type': 'content', 'content': chunk.get('content', '')})}\n\n"
+                    elif chunk.get("type") == "tool_call":
+                        # Send tool call info
+                        yield f"data: {json.dumps({'type': 'tool_call', 'tool': chunk.get('tool', ''), 'status': chunk.get('status', '')})}\n\n"
+                    elif chunk.get("type") == "error":
+                        # Send error
+                        yield f"data: {json.dumps({'type': 'error', 'message': chunk.get('message', '')})}\n\n"
+
+                # Send end event
+                yield f"data: {json.dumps({'type': 'end', 'content': ''})}\n\n"
+
+            except Exception as e:
+                logger.error(f"Streaming error: {str(e)}")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Stream chat failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

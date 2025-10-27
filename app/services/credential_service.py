@@ -113,43 +113,44 @@ class CredentialService:
         """Get model credential, return (success, error_message)"""
         try:
             models = []
-            result = await get(base_url + "/models", bearer_token=api_key)
-            if isinstance(result, dict) and "error" in result:
-                error = result["error"]
-                error_message = error.get('message', str(error))
-                logger.error(f"API error when validating models: {error_message}")
-                return False, error_message
-            elif isinstance(result, dict) and isinstance(result.get("data"), list):
-                result = result.get("data")
-                models = [
-                  ModelCredentialResponse.model_validate(
-                      {**model, "owned_by": model.get("owned_by", provider)}
-                  ) for model in result
-                ]
-            elif isinstance(result, list):
-                models = [
-                  ModelCredentialResponse.model_validate(
-                      {**model, "owned_by": model.get("owned_by", provider)}
-                  ) for model in result
-                ]
-            else:
-                error_message = f"Unexpected response format: {result}"
-                logger.error(f"Unexpected response format when validating API key/models: {result}")
-                return False, error_message
+            models_url = base_url + "/models"
+            if provider == "google":
+              result = await get(models_url + "?key=" + api_key)
+              if isinstance(result, dict) and "error" in result:
+                  error = result["error"]
+                  error_message = error.get('message', str(error))
+                  logger.error(f"API error when validating models: {error_message}")
+                  return False, error_message
+              elif isinstance(result, dict) and isinstance(result.get("models"), list):
+                  result = result.get("models")
+                  models = [
+                    ModelCredentialResponse.model_validate(
+                        {
+                        "id": model.get("name"),
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": provider
+                        })
+                    for model in result
+                  ]
+              else:
+                  error_message = f"Unexpected response format: {result}"
+                  logger.error(f"Unexpected response format when validating API key/models: {result}")
+                  return False, error_message
 
-            if models:
-                data = await redis_service.jget(f"provider:{provider}")
-                if data:
-                    return True, ""
-                else:
-                    await redis_service.jset(
-                        f"provider:{provider}",
-                        [model.model_dump() for model in models],
-                        ex=86400
-                    )
-                    return True, ""
-            else:
-                return False, "No models found"
+              if models:
+                  data = await redis_service.jget(f"provider:{provider}")
+                  if data:
+                      return True, ""
+                  else:
+                      await redis_service.jset(
+                          f"provider:{provider}",
+                          [model.model_dump() for model in models],
+                          ex=86400
+                      )
+                      return True, ""
+              else:
+                  return False, "No models found"
 
         except Exception as e:
             error_message = f"Failed to get model credential: {e}"

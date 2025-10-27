@@ -36,8 +36,6 @@ class Provider(TimeMixin, Document):
     is_active: bool = Field(default=True, description="Is provider active")
     support: List[str] = Field(default_factory=list, description="Supported tasks (embedding, chat, moderation, etc.)")
 
-
-
     # Additional metadata for better querying
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
 
@@ -49,9 +47,6 @@ class Provider(TimeMixin, Document):
             if task not in valid_tasks:
                 raise ValueError(f"Unsupported task type: {task}")
         return v
-
-
-
 
 
     class Settings:

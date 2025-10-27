@@ -11,12 +11,23 @@ class ChatHistoryCRUD(BaseCRUD[ChatHistory, ChatMessageCreate, None]):
 
     async def create_message(self, chat_id: str, owner_id: str, role: str, content: str) -> ChatHistory:
         """Create a new message in chat history"""
-        # Get the next message order
-        last_message = await self.model.find(
-            ChatHistory.chat_id == chat_id
-        ).sort([("message_order", -1)]).limit(1).first()
+        from app.utils import get_logger
+        logger = get_logger(__name__)
 
-        next_order = (last_message.message_order + 1) if last_message else 1
+        try:
+            # Get the next message order
+            logger.info(f"🔍 Getting last message for chat_id: {chat_id}")
+            last_messages = await self.model.find(
+                ChatHistory.chat_id == chat_id
+            ).sort([("message_order", -1)]).limit(1).to_list()
+
+            logger.info(f"📝 Found {len(last_messages)} last messages")
+            last_message = last_messages[0] if last_messages else None
+            next_order = (last_message.message_order + 1) if last_message else 1
+            logger.info(f"📝 Next message order: {next_order}")
+        except Exception as e:
+            logger.error(f"❌ Error getting last message: {str(e)}")
+            next_order = 1
 
         # Create new message
         message_data = {
@@ -27,7 +38,14 @@ class ChatHistoryCRUD(BaseCRUD[ChatHistory, ChatMessageCreate, None]):
             "message_order": next_order
         }
 
-        return await self.create(message_data)
+        logger.info(f"📝 Creating message with data: {message_data}")
+        try:
+            result = await self.create(message_data)
+            logger.info(f"✅ Message created successfully: {result.id}")
+            return result
+        except Exception as e:
+            logger.error(f"❌ Error creating message: {str(e)}")
+            raise
 
     async def get_messages_by_chat(self, chat_id: str, skip: int = 0, limit: int = 100) -> List[ChatHistory]:
         """Get messages for a chat with pagination"""
