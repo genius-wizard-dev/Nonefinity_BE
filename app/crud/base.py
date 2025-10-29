@@ -90,5 +90,6 @@ class BaseCRUD(Generic[ModelT, CreateSchemaT, UpdateSchemaT]):
         else:
             await db_obj.delete()
 
+
     async def delete(self, db_obj: ModelT) -> None:
         await db_obj.delete()

@@ -2,33 +2,28 @@ from typing import Annotated, List, Optional
 from beanie import Document, Indexed
 from pydantic import Field
 from pymongo import IndexModel
+from pydantic import BaseModel
+from datetime import datetime
 
 from app.models.time_mixin import TimeMixin
 
 
-class Chat(TimeMixin, Document):
+class ChatConfig(TimeMixin, Document):
     """Chat configuration model"""
     name: Annotated[str, Indexed()] = Field(..., min_length=1, max_length=100, description="Name of the chat session")
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
 
     # Model configurations
     chat_model_id: str = Field(..., description="AI model ID used for the chat")
-    embedding_model_id: Optional[str] = Field(None, description="Embedding model ID (optional for AI-only chat)")
-
-    # Generation parameters
-    temperature: float = Field(0.7, ge=0.0, le=1.0, description="Sampling temperature")
-    max_tokens: int = Field(2048, ge=1, description="Maximum tokens for response")
-    top_p: float = Field(1.0, ge=0.0, le=1.0, description="Nucleus sampling parameter")
 
     # Knowledge base configurations
     dataset_ids: List[str] = Field(default_factory=list, description="List of dataset IDs")
+
+    embedding_model_id: Optional[str] = Field(None, description="Embedding model ID (optional for AI-only chat)")
     knowledge_store_id: Optional[str] = Field(None, description="Knowledge store ID (optional)")
 
     # Custom instructions
     instruction_prompt: str = Field("", description="Custom instruction prompt")
-
-    # Statistics
-    message_count: int = Field(0, description="Number of messages in chat history")
 
     class Settings:
         name = "chats"
@@ -38,29 +33,39 @@ class Chat(TimeMixin, Document):
         ]
 
 
-class ChatHistory(TimeMixin, Document):
-    """Chat history model - separate collection for message storage"""
-    chat_id: Annotated[str, Indexed()] = Field(..., description="Chat ID this message belongs to")
+class ChatSession(TimeMixin, Document):
+    """Phiên chat (dùng luôn làm thread)"""
+    chat_config_id: Annotated[str, Indexed()] = Field(..., description="ChatConfig ID")
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
-    role: str = Field(..., description="Message role (user, assistant, system, tool)")
-    content: str = Field("", description="Message content")
-    message_order: int = Field(..., description="Order of message in chat")
-
-    # Enhanced fields for tool execution and AI flow
-    message_type: str = Field("text", description="Type: text, tool_call, tool_result, thinking, approval_request")
-    metadata: Optional[dict] = Field(None, description="Additional metadata (tool name, args, results, etc.)")
-
-    # For grouping related messages (e.g., tool call + result)
-    parent_message_id: Optional[str] = Field(None, description="Parent message ID for nested messages")
 
     class Settings:
-        name = "chat_histories"
+        name = "chat_sessions"
         indexes = [
-            IndexModel([("chat_id", 1), ("message_order", 1)]),
             IndexModel([("owner_id", 1), ("created_at", -1)]),
-            IndexModel([("chat_id", 1), ("created_at", 1)]),
-            IndexModel([("chat_id", 1), ("parent_message_id", 1)]),
         ]
+
+
+class ChatMessage(TimeMixin, Document):
+    """Tin nhắn thuộc một session"""
+    session_id: Annotated[str, Indexed()] = Field(..., description="ChatSession ID")
+    owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
+    role: str = Field(..., description="user / assistant / system / tool")
+    content: str = Field("", description="Message content")
+    models: dict = Field(default_factory=dict, description="Model response data")
+    tools: dict = Field(default_factory=dict, description="Tool calls made by the model")
+    interrupt: dict = Field(default_factory=dict, description="Interrupt data for approval flows")
+
+
+    class Settings:
+        name = "chat_messages"
+        indexes = [
+            IndexModel([("session_id", 1), ("created_at", -1)]),
+            IndexModel([("owner_id", 1), ("created_at", -1)]),
+        ]
+
+
+
+
 
 
 

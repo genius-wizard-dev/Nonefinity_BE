@@ -1,10 +1,9 @@
 
 from typing import Dict, Any, List
-from io import BytesIO
 from uuid import uuid4
 import tempfile
 import os
-from langchain_community.document_loaders import (
+from langchain_classic.document_loaders import (
     PyPDFLoader,
     TextLoader,
     UnstructuredWordDocumentLoader,

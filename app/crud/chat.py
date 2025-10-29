@@ -1,54 +1,51 @@
 from typing import List, Optional
 
 from app.crud.base import BaseCRUD
-from app.models.chat import Chat
-from app.schemas.chat import ChatCreate, ChatUpdate
+from app.models.chat import ChatConfig, ChatSession, ChatMessage
+from app.schemas.chat import ChatConfigCreate, ChatConfigUpdate, ChatSessionCreate, ChatMessageCreate
+from app.agents.main import agent_manager
 
 
-class ChatCRUD(BaseCRUD[Chat, ChatCreate, ChatUpdate]):
+class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
     def __init__(self):
-        super().__init__(Chat)
+        super().__init__(ChatConfig)
 
-    async def get_by_name(self, name: str, owner_id: str) -> Optional[Chat]:
-        """Get chat by name and owner ID"""
-        return await self.get_one(
-            filter_={"name": name, "owner_id": owner_id},
-            include_deleted=False
-        )
+    async def get_by_name(self, name: str, owner_id: str) -> List[ChatConfig]:
+        return await self.model.find(
+            ChatConfig.name == name,
+            ChatConfig.owner_id == owner_id
+        ).to_list()
 
-    async def create_with_owner(self, owner_id: str, obj_in: ChatCreate) -> Chat:
-        """Create chat with owner"""
-        data = obj_in.model_dump()
-        data["owner_id"] = owner_id
+    async def delete_by_chat_config_id(self, chat_config_id: str) -> bool:
+        await ChatConfig.find_one({"_id": chat_config_id}).delete()
+        chat_session_ids = await ChatSession.find_all({"chat_config_id": chat_config_id}).to_list()
+        for chat_session_id in chat_session_ids:
+            await ChatMessage.find_all({"session_id": chat_session_id.id}).delete()
+            await ChatSession.find_one({"_id": chat_session_id.id}).delete()
+            await agent_manager.remove_agent(str(chat_session_id.id))
+        return True
 
-        db_obj = Chat(**data)
-        await db_obj.insert()
-        return db_obj
+chat_config_crud = ChatConfigCRUD()
 
-    async def get_by_owner(self, owner_id: str, skip: int = 0, limit: int = 100) -> List[Chat]:
-        """Get chats by owner ID with pagination"""
-        return await self.list(
-            filter_={"owner_id": owner_id},
-            skip=skip,
-            limit=limit,
-            include_deleted=False
-        )
+class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
+    def __init__(self):
+        super().__init__(ChatSession)
 
-    async def get_by_owner_and_id(self, owner_id: str, chat_id: str) -> Optional[Chat]:
-        """Get chat by owner and ID"""
-        chat = await self.get_by_id(chat_id, include_deleted=False)
-        if chat and chat.owner_id == owner_id:
-            return chat
-        return None
-
-    async def count_by_owner(self, owner_id: str) -> int:
-        """Count chats by owner ID"""
-        chats = await self.list(
-            filter_={"owner_id": owner_id},
-            include_deleted=False
-        )
-        return len(chats)
+    async def delete_by_chat_session_id(self, chat_session_id: str) -> bool:
+        await ChatSession.find_one({"_id": chat_session_id}).delete()
+        await ChatMessage.find_all({"session_id": chat_session_id}).delete()
+        await agent_manager.remove_agent(chat_session_id)
+        return True
 
 
-# Create instance
-chat_crud = ChatCRUD()
+chat_session_crud = ChatSessionCRUD()
+
+class ChatMessageCRUD(BaseCRUD[ChatMessage, ChatMessageCreate, None]):
+    def __init__(self):
+        super().__init__(ChatMessage)
+
+    async def delete_by_chat_session_id(self, chat_session_id: str) -> bool:
+        await ChatMessage.find_all({"session_id": chat_session_id}).delete()
+        return True
+
+chat_message_crud = ChatMessageCRUD()
