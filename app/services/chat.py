@@ -9,16 +9,19 @@ from app.schemas.chat import (
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse
 )
+from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
-from app.agents.main import get_agent_for_thread, agent_manager, get_agent
+from langchain.agents import create_agent, AgentState
+from langgraph.checkpoint.memory import InMemorySaver
+from app.agents.context import AgentContext
+from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig
 from app.agents.tools import dataset_tools
 from app.crud.model import ModelCRUD
 from app.crud.credential import CredentialCRUD
-from langchain_core.messages import HumanMessage
-from langchain.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
 from langchain_core.runnables.config import RunnableConfig
 
 from app.services.provider_service import ProviderService
@@ -27,6 +30,25 @@ from app.services.credential_service import CredentialService
 from langgraph.types import Interrupt, Command
 logger = get_logger(__name__)
 
+
+def _convert_chat_message_to_langchain_message(chat_message: ChatMessage) -> BaseMessage:
+    """Convert ChatMessage to LangChain BaseMessage"""
+    role = chat_message.role.lower()
+    content = chat_message.content or ""
+
+    if role == "user":
+        return HumanMessage(content=content)
+    elif role == "assistant":
+        return AIMessage(content=content)
+    elif role == "system":
+        return SystemMessage(content=content)
+    elif role == "tool":
+        # ToolMessage needs tool_call_id
+        tool_call_id = chat_message.tools.get("name", "") if chat_message.tools else ""
+        return ToolMessage(content=content, tool_call_id=tool_call_id)
+    else:
+        # Default to HumanMessage
+        return HumanMessage(content=content)
 
 
 class ChatService:
@@ -222,10 +244,6 @@ class ChatService:
         if not chat_session:
             raise AppError(message="Failed to create chat session", status_code=HTTP_400_BAD_REQUEST)
 
-        agent = await get_agent_for_thread(str(chat_session.id), tools, llm_config, [])
-        if not agent:
-            raise AppError(message="Failed to create agent", status_code=HTTP_400_BAD_REQUEST)
-
         return ChatSessionResponse(
             id=str(chat_session.id),
             chat_config_id=chat_session.chat_config_id,
@@ -347,10 +365,29 @@ class ChatService:
 
             # Create messages from batch data
             for message_data in messages:
+                content_raw = message_data.get('content', '')
+
+                # Convert content to string if it's not already
+                if isinstance(content_raw, list):
+                  # Extract text from list of dicts like [{"type": "text", "text": "..."}]
+                  content = ""
+                  for item in content_raw:
+                    if isinstance(item, dict):
+                      if item.get("type") == "text":
+                        content += item.get("text", "")
+                      else:
+                        content += str(item)
+                    else:
+                      content += str(item)
+                elif isinstance(content_raw, str):
+                  content = content_raw
+                else:
+                  content = str(content_raw) if content_raw else ""
+
                 chat_message_data = ChatMessageCreate(
                     session_id=session_id,
                     role=message_data.get('role', 'user'),
-                    content=message_data.get('content', ''),
+                    content=content,
                     models=message_data.get('models', {}),
                     tools=message_data.get('tools', {}),
                     interrupt=message_data.get('interrupt', {})
@@ -374,11 +411,14 @@ class ChatService:
     async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str):
         """Stream agent response as async generator
 
+        Creates a new agent instance for each request and loads the last 5 messages as history.
+
         Args:
             owner_id: User ID
             chat_session_id: Chat session ID
             message: User message
         """
+        logger.info(f"🚀 Starting stream_agent_response - session_id: {chat_session_id}, owner_id: {owner_id}, message_preview: {message[:100]}")
         try:
             user = await self._user_crud.get_by_id(owner_id)
             if not user:
@@ -386,67 +426,226 @@ class ChatService:
                     message="User not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
+            logger.info(f"✅ User found: {owner_id}")
+
+            # Get chat session
             chat_session = await self.chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
             if not chat_session:
                 raise AppError(
                     message="Chat session not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
+            logger.info(f"✅ Chat session found: {chat_session_id}, config_id: {chat_session.chat_config_id}")
 
-            agent = await get_agent(chat_session_id)
-            if not agent:
+            # Get chat config
+            chat_config = await self.chat_config_crud.get_by_id(id=chat_session.chat_config_id, owner_id=owner_id)
+            if not chat_config:
                 raise AppError(
-                    message="Agent not found",
+                    message="Chat config not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
-            # config = RunnableConfig(configurable={"thread_id": chat_session_id})
-            messages_input = {"messages": [HumanMessage(content=message)]}
+            logger.info(f"✅ Chat config found: model_id={chat_config.chat_model_id}, dataset_ids={chat_config.dataset_ids}")
 
-            for chunk in agent.stream(input=messages_input, stream_mode="updates"):
+            # Get model and credential info
+            model = await self._model_crud.get_by_id(id=chat_config.chat_model_id, owner_id=owner_id)
+            if not model:
+                raise AppError(
+                    message="Model not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            logger.info(f"✅ Model found: {model.model}, credential_id: {model.credential_id}")
+
+            credential = await self._credential_crud.get_by_id(id=model.credential_id, owner_id=owner_id)
+            if not credential:
+                raise AppError(
+                    message="Credential not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            logger.info(f"✅ Credential found: provider_id={credential.provider_id}")
+
+            provider = await self._provider_service.get_provider_by_id(credential.provider_id)
+            if not provider:
+                raise AppError(
+                    message="Provider not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+            logger.info(f"✅ Provider found: {provider.provider}")
+
+            # Prepare LLM config
+            api_key = self._credential_service._decrypt_api_key(credential.api_key)
+            base_url = credential.base_url if credential.base_url else None
+            llm_config = LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
+            logger.info(f"✅ LLM config created: model={model.model}, provider={provider.provider}")
+
+            # Prepare tools
+            tools = dataset_tools if chat_config.dataset_ids else []
+            logger.info(f"✅ Tools prepared: {len(tools)} tools")
+
+            # Get last 5 messages for history (newest first, then reverse to oldest first)
+            # Query messages sorted by created_at descending to get most recent ones
+            recent_messages = await self.chat_message_crud.model.find(
+                {"session_id": chat_session_id, "owner_id": owner_id}
+            ).sort("-created_at").limit(5).to_list()
+            # Reverse to get oldest first (for proper conversation flow)
+            recent_messages.reverse()
+            logger.info(f"✅ Found {len(recent_messages)} recent messages for history")
+
+            # Convert ChatMessage to LangChain messages
+            history_messages = [_convert_chat_message_to_langchain_message(msg) for msg in recent_messages]
+            logger.info(f"✅ Converted {len(history_messages)} messages to LangChain format")
+
+            # Add new user message
+            new_user_message = HumanMessage(content=message)
+            all_messages = history_messages + [new_user_message]
+            logger.info(f"✅ Total messages: {len(all_messages)} (history: {len(history_messages)}, new: 1)")
+
+            dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key)
+            agent = create_agent(
+                model=llm_config.get_model(),
+                tools=tools,
+                middleware=[],
+                context_schema=AgentContext,
+                state_schema=AgentState,
+                checkpointer=InMemorySaver(),
+                system_prompt=SYSTEM_PROMPT
+            )
+            logger.info(f"✅ Agent created successfully")
+
+            # Prepare input with message history
+            messages_input = {"messages": all_messages}
+            config = RunnableConfig(configurable={"thread_id": chat_session_id})
+            logger.info(f"🔄 Starting agent stream with thread_id: {chat_session_id}")
+
+            chunk_count = 0
+            accumulated_model_content = ""
+            last_model_content = ""
+
+            for chunk in agent.stream(input=messages_input, stream_mode="updates", config=config, context=AgentContext(user_id=owner_id, dataset_service=dataset_service)):
+                chunk_count += 1
+                logger.debug(f"📦 Received chunk #{chunk_count}, keys: {list(chunk.keys())}")
                 for key, value in chunk.items():
+                    logger.debug(f"  🔍 Processing key: {key}, value_type: {type(value)}")
                     if key == "tools":
                       if type(value) == dict and "messages" in value:
                         msg_dict = value["messages"][0].model_dump()
+                        tool_name = msg_dict.get("name", "")
+                        tool_content_raw = msg_dict.get("content", "")
+
+                        # Convert tool content to string
+                        if isinstance(tool_content_raw, list):
+                          tool_content = ""
+                          for item in tool_content_raw:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                              tool_content += item.get("text", "")
+                            else:
+                              tool_content += str(item)
+                        elif isinstance(tool_content_raw, str):
+                          tool_content = tool_content_raw
+                        else:
+                          tool_content = str(tool_content_raw) if tool_content_raw else ""
+
+                        logger.info(f"📤 Yielding tool_result event: {tool_name}")
                         yield {
                                 "event": "tool_result",
                                 "data": {
                                     "role": "tool_result",
-                                    "content": msg_dict.get("content", ""),
-                                    "name": msg_dict.get("name", ""),
+                                    "content": tool_content,
+                                    "name": tool_name,
                                 }
                             }
                     elif key == "model":
                       if type(value) == dict and "messages" in value:
                         msg_dict = value["messages"][0].model_dump()
-                        if msg_dict.get("tool_calls", []):
-                          yield {
-                                  "event": "ai_result",
-                                  "data": {
-                                      "role": "ai_result",
-                                      "content": msg_dict.get("content", ""),
-                                  }
-                              }
+                        tool_calls = msg_dict.get("tool_calls", [])
+                        content_raw = msg_dict.get("content", "")
+
+                        # Convert content to string if it's a list (LangChain format)
+                        if isinstance(content_raw, list):
+                          # Extract text from list of dicts like [{"type": "text", "text": "..."}]
+                          content = ""
+                          for item in content_raw:
+                            if isinstance(item, dict):
+                              if item.get("type") == "text":
+                                content += item.get("text", "")
+                              else:
+                                content += str(item)
+                            else:
+                              content += str(item)
+                        elif isinstance(content_raw, str):
+                          content = content_raw
                         else:
-                          tool_calls = msg_dict.get("tool_calls", [])
-                          if tool_calls:
-                            tools = []
-                            for tool_call in tool_calls:
-                              tools.append({
-                                "name": tool_call.get("name", ""),
-                                "args": tool_call.get("args", {}),
-                                "id": tool_call.get("id", ""),
-                              })
+                          content = str(content_raw) if content_raw else ""
+
+                        logger.debug(f"  Model message - content_len: {len(content)}, tool_calls: {len(tool_calls) if tool_calls else 0}")
+
+                        # Handle tool calls first
+                        if tool_calls:
+                          tools_list = []
+                          for tool_call in tool_calls:
+                            tools_list.append({
+                              "name": tool_call.get("name", ""),
+                              "args": tool_call.get("args", {}),
+                              "id": tool_call.get("id", ""),
+                            })
+                          logger.info(f"📤 Yielding tool_calls event: {len(tool_calls)} tools")
+                          yield {
+                              "event": "tool_calls",
+                              "data": {
+                                  "role": "tool_calls",
+                                  "tools": tools_list,
+                                }
+                          }
+                          # Reset accumulated content when tool calls happen
+                          accumulated_model_content = ""
+                          last_model_content = ""
+
+                        # Handle streaming content - detect incremental updates
+                        elif content:
+                          # Check if this is incremental content
+                          if content.startswith(last_model_content) and len(content) > len(last_model_content):
+                            # Incremental update - send only delta
+                            delta = content[len(last_model_content):]
+                            accumulated_model_content += delta
+                            last_model_content = content
+                            logger.debug(f"📤 Streaming delta: {len(delta)} chars (total: {len(accumulated_model_content)})")
                             yield {
-                                "event": "tool_calls",
+                                "event": "ai_result",
                                 "data": {
-                                    "role": "tool_calls",
-                                    "tools": tools,
-                                  }
+                                    "role": "ai_result",
+                                    "content": delta,
+                                    "is_delta": True,
+                                }
+                            }
+                          elif content != last_model_content:
+                            # New or replacement content
+                            if last_model_content and not content.startswith(last_model_content):
+                              # Full replacement
+                              accumulated_model_content = content
+                            else:
+                              accumulated_model_content += content
+                            last_model_content = content
+                            logger.info(f"📤 Yielding ai_result event with content: {len(content)} chars")
+                            yield {
+                                "event": "ai_result",
+                                "data": {
+                                    "role": "ai_result",
+                                    "content": content,
+                                    "is_delta": False,
+                                }
                             }
 
+            logger.info(f"✅ Stream completed. Total chunks: {chunk_count}")
 
-        except AppError:
-            raise
+
+        except AppError as e:
+            logger.error(f"Stream error: {e.message}")
+            yield {
+                "event": "error",
+                "data": {
+                    "message": e.message,
+                    "status_code": e.status_code
+                }
+            }
         except Exception as e:
             logger.error(f"Stream error: {str(e)}")
             logger.exception(e)

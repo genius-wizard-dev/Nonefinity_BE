@@ -3,7 +3,6 @@ from typing import List, Optional
 from app.crud.base import BaseCRUD
 from app.models.chat import ChatConfig, ChatSession, ChatMessage
 from app.schemas.chat import ChatConfigCreate, ChatConfigUpdate, ChatSessionCreate, ChatMessageCreate
-from app.agents.main import agent_manager
 
 
 class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
@@ -22,7 +21,6 @@ class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
         for chat_session_id in chat_session_ids:
             await ChatMessage.find_all({"session_id": chat_session_id.id}).delete()
             await ChatSession.find_one({"_id": chat_session_id.id}).delete()
-            await agent_manager.remove_agent(str(chat_session_id.id))
         return True
 
 chat_config_crud = ChatConfigCRUD()
@@ -34,7 +32,6 @@ class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
     async def delete_by_chat_session_id(self, chat_session_id: str) -> bool:
         await ChatSession.find_one({"_id": chat_session_id}).delete()
         await ChatMessage.find_all({"session_id": chat_session_id}).delete()
-        await agent_manager.remove_agent(chat_session_id)
         return True
 
     async def get_by_name(self, name: str, owner_id: str) -> Optional[ChatSession]:
