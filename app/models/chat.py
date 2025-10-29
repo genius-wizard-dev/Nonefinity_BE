@@ -26,7 +26,7 @@ class ChatConfig(TimeMixin, Document):
     instruction_prompt: str = Field("", description="Custom instruction prompt")
 
     class Settings:
-        name = "chats"
+        name = "chat_configs"
         indexes = [
             IndexModel([("owner_id", 1), ("name", 1)]),
             IndexModel([("owner_id", 1), ("created_at", -1)]),
@@ -37,11 +37,13 @@ class ChatSession(TimeMixin, Document):
     """Phiên chat (dùng luôn làm thread)"""
     chat_config_id: Annotated[str, Indexed()] = Field(..., description="ChatConfig ID")
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
+    name: Optional[str] = Field(None, description="Name of the chat session")
 
     class Settings:
         name = "chat_sessions"
         indexes = [
             IndexModel([("owner_id", 1), ("created_at", -1)]),
+            IndexModel([("owner_id", 1), ("name", 1)]),
         ]
 
 

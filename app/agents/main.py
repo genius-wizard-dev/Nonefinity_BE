@@ -9,6 +9,7 @@ from langchain_core.tools.base import BaseTool
 from typing import List, Dict, Optional
 from langchain.agents.middleware import AgentMiddleware
 import asyncio
+from langchain_core.runnables.config import RunnableConfig
 from datetime import datetime, timedelta
 import uuid
 
@@ -43,9 +44,15 @@ class AgentManager:
                 if datetime.now() - agent_info['created_at'] < timedelta(seconds=self._max_idle_time):
                     agent_info['last_used'] = datetime.now()
                     logger.info(f"Reusing existing agent for thread {thread_id}")
-                    return agent_info['agent']
+                    config = RunnableConfig(
+                        configurable={
+                            "thread_id": thread_id,
+                        }
+                    )
+                    agent = agent_info['agent']
+                    agent.config = config
+                    return agent
                 else:
-                    # Remove expired agent
                     logger.info(f"Removing expired agent for thread {thread_id}")
                     del self._agents[thread_id]
 
@@ -77,7 +84,14 @@ class AgentManager:
         """Get agent for thread_id"""
         async with self._lock:
             if thread_id in self._agents:
-                return self._agents[thread_id]['agent']
+                config = RunnableConfig(
+                    configurable={
+                        "thread_id": thread_id,
+                    }
+                )
+                agent = self._agents[thread_id]['agent']
+                agent.config = config
+                return agent
             else:
                 return None
 

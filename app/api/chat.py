@@ -1,6 +1,8 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status, Body
 from starlette.status import HTTP_400_BAD_REQUEST
+from starlette.responses import StreamingResponse
+from pydantic import BaseModel
 import json
 
 from app.schemas.chat import (
@@ -306,54 +308,94 @@ async def clear_session_messages(
 
 
 
-@router.websocket("/sessions/{session_id}/stream")
-async def websocket_chat(
-    websocket: WebSocket,
-    session_id: str,
-    current_user: dict = Depends(verify_token)
-):
-    await websocket.accept()
-    owner_id, chat_service = await get_owner_and_service(current_user)
+class StreamMessageRequest(BaseModel):
+    role: str = "user"
+    content: str
 
+
+def format_sse_message(event_type: str, data: dict) -> str:
+    """Format data as Server-Sent Event message"""
+    json_data = json.dumps(data)
+    if event_type:
+      return f"event: {event_type}\ndata: {json_data}\n\n"
+    else:
+      return f"data: {json_data}\n\n"
+
+
+async def stream_sse_response(generator):
+    """Helper to yield SSE formatted messages from async generator"""
     try:
-        data = await websocket.receive_text()
-        payload = json.loads(data)
-        message = payload.get("message", "")
-
-        await websocket.send_json({
-            "type": "start",
-            "data": {"message": "WebSocket stream started"}
-        })
-
-        async for chunk in chat_service.stream_agent_response(owner_id, session_id, message):
+        async for chunk in generator:
             event_type = chunk.get("event", "message")
             event_data = chunk.get("data", {})
-
-            if event_type == "approval_request":
-                await websocket.send_json({"type": "approval_request", "data": event_data})
-
-                while True:
-                    client_resp = await websocket.receive_text()
-                    resp_data = json.loads(client_resp)
-
-                    if resp_data.get("type") == "approval_response":
-                        decision = resp_data["data"]["decision"]
-                        await chat_service.handle_approval_response(session_id, decision)
-                        break
-
-            else:
-                await websocket.send_json({"type": event_type, "data": event_data})
-
-        await websocket.send_json({
-            "type": "end",
-            "data": {"message": "Stream completed"}
-        })
-
-    except WebSocketDisconnect:
-        print("Client disconnected")
+            yield format_sse_message(event_type, event_data)
     except Exception as e:
-        print(f"WebSocket error: {str(e)}")
-        await websocket.send_json({"type": "error", "data": {"message": str(e)}})
+        logger.error(f"SSE streaming error: {str(e)}")
+        error_data = {"message": str(e)}
+        yield format_sse_message("error", error_data)
+
+
+@router.post(
+    "/sessions/{session_id}/stream",
+    summary="Stream Chat Response",
+    description="Stream chat response using Server-Sent Events (SSE)"
+)
+async def stream_chat(
+    request: StreamMessageRequest,
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Stream chat response using SSE"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        message = request.content
+
+        async def generate_sse():
+            # Send start event
+            yield format_sse_message("start", {"message": "Chat started"})
+
+            # Stream agent response
+            async for chunk in chat_service.stream_agent_response(owner_id, session_id, message):
+                event_type = chunk.get("event", "message")
+                event_data = chunk.get("data", {})
+
+                yield format_sse_message(event_type, event_data)
+
+            # Send end event if stream completed normally
+            yield format_sse_message(None, "[DONE]")
+
+        return StreamingResponse(
+            generate_sse(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        async def error_sse():
+            yield format_sse_message("error", {"message": e.message})
+        return StreamingResponse(
+            error_sse(),
+            media_type="text/event-stream",
+            status_code=e.status_code
+        )
+    except Exception as e:
+        logger.error(f"Stream chat failed: {str(e)}")
+        async def error_sse():
+            yield format_sse_message("error", {"message": str(e)})
+        return StreamingResponse(
+            error_sse(),
+            media_type="text/event-stream",
+            status_code=500
+        )
+
+
+
 
 @router.post(
     "/sessions/{session_id}/save-conversation",

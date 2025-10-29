@@ -37,6 +37,12 @@ class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
         await agent_manager.remove_agent(chat_session_id)
         return True
 
+    async def get_by_name(self, name: str, owner_id: str) -> Optional[ChatSession]:
+        return await self.get_one(
+            filter_={"name": name, "owner_id": owner_id},
+            include_deleted=False
+        )
+
 
 chat_session_crud = ChatSessionCRUD()
 

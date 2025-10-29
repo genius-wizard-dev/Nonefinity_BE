@@ -1,7 +1,8 @@
 from langchain.tools import tool, ToolRuntime
 from langchain.agents import AgentState
 from app.agents.context import AgentContext
-
+from app.utils.preprocess_sql import is_select_query
+from langchain_core.messages.tool import ToolMessage
 @tool
 def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
   """Execute SQL query on user's datasets and return results."""
@@ -11,13 +12,8 @@ def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
       # Get DuckDB connection directly
       duckdb_conn = dataset_service.duckdb
 
-      # Add LIMIT if not present
-      import sqlglot
-      from sqlglot import exp
-
-      parsed = sqlglot.parse_one(query)
-      if not parsed.find(exp.Limit):
-          query = f"{query} LIMIT 100"
+      if not is_select_query(query):
+        return ToolMessage(content="Only SELECT queries are allowed", tool_call_id=runtime.tool_call_id, name="run_sql_query")
 
       # Execute query directly
       result = duckdb_conn.execute(query).df()
