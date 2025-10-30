@@ -45,9 +45,8 @@ class ChatMessageResponse(BaseModel):
     session_id: str = Field(..., description="Chat session ID")
     role: str = Field(..., description="user / assistant / system / tool")
     content: str = Field("", description="Message content")
-    models: dict = Field(default_factory=dict, description="Model response data")
-    tools: dict = Field(default_factory=dict, description="Tool calls made by the model")
-    interrupt: dict = Field(default_factory=dict, description="Interrupt data for approval flows")
+    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
+    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
     created_at: datetime = Field(..., description="Chat message created at")
     updated_at: Optional[datetime] = Field(None, description="Chat message updated at")
 
@@ -55,9 +54,8 @@ class ChatMessageCreate(BaseModel):
     session_id: str = Field(..., description="Chat session ID")
     role: str = Field(..., description="user / assistant / system / tool")
     content: str = Field("", description="Message content")
-    models: dict = Field(default_factory=dict, description="Model response data")
-    tools: dict = Field(default_factory=dict, description="Tool calls made by the model")
-    interrupt: dict = Field(default_factory=dict, description="Interrupt data for approval flows")
+    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
+    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
 
 
 class ChatMessageListResponse(BaseModel):
@@ -86,3 +84,13 @@ class ChatSessionListResponse(BaseModel):
 
 class StreamChatMessageRequest(BaseModel):
     message: str = Field("", description="Message content")
+
+
+class SaveChatMessageRequest(BaseModel):
+    session_id: str = Field(..., description="ChatSession ID")
+    owner_id: str = Field(..., description="Owner ID from authentication")
+    role: str = Field(..., description="user / assistant / system / tool")
+    question: Optional[str] = Field(None, description="Message content")
+    answer: Optional[str] = Field(None, description="Message content")
+    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
+    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")

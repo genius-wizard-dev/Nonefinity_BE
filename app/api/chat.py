@@ -8,6 +8,7 @@ import json
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
+    SaveChatMessageRequest,
 )
 from app.services.chat import ChatService
 from app.services.user import user_service
@@ -16,7 +17,6 @@ from app.utils.verify_token import verify_token
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
 from app.utils import get_logger
-
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -404,7 +404,7 @@ async def stream_chat(
     description="Save complete conversation flow including tool calls and results"
 )
 async def save_conversation(
-    request: Request,
+    messages: List[SaveChatMessageRequest],
     session_id: str = Path(..., description="Chat Session ID"),
     current_user: dict = Depends(verify_token)
 ):
@@ -412,19 +412,13 @@ async def save_conversation(
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
 
-        # Parse request body
-        body = await request.json()
-        messages = body.get('messages', [])
 
-        if not messages:
+        success = await chat_service.save_conversation_batch(owner_id, session_id, messages)
+        if not success:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
-                detail="No messages provided"
+                detail="Failed to save conversation"
             )
-
-        # Save conversation batch
-        success = await chat_service.save_conversation_batch(owner_id, session_id, messages)
-
         return ok(
             data={"saved": len(messages)},
             message=f"Saved {len(messages)} messages successfully"
