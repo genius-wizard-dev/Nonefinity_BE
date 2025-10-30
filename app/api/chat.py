@@ -352,7 +352,7 @@ async def stream_chat(
 
         async def generate_sse():
             # Send start event
-            yield format_sse_message("start", {"message": "Chat started"})
+            yield format_sse_message(None, "[START]")
 
             # Stream agent response
             async for chunk in chat_service.stream_agent_response(owner_id, session_id, message):
@@ -362,7 +362,7 @@ async def stream_chat(
                 yield format_sse_message(event_type, event_data)
 
             # Send end event if stream completed normally
-            yield format_sse_message(None, "[DONE]")
+            yield format_sse_message(None, "[END]")
 
         return StreamingResponse(
             generate_sse(),
