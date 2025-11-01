@@ -1,10 +1,14 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status, Body
 from starlette.status import HTTP_400_BAD_REQUEST
+from starlette.responses import StreamingResponse
+from pydantic import BaseModel
+import json
 
 from app.schemas.chat import (
-    ChatCreateRequest, ChatUpdateRequest, ChatResponse, ChatListResponse,
-    ChatMessageCreate, ChatMessageResponse
+    ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
+    ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
+    SaveChatMessageRequest, SaveConversationRequest,
 )
 from app.services.chat import ChatService
 from app.services.user import user_service
@@ -13,7 +17,6 @@ from app.utils.verify_token import verify_token
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
 from app.utils import get_logger
-
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -45,63 +48,380 @@ async def get_owner_and_service(current_user):
 
 
 @router.post(
-    "",
-    response_model=ApiResponse[ChatResponse],
+    "/configs",
+    response_model=ApiResponse[ChatConfigResponse],
     status_code=status.HTTP_201_CREATED,
-    summary="Create Chat",
+    summary="Create Chat Config",
     description="Create a new chat configuration"
 )
-async def create_chat(
-    request: ChatCreateRequest,
+async def create_chat_config(
+    request: ChatConfigCreate,
     current_user: dict = Depends(verify_token)
 ):
-    """Create a new chat"""
+    """Create a new chat configuration"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-
-        # Convert request to ChatCreate
-        from app.schemas.chat import ChatCreate
-        chat_data = ChatCreate(**request.model_dump())
-
-        chat = await chat_service.create_chat(owner_id, chat_data)
-        return created(data=chat, message="Chat created successfully")
+        chat_config = await chat_service.create_chat_config(owner_id, request)
+        return created(data=chat_config, message="Chat config created successfully")
 
     except HTTPException:
         raise
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
-        logger.error(f"Create chat failed: {str(e)}")
+        logger.error(f"Create chat config failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "",
-    response_model=ApiResponse[List[ChatListResponse]],
-    summary="List Chats",
-    description="Get all chats for the current user"
+    "/configs",
+    response_model=ApiResponse[ChatConfigListResponse],
+    summary="List Chat Configs",
+    description="Get all chat configurations for the current user"
 )
-async def list_chats(
+async def list_chat_configs(
     request: Request,
     current_user: dict = Depends(verify_token),
-    skip: int = Query(0, ge=0, description="Number of chats to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of chats to return")
+    skip: int = Query(0, ge=0, description="Number of configs to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of configs to return")
 ):
-    """Get all chats for the current user"""
+    """Get all chat configurations for the current user"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-        chats = await chat_service.get_chats(owner_id, skip, limit)
-        total = await chat_service.count_chats(owner_id)
+        chat_configs = await chat_service.get_chat_configs(owner_id, skip, limit)
+        return ok(data=chat_configs, message="Chat configs retrieved successfully")
 
-        # Return consistent structure like Model API
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"List chat configs failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/configs/{config_id}",
+    response_model=ApiResponse[ChatConfigResponse],
+    summary="Get Chat Config",
+    description="Get a specific chat configuration by ID"
+)
+async def get_chat_config(
+    config_id: str = Path(..., description="Chat Config ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Get a specific chat configuration by ID"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        chat_config = await chat_service.get_chat_config(owner_id, config_id)
+        return ok(data=chat_config, message="Chat config retrieved successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Get chat config failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put(
+    "/configs/{config_id}",
+    response_model=ApiResponse[ChatConfigResponse],
+    summary="Update Chat Config",
+    description="Update a chat configuration"
+)
+async def update_chat_config(
+    request: ChatConfigUpdate,
+    config_id: str = Path(..., description="Chat Config ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Update a chat configuration"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        chat_config = await chat_service.update_chat_config(owner_id, config_id, request)
+        return ok(data=chat_config, message="Chat config updated successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Update chat config failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/configs/{config_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Chat Config",
+    description="Delete a chat configuration"
+)
+async def delete_chat_config(
+    config_id: str = Path(..., description="Chat Config ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Delete a chat configuration"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        await chat_service.delete_chat_config(owner_id, config_id)
+        return ok(message="Chat config deleted successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Delete chat config failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Chat session endpoints
+@router.post(
+    "/sessions",
+    response_model=ApiResponse[ChatSessionResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Chat Session",
+    description="Create a new chat session"
+)
+async def create_chat_session(
+    request: ChatSessionCreate,
+    current_user: dict = Depends(verify_token)
+):
+    """Create a new chat session"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        chat_session = await chat_service.create_chat_session(owner_id, request)
+        return created(data=chat_session, message="Chat session created successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Create chat session failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/sessions",
+    response_model=ApiResponse[ChatSessionListResponse],
+    summary="List Chat Sessions",
+    description="Get all chat sessions for the current user"
+)
+async def list_chat_sessions(
+    request: Request,
+    current_user: dict = Depends(verify_token),
+    skip: int = Query(0, ge=0, description="Number of sessions to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of sessions to return")
+):
+    """Get all chat sessions for the current user"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        chat_sessions = await chat_service.get_chat_sessions(owner_id, skip, limit)
+        return ok(data=chat_sessions, message="Chat sessions retrieved successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"List chat sessions failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/sessions/{session_id}",
+    response_model=ApiResponse[ChatSessionResponse],
+    summary="Get Chat Session",
+    description="Get a specific chat session with messages"
+)
+async def get_chat_session(
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token),
+    skip: int = Query(0, ge=0, description="Number of messages to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of messages to return")
+):
+    """Get a specific chat session with messages"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        chat_session = await chat_service.get_chat_session(owner_id, session_id, skip, limit)
+        return ok(data=chat_session, message="Chat session retrieved successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Get chat session failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Chat Session",
+    description="Delete a chat session and its messages"
+)
+async def delete_chat_session(
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Delete a chat session"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        await chat_service.delete_chat_session(owner_id, session_id)
+        return ok(message="Chat session deleted successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Delete chat session failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/sessions/{session_id}/messages",
+    status_code=status.HTTP_200_OK,
+    summary="Clear Session Messages",
+    description="Clear all messages from a chat session"
+)
+async def clear_session_messages(
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Clear all messages from a chat session"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        await chat_service.delete_chat_session_messages(owner_id, session_id)
+        return ok(message="Session messages cleared successfully")
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Clear session messages failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+
+class StreamMessageRequest(BaseModel):
+    role: str = "user"
+    content: str
+
+
+def format_sse_message(event_type: str, data: dict) -> str:
+    """Format data as Server-Sent Event message"""
+    json_data = json.dumps(data)
+    if event_type:
+      return f"event: {event_type}\ndata: {json_data}\n\n"
+    else:
+      return f"data: {json_data}\n\n"
+
+
+async def stream_sse_response(generator):
+    """Helper to yield SSE formatted messages from async generator"""
+    try:
+        async for chunk in generator:
+            event_type = chunk.get("event", "message")
+            event_data = chunk.get("data", {})
+            yield format_sse_message(event_type, event_data)
+    except Exception as e:
+        logger.error(f"SSE streaming error: {str(e)}")
+        error_data = {"message": str(e)}
+        yield format_sse_message("error", error_data)
+
+
+@router.post(
+    "/sessions/{session_id}/stream",
+    summary="Stream Chat Response",
+    description="Stream chat response using Server-Sent Events (SSE)"
+)
+async def stream_chat(
+    request: StreamMessageRequest,
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Stream chat response using SSE"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        message = request.content
+
+        async def generate_sse():
+            # Send start event
+            yield format_sse_message(None, "[START]")
+
+            # Stream agent response
+            async for chunk in chat_service.stream_agent_response(owner_id, session_id, message):
+                event_type = chunk.get("event", "message")
+                event_data = chunk.get("data", {})
+
+                yield format_sse_message(event_type, event_data)
+
+            # Send end event if stream completed normally
+            yield format_sse_message(None, "[END]")
+
+        return StreamingResponse(
+            generate_sse(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        async def error_sse():
+            yield format_sse_message("error", {"message": e.message})
+        return StreamingResponse(
+            error_sse(),
+            media_type="text/event-stream",
+            status_code=e.status_code
+        )
+    except Exception as e:
+        logger.error(f"Stream chat failed: {str(e)}")
+        async def error_sse():
+            yield format_sse_message("error", {"message": str(e)})
+        return StreamingResponse(
+            error_sse(),
+            media_type="text/event-stream",
+            status_code=500
+        )
+
+
+
+
+@router.post(
+    "/sessions/{session_id}/save-conversation",
+    status_code=status.HTTP_201_CREATED,
+    summary="Save Conversation Batch",
+    description="Save complete conversation flow including tool calls and results"
+)
+async def save_conversation(
+    request: SaveConversationRequest,
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_token)
+):
+    """Save a batch of messages representing complete conversation flow"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+
+
+        success = await chat_service.save_conversation_batch(owner_id, session_id, request.messages)
+        if not success:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Failed to save conversation"
+            )
         return ok(
-            data={
-                "chats": chats,
-                "total": total,
-                "skip": skip,
-                "limit": limit
-            },
-            message="Chats retrieved successfully"
+            data={"saved": len(request.messages)},
+            message=f"Saved {len(request.messages)} messages successfully"
         )
 
     except HTTPException:
@@ -109,167 +429,6 @@ async def list_chats(
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
-        logger.error(f"List chats failed: {str(e)}")
+        logger.error(f"Save conversation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-@router.get(
-    "/{chat_id}",
-    response_model=ApiResponse[ChatResponse],
-    summary="Get Chat",
-    description="Get a specific chat by ID"
-)
-async def get_chat(
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token)
-):
-    """Get a specific chat by ID"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-        chat = await chat_service.get_chat(owner_id, chat_id)
-        return ok(data=chat, message="Chat retrieved successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Get chat failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.put(
-    "/{chat_id}",
-    response_model=ApiResponse[ChatResponse],
-    summary="Update Chat",
-    description="Update a chat configuration"
-)
-async def update_chat(
-    request: ChatUpdateRequest,
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token)
-):
-    """Update a chat"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-
-        # Convert request to ChatUpdate
-        from app.schemas.chat import ChatUpdate
-        chat_data = ChatUpdate(**request.model_dump(exclude_unset=True))
-
-        chat = await chat_service.update_chat(owner_id, chat_id, chat_data)
-        return ok(data=chat, message="Chat updated successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Update chat failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.delete(
-    "/{chat_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Chat",
-    description="Delete a chat and its history"
-)
-async def delete_chat(
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token)
-):
-    """Delete a chat"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-        await chat_service.delete_chat(owner_id, chat_id)
-        return ok(message="Chat deleted successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Delete chat failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# Chat message endpoints
-@router.post(
-    "/{chat_id}/messages",
-    response_model=ApiResponse[ChatMessageResponse],
-    status_code=status.HTTP_201_CREATED,
-    summary="Add Message",
-    description="Add a message to chat history"
-)
-async def add_message(
-    message_data: ChatMessageCreate,
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token)
-):
-    """Add a message to chat history"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-        message = await chat_service.add_message(owner_id, chat_id, message_data)
-        return created(data=message, message="Message added successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Add message failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/{chat_id}/messages",
-    response_model=ApiResponse[List[ChatMessageResponse]],
-    summary="Get Messages",
-    description="Get chat messages with pagination"
-)
-async def get_messages(
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token),
-    skip: int = Query(0, ge=0, description="Number of messages to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of messages to return")
-):
-    """Get chat messages"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-        messages = await chat_service.get_messages(owner_id, chat_id, skip, limit)
-        return ok(data=messages, message="Messages retrieved successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Get messages failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.delete(
-    "/{chat_id}/messages",
-    response_model=ApiResponse[ChatResponse],
-    status_code=status.HTTP_200_OK,
-    summary="Clear History",
-    description="Clear all messages from chat history"
-)
-async def clear_history(
-    chat_id: str = Path(..., description="Chat ID"),
-    current_user: dict = Depends(verify_token)
-):
-    """Clear chat history"""
-    try:
-        owner_id, chat_service = await get_owner_and_service(current_user)
-        updated_chat = await chat_service.clear_history(owner_id, chat_id)
-        return ok(data=updated_chat, message="Chat history cleared successfully")
-
-    except HTTPException:
-        raise
-    except AppError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        logger.error(f"Clear history failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")

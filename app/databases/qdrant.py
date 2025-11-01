@@ -4,7 +4,6 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, Filter
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from qdrant_client.conversions.common_types import CollectionInfo
 from app.configs.settings import settings
 from app.utils import get_logger
 
@@ -95,7 +94,6 @@ class QdrantDB:
     def add_documents(
         self,
         documents: List[Document],
-        embeddings: Embeddings,
         collection_name: str,
         ids: Optional[List[str]] = None
     ) -> List[str]:
@@ -106,7 +104,7 @@ class QdrantDB:
             # Ensure collection exists with correct vector size
             if documents:
                 # Get embedding dimension from first document
-                sample_embedding = embeddings.embed_query("sample")
+                sample_embedding = self.embeddings.embed_query("sample")
                 vector_size = len(sample_embedding)
                 self.ensure_collection(collection_name, vector_size)
 
@@ -124,7 +122,6 @@ class QdrantDB:
     def add_texts(
         self,
         texts: List[str],
-        embeddings: Embeddings,
         collection_name: str,
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None
@@ -135,7 +132,7 @@ class QdrantDB:
                 raise ValueError("Embeddings not set")
             # Ensure collection exists with correct vector size
             if texts:
-                sample_embedding = embeddings.embed_query("sample")
+                sample_embedding = self.embeddings.embed_query("sample")
                 vector_size = len(sample_embedding)
                 self.ensure_collection(collection_name, vector_size)
 
@@ -154,19 +151,12 @@ class QdrantDB:
     def similarity_search(
         self,
         query: str,
-        embeddings: Embeddings,
         k: int = 5,
         filter: Optional[Filter] = None,
         collection_name: str = None
     ) -> List[Document]:
         """Perform similarity search using LangChain."""
         try:
-            if self._embeddings is None:
-                raise ValueError("Embeddings not set")
-            # Ensure collection exists
-            sample_embedding = embeddings.embed_query("sample")
-            vector_size = len(sample_embedding)
-            self.ensure_collection(collection_name, vector_size)
 
             # Perform search using LangChain
             results = self.get_vector_store(collection_name).similarity_search(
@@ -174,7 +164,7 @@ class QdrantDB:
                 k=k,
                 filter=filter
             )
-            logger.info(f"Found {len(results)} similar documents for query")
+
             return results
         except Exception as e:
             logger.error(f"Failed to perform similarity search: {e}")
@@ -183,7 +173,6 @@ class QdrantDB:
     def similarity_search_with_score(
         self,
         query: str,
-        embeddings: Embeddings,
         k: int = 5,
         filter: Optional[Filter] = None,
         collection_name: str = None
@@ -193,7 +182,7 @@ class QdrantDB:
             if self._embeddings is None:
                 raise ValueError("Embeddings not set")
             # Ensure collection exists
-            sample_embedding = embeddings.embed_query("sample")
+            sample_embedding = self.embeddings.embed_query("sample")
             vector_size = len(sample_embedding)
             self.ensure_collection(collection_name, vector_size)
 
@@ -201,7 +190,8 @@ class QdrantDB:
             results = self.get_vector_store(collection_name).similarity_search_with_score(
                 query=query,
                 k=k,
-                filter=filter
+                filter=filter,
+                score_threshold=0.7
             )
             logger.info(f"Found {len(results)} similar documents with scores for query")
             return results

@@ -8,7 +8,10 @@ from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 from app.utils import get_logger
-
+from app.services.model_service import ModelService
+from app.services.credential_service import CredentialService
+from app.services.provider_service import ProviderService
+from app.crud.chat import chat_config_crud
 logger = get_logger(__name__)
 import uuid
 
@@ -16,6 +19,10 @@ class KnowledgeStoreService:
     def __init__(self):
         self.qdrant = qdrant
         self.crud = knowledge_store_crud
+        self.model_service = ModelService()
+        self.credential_service = CredentialService()
+        self.provider_service = ProviderService()
+        self.chat_config_crud = chat_config_crud
 
     def _create_name_collection(self, name: str) -> str:
         """Create a name for a knowledge store."""
@@ -73,6 +80,7 @@ class KnowledgeStoreService:
             points_count = qdrant_info["points_count"] if qdrant_info else 0
 
             # Create response with all fields including status
+            # New knowledge store is not in use yet
             result = KnowledgeStoreResponse(
                 id=str(knowledge_store.id),
                 name=knowledge_store.name,
@@ -82,7 +90,8 @@ class KnowledgeStoreService:
                 status=status,
                 created_at=knowledge_store.created_at,
                 updated_at=knowledge_store.updated_at,
-                points_count=points_count
+                points_count=points_count,
+                is_use=False
             )
             return result
 
@@ -112,6 +121,13 @@ class KnowledgeStoreService:
         status = qdrant_info["status"] if qdrant_info else "unknown"
         points_count = qdrant_info["points_count"] if qdrant_info else 0
 
+        # Check if knowledge store is being used in chat configs
+        chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+            knowledge_store_id=str(knowledge_store.id),
+            owner_id=owner_id
+        )
+        is_use = len(chat_configs) > 0
+
         result = KnowledgeStoreResponse(
             id=str(knowledge_store.id),
             name=knowledge_store.name,
@@ -121,7 +137,8 @@ class KnowledgeStoreService:
             status=status,
             created_at=knowledge_store.created_at,
             updated_at=knowledge_store.updated_at,
-            points_count=points_count
+            points_count=points_count,
+            is_use=is_use
         )
         return result
 
@@ -146,6 +163,14 @@ class KnowledgeStoreService:
             qdrant_info = self.qdrant.get_collection_info(ks.collection_name)
             current_status = qdrant_info["status"] if qdrant_info else "unknown"
             points_count = qdrant_info["points_count"] if qdrant_info else 0
+
+            # Check if knowledge store is being used in chat configs
+            chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+                knowledge_store_id=str(ks.id),
+                owner_id=owner_id
+            )
+            is_use = len(chat_configs) > 0
+
             # If status filter is provided, only include matching knowledge stores
             if status is None or current_status == status:
                 result = KnowledgeStoreResponse(
@@ -157,7 +182,8 @@ class KnowledgeStoreService:
                     status=current_status,
                     created_at=ks.created_at,
                     updated_at=ks.updated_at,
-                    points_count=points_count
+                    points_count=points_count,
+                    is_use=is_use
                 )
                 knowledge_store_responses.append(result)
 
@@ -201,6 +227,13 @@ class KnowledgeStoreService:
         status = qdrant_info["status"] if qdrant_info else "unknown"
         points_count = qdrant_info["points_count"] if qdrant_info else 0
 
+        # Check if knowledge store is being used in chat configs
+        chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+            knowledge_store_id=str(updated_knowledge_store.id),
+            owner_id=owner_id
+        )
+        is_use = len(chat_configs) > 0
+
         result = KnowledgeStoreResponse(
             id=str(updated_knowledge_store.id),
             name=updated_knowledge_store.name,
@@ -210,7 +243,8 @@ class KnowledgeStoreService:
             status=status,
             created_at=updated_knowledge_store.created_at,
             updated_at=updated_knowledge_store.updated_at,
-            points_count=points_count
+            points_count=points_count,
+            is_use=is_use
         )
         return result
 
@@ -221,6 +255,14 @@ class KnowledgeStoreService:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
                 detail="Knowledge store not found"
+            )
+        # INSERT_YOUR_CODE
+        # Check if this knowledge_store is used in any chat config
+        chat_config_in_use = await self.chat_config_crud.get_by_knowledge_store_id(knowledge_store_id=knowledge_store_id, owner_id=owner_id)
+        if len(chat_config_in_use) > 0:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete: This knowledge store is currently used in {len(chat_config_in_use)} chat configs"
             )
 
         # Delete all related tasks from MongoDB
@@ -338,6 +380,13 @@ class KnowledgeStoreService:
             status = qdrant_info["status"] if qdrant_info else "unknown"
             points_count = qdrant_info["points_count"] if qdrant_info else 0
 
+            # Check if knowledge store is being used in chat configs
+            chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+                knowledge_store_id=str(ks.id),
+                owner_id=owner_id
+            )
+            is_use = len(chat_configs) > 0
+
             result = KnowledgeStoreResponse(
                 id=str(ks.id),
                 name=ks.name,
@@ -347,7 +396,8 @@ class KnowledgeStoreService:
                 status=status,
                 created_at=ks.created_at,
                 updated_at=ks.updated_at,
-                points_count=points_count
+                points_count=points_count,
+                is_use=is_use
             )
             knowledge_store_responses.append(result)
 
@@ -410,5 +460,8 @@ class KnowledgeStoreService:
                 status_code=HTTP_400_BAD_REQUEST,
                 detail=f"Failed to delete vectors: {str(e)}"
             )
+
+
+
 
 knowledge_store_service = KnowledgeStoreService()

@@ -3,7 +3,7 @@ from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.schemas.file import FileResponse, FileCreate, FileUpdate
 from app.schemas.credential import (
     CredentialBase, CredentialCreate, CredentialUpdate, Credential, CredentialDetail,
-    CredentialList, CredentialTestRequest, CredentialTestResponse,
+    CredentialList, CredentialTestResponse,
     EncryptionHealthResponse, SecureKeyResponse
 )
 from app.schemas.provider import (
@@ -11,9 +11,8 @@ from app.schemas.provider import (
     ProviderList
 )
 from app.schemas.chat import (
-    ChatBase, ChatCreate, ChatUpdate, ChatResponse, ChatListResponse,
-    ChatMessageBase, ChatMessageCreate, ChatMessageResponse,
-    ChatCreateRequest, ChatUpdateRequest
+    ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
+    ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse, ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse
 )
 
 __all__ = [
@@ -34,7 +33,6 @@ __all__ = [
     "Credential",
     "CredentialDetail",
     "CredentialList",
-    "CredentialTestRequest",
     "CredentialTestResponse",
     "EncryptionHealthResponse",
     "SecureKeyResponse",
@@ -44,14 +42,14 @@ __all__ = [
     "ProviderDetailResponse",
     "ProviderList",
     # Chat schemas
-    "ChatBase",
-    "ChatCreate",
-    "ChatUpdate",
-    "ChatResponse",
-    "ChatListResponse",
-    "ChatMessageBase",
+    "ChatConfigCreate",
+    "ChatConfigUpdate",
+    "ChatConfigResponse",
+    "ChatConfigListResponse",
+    "ChatSessionCreate",
+    "ChatSessionResponse",
+    "ChatSessionListResponse",
     "ChatMessageCreate",
     "ChatMessageResponse",
-    "ChatCreateRequest",
-    "ChatUpdateRequest"
+    "ChatMessageListResponse"
 ]

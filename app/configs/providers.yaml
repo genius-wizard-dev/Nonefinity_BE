@@ -72,14 +72,14 @@ providers:
     support: ["chat"]
 
   google:
-    name: "Google Vertex AI"
-    provider: "google"
+    name: "Google"
+    provider: "google_genai"
     description: "Google Generative AI API"
     logo_url: "https://cloud.google.com/vertex-ai/images/logo.png"
     docs_url: "https://cloud.google.com/vertex-ai/docs"
     base_url: "https://generativelanguage.googleapis.com/v1beta"
     models_url: "https://generativelanguage.googleapis.com/v1beta/models"
     api_key_header: "x-goog-api-key"
-    api_key_prefix: ""
-    is_active: false
-    support: ["embedding", "chat"]
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]

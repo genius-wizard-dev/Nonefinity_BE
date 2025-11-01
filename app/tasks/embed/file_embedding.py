@@ -1,10 +1,9 @@
 
 from typing import Dict, Any, List
-from io import BytesIO
 from uuid import uuid4
 import tempfile
 import os
-from langchain_community.document_loaders import (
+from langchain_classic.document_loaders import (
     PyPDFLoader,
     TextLoader,
     UnstructuredWordDocumentLoader,
@@ -18,7 +17,7 @@ from app.services.minio_client_service import MinIOClientService
 from app.databases.qdrant import qdrant
 from app.utils import get_logger
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .utils import create_embeddings
+from langchain.embeddings import init_embeddings
 logger = get_logger(__name__)
 
 
@@ -32,7 +31,6 @@ def run_embedding(
     file_id: str,
     knowledge_store_id: str = None,
     collection_name: str = None,
-    dimension: int = None
 ) -> Dict[str, Any]:
     minio = MinIOClientService(access_key=user_id, secret_key=credential.get("secret_key"))
     data = minio.get_object_bytes(bucket_name=user_id, object_name=object_name)
@@ -79,63 +77,31 @@ def run_embedding(
         # Split documents into chunks
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_documents(docs)
-        chunk_texts = [chunk.page_content for chunk in chunks]
 
-        if not chunk_texts:
+        if not chunks:
             return {"message": "No content to embed", "total_chunks": 0}
 
         # Create embeddings
-        try:
-            vectors = create_embeddings(
-                provider=provider,
-                model=model_id,
-                texts=chunk_texts,
-                credential=credential or {}
-            )
-        except Exception as e:
-            logger.error(f"Failed to create embeddings: {e}")
-            return {
-                "success": False,
-                "error": f"Embedding creation failed: {str(e)}",
-                "total_chunks": 0
-            }
 
-        # Determine collection name and dimension
-        target_collection = collection_name or f"user_{user_id}_embeddings"
-        vector_dimension = dimension or len(vectors[0]) if vectors else 384
-
-        # Ensure collection exists
-        qdrant.ensure_collection(vector_size=vector_dimension, collection_name=target_collection)
-
-        # Create points for Qdrant
-        points: List[qm.PointStruct] = []
-        for idx, vec in enumerate(vectors):
-            point = qm.PointStruct(
-                id=str(uuid4()),
-                vector=vec,
-                payload={
-                    "user_id": user_id,
-                    "file_id": file_id,
-                    "knowledge_store_id": knowledge_store_id,
-                    "chunk_index": idx,
-                    "text": chunk_texts[idx],
-                    "metadata": chunks[idx].metadata if idx < len(chunks) else {}
-                },
-            )
-            points.append(point)
-
-        # Upsert to Qdrant
-        qdrant.upsert_points(points, collection_name=target_collection)
-
+            # Use OpenAI-compatible API for all other providers
+        embeddings = init_embeddings(
+            provider=provider,
+            model=model_id,
+            api_key=credential.get("api_key"),
+            base_url=credential.get("base_url")
+        )
+        qdrant.embeddings = embeddings
+        uuids = [str(uuid4()) for _ in range(len(chunks))]
+        qdrant.add_documents(documents=chunks, collection_name=collection_name, ids=uuids)
         return {
             "user_id": user_id,
             "file_id": file_id,
             "knowledge_store_id": knowledge_store_id,
             "provider": provider,
             "model_id": model_id,
-            "total_chunks": len(chunk_texts),
-            "successful_chunks": len(points),
-            "collection_name": target_collection,
+            "total_chunks": len(chunks),
+            "successful_chunks": len(chunks),
+            "collection_name": collection_name,
             "success": True
         }
     finally:

@@ -1,54 +1,68 @@
 from typing import List, Optional
 
 from app.crud.base import BaseCRUD
-from app.models.chat import Chat
-from app.schemas.chat import ChatCreate, ChatUpdate
+from app.models.chat import ChatConfig, ChatSession, ChatMessage
+from app.schemas.chat import ChatConfigCreate, ChatConfigUpdate, ChatSessionCreate, ChatMessageCreate
+from bson import ObjectId
 
 
-class ChatCRUD(BaseCRUD[Chat, ChatCreate, ChatUpdate]):
+class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
     def __init__(self):
-        super().__init__(Chat)
+        super().__init__(ChatConfig)
 
-    async def get_by_name(self, name: str, owner_id: str) -> Optional[Chat]:
-        """Get chat by name and owner ID"""
+    async def get_by_name(self, name: str, owner_id: str) -> List[ChatConfig]:
+        return await self.model.find(
+            ChatConfig.name == name,
+            ChatConfig.owner_id == owner_id
+        ).to_list()
+
+    async def delete_by_chat_config_id(self, chat_config_id: str) -> bool:
+        # Delete the chat config
+        await ChatConfig.find_one({"_id": ObjectId(chat_config_id)}).delete()
+
+        # Find all sessions under this config
+        sessions = await ChatSession.find(
+            ChatSession.chat_config_id == chat_config_id
+        ).to_list()
+
+        # Delete messages and sessions
+        for session in sessions:
+            await ChatMessage.find(ChatMessage.session_id == session.id).delete()
+            await ChatSession.find_one({"_id": ObjectId(session.id)}).delete()
+        return True
+
+    async def get_by_knowledge_store_id(self, knowledge_store_id: str, owner_id: str) -> List[ChatConfig]:
+        return await self.list(
+            filter_={"knowledge_store_id": str(knowledge_store_id), "owner_id": owner_id},
+            include_deleted=False
+        )
+
+chat_config_crud = ChatConfigCRUD()
+
+class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
+    def __init__(self):
+        super().__init__(ChatSession)
+
+    async def delete_by_chat_session_id(self, chat_session_id: str) -> bool:
+        await ChatSession.find_one({"_id": chat_session_id}).delete()
+        await ChatMessage.find_all({"session_id": chat_session_id}).delete()
+        return True
+
+    async def get_by_name(self, name: str, owner_id: str) -> Optional[ChatSession]:
         return await self.get_one(
             filter_={"name": name, "owner_id": owner_id},
             include_deleted=False
         )
 
-    async def create_with_owner(self, owner_id: str, obj_in: ChatCreate) -> Chat:
-        """Create chat with owner"""
-        data = obj_in.model_dump()
-        data["owner_id"] = owner_id
 
-        db_obj = Chat(**data)
-        await db_obj.insert()
-        return db_obj
+chat_session_crud = ChatSessionCRUD()
 
-    async def get_by_owner(self, owner_id: str, skip: int = 0, limit: int = 100) -> List[Chat]:
-        """Get chats by owner ID with pagination"""
-        return await self.list(
-            filter_={"owner_id": owner_id},
-            skip=skip,
-            limit=limit,
-            include_deleted=False
-        )
+class ChatMessageCRUD(BaseCRUD[ChatMessage, ChatMessageCreate, None]):
+    def __init__(self):
+        super().__init__(ChatMessage)
 
-    async def get_by_owner_and_id(self, owner_id: str, chat_id: str) -> Optional[Chat]:
-        """Get chat by owner and ID"""
-        chat = await self.get_by_id(chat_id, include_deleted=False)
-        if chat and chat.owner_id == owner_id:
-            return chat
-        return None
+    async def delete_by_chat_session_id(self, chat_session_id: str) -> bool:
+        await ChatMessage.find_all({"session_id": chat_session_id}).delete()
+        return True
 
-    async def count_by_owner(self, owner_id: str) -> int:
-        """Count chats by owner ID"""
-        chats = await self.list(
-            filter_={"owner_id": owner_id},
-            include_deleted=False
-        )
-        return len(chats)
-
-
-# Create instance
-chat_crud = ChatCRUD()
+chat_message_crud = ChatMessageCRUD()

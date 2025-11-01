@@ -37,6 +37,7 @@ class KnowledgeStoreResponse(BaseModel):
     created_at: datetime = Field(..., description="Created at")
     updated_at: Optional[datetime] = Field(None, description="Updated at")
     points_count: int = Field(..., description="Point count")
+    is_use: bool = Field(False, description="Whether this knowledge store is being used in chat configs")
 
     @field_validator('id', mode='before')
     @classmethod

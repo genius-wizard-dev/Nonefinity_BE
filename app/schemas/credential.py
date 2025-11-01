@@ -154,12 +154,7 @@ class CredentialList(BaseModel):
     )
 
 
-class CredentialTestRequest(BaseModel):
-    """Request schema for testing a credential"""
-    credential_id: Optional[str] = Field(None, description="Credential ID to test")
-    provider: Optional[str] = Field(None, description="Provider name for ad-hoc testing")
-    api_key: Optional[str] = Field(None, description="API key for ad-hoc testing")
-    base_url: Optional[str] = Field(None, description="Custom base URL for testing")
+
 
 
 class CredentialTestResponse(BaseModel):

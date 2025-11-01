@@ -3,7 +3,7 @@ from app.crud.base import BaseCRUD
 from app.models.dataset import Dataset
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
 from app.utils import get_logger
-
+from bson import ObjectId
 logger = get_logger(__name__)
 
 
@@ -77,6 +77,13 @@ class DatasetCRUD(BaseCRUD[Dataset, DatasetCreate, DatasetUpdate]):
 
         logger.info(f"Updated schema for dataset: {dataset_id}")
         return updated_dataset
+
+    async def get_by_owner_and_ids(self, owner_id: str, dataset_ids: List[str]) -> List[Dataset]:
+        """Get datasets by owner and IDs"""
+        return await self.list(
+            filter_={"owner_id": owner_id, "_id": {"$in": [ObjectId(dataset_id) for dataset_id in dataset_ids]}},
+            include_deleted=False
+        )
 
 
 

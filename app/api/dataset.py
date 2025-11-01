@@ -28,8 +28,6 @@ router = APIRouter(
     }
 )
 
-
-
 async def get_user_and_service(current_user):
     """Helper function to get user and dataset service"""
     clerk_id = current_user.get("sub")

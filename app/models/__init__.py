@@ -8,7 +8,7 @@ from app.models.credential import Credential
 from app.models.model import Model
 from app.models.task import Task
 from app.models.knowledge_store import KnowledgeStore
-from app.models.chat import Chat, ChatHistory
+from app.models.chat import ChatConfig, ChatSession, ChatMessage
 
 # Export all models for easy import
 __all__ = [
@@ -22,8 +22,9 @@ __all__ = [
     "Credential",
     "Model",
     "KnowledgeStore",
-    "Chat",
-    "ChatHistory",
+    "ChatConfig",
+    "ChatSession",
+    "ChatMessage",
     "Task"
 ]
 
@@ -38,6 +39,7 @@ DOCUMENT_MODELS = [
     Model,
     Task,
     KnowledgeStore,
-    Chat,
-    ChatHistory
+    ChatConfig,
+    ChatSession,
+    ChatMessage,
 ]

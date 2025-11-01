@@ -84,6 +84,7 @@ def run_text_embedding(
                 "knowledge_store_id": knowledge_store_id,
                 "chunk_index": idx,
                 "text": chunks[idx],
+                
             },
         )
         points.append(point)

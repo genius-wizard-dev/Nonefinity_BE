@@ -55,7 +55,7 @@ def langchain_embed(provider: str, model: str, texts: List[str], credential: Dic
     """
     try:
         p = provider.lower()
-        if p == "google":
+        if p == "google_genai" or p == "google":
             embeddings = GoogleGenerativeAIEmbeddings(
                 model=model,
                 google_api_key=credential.get("api_key")
@@ -100,7 +100,7 @@ def create_embeddings(provider: str, model: str, texts: List[str], credential: D
 
     p = (provider or "").lower()
 
-    if p in ("openai", "google", "nvidia", "togetherai", "groq"):
+    if p in ("openai", "google", "google_genai", "nvidia", "togetherai", "groq"):
         return langchain_embed(provider, model, texts, credential)
 
     raise ValueError(f"Unsupported provider: {provider}. Supported providers: openai, google, nvidia, togetherai, groq")
