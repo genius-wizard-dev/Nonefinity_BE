@@ -3,6 +3,7 @@ from typing import List, Optional
 from app.crud.base import BaseCRUD
 from app.models.chat import ChatConfig, ChatSession, ChatMessage
 from app.schemas.chat import ChatConfigCreate, ChatConfigUpdate, ChatSessionCreate, ChatMessageCreate
+from bson import ObjectId
 
 
 class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
@@ -16,12 +17,25 @@ class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
         ).to_list()
 
     async def delete_by_chat_config_id(self, chat_config_id: str) -> bool:
-        await ChatConfig.find_one({"_id": chat_config_id}).delete()
-        chat_session_ids = await ChatSession.find_all({"chat_config_id": chat_config_id}).to_list()
-        for chat_session_id in chat_session_ids:
-            await ChatMessage.find_all({"session_id": chat_session_id.id}).delete()
-            await ChatSession.find_one({"_id": chat_session_id.id}).delete()
+        # Delete the chat config
+        await ChatConfig.find_one({"_id": ObjectId(chat_config_id)}).delete()
+
+        # Find all sessions under this config
+        sessions = await ChatSession.find(
+            ChatSession.chat_config_id == chat_config_id
+        ).to_list()
+
+        # Delete messages and sessions
+        for session in sessions:
+            await ChatMessage.find(ChatMessage.session_id == session.id).delete()
+            await ChatSession.find_one({"_id": ObjectId(session.id)}).delete()
         return True
+
+    async def get_by_knowledge_store_id(self, knowledge_store_id: str, owner_id: str) -> List[ChatConfig]:
+        return await self.list(
+            filter_={"knowledge_store_id": str(knowledge_store_id), "owner_id": owner_id},
+            include_deleted=False
+        )
 
 chat_config_crud = ChatConfigCRUD()
 

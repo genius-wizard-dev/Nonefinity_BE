@@ -75,7 +75,6 @@ class AITasksClient:
         file_id: str = None,
         knowledge_store_id: str = None,
         collection_name: str = None,
-        dimension: int = None
     ) -> str:
         """
         Create an embedding task
@@ -89,7 +88,6 @@ class AITasksClient:
             file_id: File identifier
             knowledge_store_id: Knowledge store identifier
             collection_name: Qdrant collection name
-            dimension: Vector dimension
 
         Returns:
             Task ID
@@ -112,12 +110,10 @@ class AITasksClient:
                     'file_id': file_id,
                     'knowledge_store_id': knowledge_store_id,
                     'collection_name': collection_name,
-                    'dimension': dimension
                 },
                 queue='embeddings'
             )
 
-            logger.info(f"Embedding task created with ID: {result.id}")
             return result.id
 
         except Exception as e:
@@ -133,7 +129,6 @@ class AITasksClient:
         credential: Dict[str, Any] = None,
         knowledge_store_id: str = None,
         collection_name: str = None,
-        dimension: int = None
     ) -> str:
         """
         Create a text embedding task for direct text input
@@ -146,7 +141,6 @@ class AITasksClient:
             credential: Dictionary containing API keys
             knowledge_store_id: Knowledge store identifier
             collection_name: Qdrant collection name
-            dimension: Vector dimension
 
         Returns:
             Task ID
@@ -168,7 +162,6 @@ class AITasksClient:
                     'credential': credential or {},
                     'knowledge_store_id': knowledge_store_id,
                     'collection_name': collection_name,
-                    'dimension': dimension
                 },
                 queue='embeddings'
             )

@@ -8,7 +8,7 @@ import json
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
-    SaveChatMessageRequest,
+    SaveChatMessageRequest, SaveConversationRequest,
 )
 from app.services.chat import ChatService
 from app.services.user import user_service
@@ -404,7 +404,7 @@ async def stream_chat(
     description="Save complete conversation flow including tool calls and results"
 )
 async def save_conversation(
-    messages: List[SaveChatMessageRequest],
+    request: SaveConversationRequest,
     session_id: str = Path(..., description="Chat Session ID"),
     current_user: dict = Depends(verify_token)
 ):
@@ -413,15 +413,15 @@ async def save_conversation(
         owner_id, chat_service = await get_owner_and_service(current_user)
 
 
-        success = await chat_service.save_conversation_batch(owner_id, session_id, messages)
+        success = await chat_service.save_conversation_batch(owner_id, session_id, request.messages)
         if not success:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
                 detail="Failed to save conversation"
             )
         return ok(
-            data={"saved": len(messages)},
-            message=f"Saved {len(messages)} messages successfully"
+            data={"saved": len(request.messages)},
+            message=f"Saved {len(request.messages)} messages successfully"
         )
 
     except HTTPException:

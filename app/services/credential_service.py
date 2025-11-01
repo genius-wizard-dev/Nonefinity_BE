@@ -114,7 +114,7 @@ class CredentialService:
         try:
             models = []
             models_url = base_url + "/models"
-            if provider == "google":
+            if provider == "google_genai":
               result = await get(models_url + "?key=" + api_key)
               if isinstance(result, dict) and "error" in result:
                   error = result["error"]
@@ -151,6 +151,9 @@ class CredentialService:
                       return True, ""
               else:
                   return False, "No models found"
+            else:
+                # For other providers, skip validation (they may have different validation logic)
+                return True, ""
 
         except Exception as e:
             error_message = f"Failed to get model credential: {e}"

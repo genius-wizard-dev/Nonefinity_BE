@@ -3,13 +3,15 @@ import json
 from uuid import UUID
 
 from app.crud.chat import chat_config_crud, chat_session_crud, chat_message_crud
-from app.models.chat import ChatConfig, ChatSession, ChatMessage
+from app.models.chat import ChatMessage
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest
 )
+from app.databases.qdrant import QdrantDB
+from langchain.embeddings import init_embeddings
 from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
@@ -19,7 +21,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents.context import AgentContext
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig
-from app.agents.tools import dataset_tools
+from app.agents.tools import dataset_tools, knowledge_tools
 from app.crud.model import ModelCRUD
 from app.crud.credential import CredentialCRUD
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
@@ -28,28 +30,79 @@ from langchain_core.runnables.config import RunnableConfig
 from app.services.provider_service import ProviderService
 from app.crud.user import UserCRUD
 from app.services.credential_service import CredentialService
+from app.crud.dataset import DatasetCRUD
+from app.crud.knowledge_store import KnowledgeStoreCRUD
 logger = get_logger(__name__)
 
 
-# def _convert_chat_message_to_langchain_message(chat_message: ChatMessage) -> BaseMessage:
-#     """Convert ChatMessage to LangChain BaseMessage"""
-#     role = chat_message.role.lower()
-#     content = chat_message.content or ""
+def _extract_text_from_content(raw_content: Any) -> str:
+    """Normalize stored message content to a plain string.
 
-#     if role == "user":
-#         return HumanMessage(content=content)
-#     elif role == "ai_result":
-#         return AIMessage(content=content)
-#     elif role == "tool_result":
-#         return ToolMessage(content=content, tool_results=[{
-#           "name": chat_message.tool_results[0]["name"],
-#           "content": chat_message.tool_results[0]["content"],
-#         }])
-#     elif role == "tool_calls":
-#         return ToolMessage(content=content, tool_calls=[{
-#           "name": chat_message.tool_calls[0]["name"],
-#           "args": chat_message.tool_calls[0]["args"],
-#         }])
+    Handles cases where content is:
+    - a JSON-encoded list of segments like [{"type":"text","text":"..."}]
+    - a plain JSON-encoded string
+    - already a plain string
+    """
+    if raw_content is None:
+        return ""
+
+    # If already a list/dict (unlikely from DB), handle directly
+    if isinstance(raw_content, list):
+        try:
+            return "".join(
+                segment.get("text", "")
+                for segment in raw_content
+                if isinstance(segment, dict) and segment.get("type") == "text"
+            )
+        except Exception:
+            return json.dumps(raw_content, ensure_ascii=False)
+
+    if not isinstance(raw_content, str):
+        return str(raw_content)
+
+    # Try parse JSON
+    try:
+        parsed = json.loads(raw_content)
+        if isinstance(parsed, list):
+            return "".join(
+                segment.get("text", "")
+                for segment in parsed
+                if isinstance(segment, dict) and segment.get("type") == "text"
+            )
+        if isinstance(parsed, dict) and "text" in parsed:
+            return str(parsed.get("text", ""))
+        if isinstance(parsed, (int, float)):
+            return str(parsed)
+        if isinstance(parsed, str):
+            return parsed
+        # Fallback to JSON string to preserve info
+        return json.dumps(parsed, ensure_ascii=False)
+    except Exception:
+        # Not JSON, treat as plain string
+        return raw_content
+
+
+def _convert_chat_message_to_langchain_message(chat_message: ChatMessage) -> BaseMessage:
+    """Convert stored ChatMessage to a LangChain BaseMessage.
+
+    We only feed user/assistant textual content into history.
+    Tool calls/results are already persisted in DB but aren't part of the core
+    language history for most models, so they're ignored here.
+    """
+    role = (chat_message.role or "").lower()
+    content = _extract_text_from_content(chat_message.content)
+
+    if role == "user":
+        return HumanMessage(content=content)
+    elif role in ("assistant", "ai", "ai_result"):
+        return AIMessage(content=content)
+    elif role in ("system",):
+        return SystemMessage(content=content)
+    # For tool messages, include as a tool message with best-effort content
+    elif role in ("tool", "tool_result", "tool_calls"):
+        return ToolMessage(content=content, name=getattr(chat_message, "name", None))
+    # Default to human if unknown
+    return HumanMessage(content=content)
 
 
 
@@ -65,6 +118,8 @@ class ChatService:
         self._provider_service = ProviderService()
         self._user_crud = UserCRUD()
         self._credential_service = CredentialService()
+        self._dataset_crud = DatasetCRUD()
+        self._knowledge_store_crud = KnowledgeStoreCRUD()
 
     async def create_chat_config(self, owner_id: str, chat_config_data: ChatConfigCreate) -> ChatConfigResponse:
         """Create a new chat configuration  """
@@ -266,19 +321,25 @@ class ChatService:
         if not chat_session:
             raise AppError(message="Chat session not found", status_code=HTTP_404_NOT_FOUND)
         messages = await self.chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id, skip=skip, limit=limit)
-        message_responses = [
-            ChatMessageResponse(
-                id=str(message.id),
-                session_id=message.session_id,
-                role=message.role,
-                content=message.content,
-                tool_calls=message.tool_calls,
-                tool_results=message.tool_results,
-                created_at=message.created_at,
-                updated_at=message.updated_at
+        message_responses = []
+        for message in messages:
+            tools_value = message.tools
+            if isinstance(tools_value, dict):
+                tools_value = [tools_value]
+            elif tools_value is not None and not isinstance(tools_value, list):
+                tools_value = None
+
+            message_responses.append(
+                ChatMessageResponse(
+                    id=str(message.id),
+                    session_id=message.session_id,
+                    role=message.role,
+                    content=message.content,
+                    tools=tools_value,
+                    created_at=message.created_at,
+                    updated_at=message.updated_at
+                )
             )
-            for message in messages
-        ]
         return ChatSessionResponse(
             id=str(chat_session.id),
             chat_config_id=chat_session.chat_config_id,
@@ -341,13 +402,18 @@ class ChatService:
         if chat_message_data.session_id != chat_session_id:
             chat_message_data = chat_message_data.model_copy(update={"session_id": chat_session_id})
         chat_message = await self.chat_message_crud.create(chat_message_data, owner_id=owner_id)
+        tools_value = chat_message.tools
+        if isinstance(tools_value, dict):
+            tools_value = [tools_value]
+        elif tools_value is not None and not isinstance(tools_value, list):
+            tools_value = None
+
         return ChatMessageResponse(
             id=str(chat_message.id),
             session_id=chat_message.session_id,
             role=chat_message.role,
             content=chat_message.content,
-            tool_calls=chat_message.tool_calls,
-            tool_results=chat_message.tool_results,
+            tools=tools_value,
             created_at=chat_message.created_at,
             updated_at=chat_message.updated_at
         )
@@ -366,16 +432,13 @@ class ChatService:
             # Create messages from batch data
             for message_data in messages:
                 content_raw = message_data.content
-
-                # Convert content to string if it's not already
                 content = content_raw if content_raw else ""
 
                 chat_message_data = ChatMessageCreate(
                     session_id=session_id,
                     role=message_data.role,
                     content=content,
-                    tool_calls=message_data.tool_calls,
-                    tool_results=message_data.tool_results,
+                    tools=message_data.tools,
                 )
                 await self.chat_message_crud.create(chat_message_data, owner_id=owner_id)
 
@@ -391,6 +454,52 @@ class ChatService:
                 status_code=HTTP_400_BAD_REQUEST
             )
 
+    async def _create_llm_config(self, owner_id: str, model_id: str):
+      model = await self._model_crud.get_by_id(id=model_id, owner_id=owner_id)
+      if not model:
+        raise AppError(
+          message="Model not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+      credential = await self._credential_crud.get_by_id(id=model.credential_id, owner_id=owner_id)
+      if not credential:
+        raise AppError(
+          message="Credential not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+      provider = await self._provider_service.get_provider_by_id(credential.provider_id)
+      if not provider:
+        raise AppError(
+          message="Provider not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+      api_key = self._credential_service._decrypt_api_key(credential.api_key)
+      base_url = credential.base_url if credential.base_url else None
+      return LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
+
+    async def _create_embedding_model_config(self, owner_id: str, embedding_model_id: str):
+      embedding_model = await self._model_crud.get_by_id(id=embedding_model_id, owner_id=owner_id)
+      if not embedding_model:
+        raise AppError(
+          message="Embedding model not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+      credential = await self._credential_crud.get_by_id(id=embedding_model.credential_id, owner_id=owner_id)
+      if not credential:
+        raise AppError(
+          message="Credential not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+
+      provider = await self._provider_service.get_provider_by_id(credential.provider_id)
+      if not provider:
+        raise AppError(
+          message="Provider not found",
+          status_code=HTTP_404_NOT_FOUND
+        )
+      api_key = self._credential_service._decrypt_api_key(credential.api_key)
+      base_url = credential.base_url if credential.base_url else None
+      return init_embeddings(provider=provider.provider, model=embedding_model.model, api_key=api_key, base_url=base_url)
 
 
     async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str):
@@ -427,53 +536,46 @@ class ChatService:
                     status_code=HTTP_404_NOT_FOUND
                 )
 
-            # Get model and credential info
-            model = await self._model_crud.get_by_id(id=chat_config.chat_model_id, owner_id=owner_id)
-            if not model:
-                raise AppError(
-                    message="Model not found",
-                    status_code=HTTP_404_NOT_FOUND
-                )
-
-            credential = await self._credential_crud.get_by_id(id=model.credential_id, owner_id=owner_id)
-            if not credential:
-                raise AppError(
-                    message="Credential not found",
-                    status_code=HTTP_404_NOT_FOUND
-                )
-
-            provider = await self._provider_service.get_provider_by_id(credential.provider_id)
-            if not provider:
-                raise AppError(
-                    message="Provider not found",
-                    status_code=HTTP_404_NOT_FOUND
-                )
-
-            # Prepare LLM config
-            api_key = self._credential_service._decrypt_api_key(credential.api_key)
-            base_url = credential.base_url if credential.base_url else None
-            llm_config = LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
-
+            llm_config = await self._create_llm_config(owner_id, chat_config.chat_model_id)
+            embedding_model = None
+            if chat_config.embedding_model_id:
+              embedding_model = await self._create_embedding_model_config(owner_id, chat_config.embedding_model_id)
             # Prepare tools
             tools = dataset_tools if chat_config.dataset_ids else []
+            tools += knowledge_tools if chat_config.knowledge_store_id else []
+            dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
+            datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
+
+            knowledge_store = None
+            knowledge_store_collection_name = None
+
+            if chat_config.knowledge_store_id and embedding_model:
+              knowledge_store = QdrantDB()
+              knowledge_store_collection = await self._knowledge_store_crud.get_by_owner_and_id(owner_id, chat_config.knowledge_store_id)
+              if not knowledge_store_collection:
+                raise AppError(
+                  message="Knowledge store not found",
+                  status_code=HTTP_404_NOT_FOUND
+                )
+              knowledge_store_collection_name = knowledge_store_collection.collection_name
+
+
 
             # Get last 5 messages for history (newest first, then reverse to oldest first)
             # Query messages sorted by created_at descending to get most recent ones
             recent_messages = await self.chat_message_crud.model.find(
                 {"session_id": chat_session_id, "owner_id": owner_id}
-            ).sort("-created_at").limit(5).to_list()
+            ).sort("-created_at").limit(10).to_list()
             # Reverse to get oldest first (for proper conversation flow)
             recent_messages.reverse()
 
             # Convert ChatMessage to LangChain messages
-            # history_messages = [_convert_chat_message_to_langchain_message(msg) for msg in recent_messages]
+            history_messages = [_convert_chat_message_to_langchain_message(msg) for msg in recent_messages]
 
-            # Add new user message
             new_user_message = HumanMessage(content=message)
-            # all_messages = history_messages + [new_user_message]
+            all_messages = history_messages + [new_user_message]
+            system_prompt = SYSTEM_PROMPT.format(datasets=datasets, tools=tools)
 
-
-            dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key)
             agent = create_agent(
                 model=llm_config.get_model(),
                 tools=tools,
@@ -481,15 +583,15 @@ class ChatService:
                 context_schema=AgentContext,
                 state_schema=AgentState,
                 checkpointer=InMemorySaver(),
-                system_prompt=SYSTEM_PROMPT
+                system_prompt=system_prompt
             )
+            context = AgentContext(user_id=owner_id, dataset_service=dataset_service, datasets=datasets, knowledge_store=knowledge_store, knowledge_store_collection_name=knowledge_store_collection_name, embedding_model=embedding_model)
+            logger.info(f"Context: {context}")
+            messages_input = {"messages": all_messages}
 
-            # Prepare input with message history
-            # messages_input = {"messages": all_messages}
-            messages_input = {"messages": new_user_message}
+
             config = RunnableConfig(configurable={"thread_id": chat_session_id})
-
-            async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=AgentContext(user_id=owner_id, dataset_service=dataset_service)):
+            async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
               for key, value in chunk.items():
                   msg = value["messages"][0]
 
@@ -499,7 +601,6 @@ class ChatService:
                       yield {
                           "event": "tool_calls",
                           "data": json.dumps({
-                              "type": "tool_call",
                               "name": fc["name"],
                               "arguments": json.loads(fc["arguments"]),
                           })
@@ -510,7 +611,6 @@ class ChatService:
                       yield {
                           "event": "tool_results",
                           "data": json.dumps({
-                              "type": "tool_result",
                               "name": msg.name,
                               "result": msg.content,
                           })
@@ -518,12 +618,20 @@ class ChatService:
 
                   # 3️⃣ Model phản hồi cuối cùng (kết quả hiển thị cho user)
                   elif key == "model":
+                      content = msg.content
+                      # Nếu content là list dạng [{"type": "text", "text": "..."}], thì lấy ra chuỗi text ghép lại
+                      if isinstance(content, list):
+                          # Chỉ lấy trường 'text' của các phần tử type='text', tránh lấy phần khác
+                          content = "".join(
+                              segment.get("text", "")
+                              for segment in content
+                              if isinstance(segment, dict) and segment.get("type") == "text"
+                          )
                       yield {
                           "event": "ai_result",
                           "data": json.dumps({
-                              "type": "message",
                               "role": "assistant",
-                              "content": msg.content,
+                              "content": content,
                           })
                       }
 

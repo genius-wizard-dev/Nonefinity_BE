@@ -3,9 +3,16 @@ from langchain.agents import AgentState
 from app.agents.context import AgentContext
 from app.utils.preprocess_sql import is_select_query
 from langchain_core.messages.tool import ToolMessage
+
 @tool
 def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
-  """Execute SQL query on user's datasets and return results."""
+  """Execute SQL query on user's datasets and return results.
+
+  Args:
+    query: The SQL query to execute
+  Returns:
+    The results of the query
+  """
   try:
       context = runtime.context
       dataset_service = context.dataset_service
@@ -23,7 +30,10 @@ def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
 
 @tool
 def get_list_table(runtime: ToolRuntime[AgentContext, AgentState]):
-  """Get list of all datasets/tables for the user."""
+  """Get list of all datasets/tables for the user.
+  Returns:
+    The list of tables
+  """
   try:
       context = runtime.context
       dataset_service = context.dataset_service

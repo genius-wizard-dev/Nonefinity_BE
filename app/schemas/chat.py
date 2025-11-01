@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict, validator
 
 class ChatConfigCreate(BaseModel):
@@ -15,6 +15,7 @@ class ChatConfigUpdate(BaseModel):
     chat_model_id: Optional[str] = Field(None, description="AI model ID used for the chat")
     embedding_model_id: Optional[str] = Field(None, description="Embedding model ID (optional for AI-only chat)")
     knowledge_store_id: Optional[str] = Field(None, description="Knowledge store ID (optional)")
+    dataset_ids: Optional[List[str]] = Field(None, description="List of dataset IDs")
     instruction_prompt: Optional[str] = Field(None, description="Custom instruction prompt")
 
 class ChatConfigResponse(BaseModel):
@@ -40,13 +41,22 @@ class ChatSessionCreate(BaseModel):
     name: Optional[str] = Field(None, description="Name of the chat session")
 
 
+class ToolCall(BaseModel):
+    name: str = Field(..., description="Tool name")
+    arguments: Optional[Dict[str, Any]] = Field(
+        None, description="Arguments passed to the tool"
+    )
+    result: Optional[Any] = Field(
+        None, description="Result returned by the tool (string or structured)"
+    )
+
+
 class ChatMessageResponse(BaseModel):
     id: str = Field(..., description="Chat message ID")
     session_id: str = Field(..., description="Chat session ID")
     role: str = Field(..., description="user / assistant / system / tool")
     content: str = Field("", description="Message content")
-    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
-    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
+    tools: Optional[List[ToolCall]] = Field(None, description="List of tool calls for this message")
     created_at: datetime = Field(..., description="Chat message created at")
     updated_at: Optional[datetime] = Field(None, description="Chat message updated at")
 
@@ -54,8 +64,7 @@ class ChatMessageCreate(BaseModel):
     session_id: str = Field(..., description="Chat session ID")
     role: str = Field(..., description="user / assistant / system / tool")
     content: str = Field("", description="Message content")
-    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
-    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
+    tools: Optional[List[ToolCall]] = Field(None, description="List of tool calls for this message")
 
 
 class ChatMessageListResponse(BaseModel):
@@ -87,10 +96,10 @@ class StreamChatMessageRequest(BaseModel):
 
 
 class SaveChatMessageRequest(BaseModel):
-    session_id: str = Field(..., description="ChatSession ID")
-    owner_id: str = Field(..., description="Owner ID from authentication")
     role: str = Field(..., description="user / assistant / system / tool")
-    question: Optional[str] = Field(None, description="Message content")
-    answer: Optional[str] = Field(None, description="Message content")
-    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
-    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
+    content: Optional[str] = Field(None, description="Message content")
+    tools: Optional[List[ToolCall]] = Field(None, description="List of tool calls for this message")
+
+
+class SaveConversationRequest(BaseModel):
+    messages: List[SaveChatMessageRequest] = Field(..., description="List of messages to save")

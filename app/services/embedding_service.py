@@ -102,7 +102,6 @@ class EmbeddingService:
             if knowledge_store:
                 task_kwargs["knowledge_store_id"] = embedding_data.knowledge_store_id
                 task_kwargs["collection_name"] = knowledge_store.collection_name
-                task_kwargs["dimension"] = knowledge_store.dimension
 
             task_id = embedding_client.create_embedding_task(**task_kwargs)
             try:
@@ -125,7 +124,6 @@ class EmbeddingService:
                     task_data["knowledge_store_id"] = embedding_data.knowledge_store_id
                     task_data["metadata"]["knowledge_store_name"] = knowledge_store.name
                     task_data["metadata"]["collection_name"] = knowledge_store.collection_name
-                    task_data["metadata"]["dimension"] = knowledge_store.dimension
 
                 await task_crud.create(task_data)
             except Exception as e:
@@ -222,7 +220,6 @@ class EmbeddingService:
             if knowledge_store:
                 task_kwargs["knowledge_store_id"] = text_data.knowledge_store_id
                 task_kwargs["collection_name"] = knowledge_store.collection_name
-                task_kwargs["dimension"] = knowledge_store.dimension
 
             task_id = embedding_client.create_text_embedding_task(**task_kwargs)
 
@@ -246,7 +243,6 @@ class EmbeddingService:
                     task_data["knowledge_store_id"] = text_data.knowledge_store_id
                     task_data["metadata"]["knowledge_store_name"] = knowledge_store.name
                     task_data["metadata"]["collection_name"] = knowledge_store.collection_name
-                    task_data["metadata"]["dimension"] = knowledge_store.dimension
 
                 await task_crud.create(task_data)
             except Exception as e:
@@ -368,7 +364,7 @@ class EmbeddingService:
             }
 
     @staticmethod
-    async def get_task_status_async(task_id: str) -> Dict[str, Any]:
+    async def get_task_status(task_id: str) -> Dict[str, Any]:
         """
         Async version to get enhanced task status with MongoDB metadata
         """
@@ -383,7 +379,6 @@ class EmbeddingService:
             task_doc = await task_crud.get_by_task_id(task_id)
 
             if task_doc:
-                # ✨ Merge Celery status with MongoDB metadata
                 enhanced_status = {
                     "task_id": task_id,
                     "status": celery_status.get("status"),
@@ -394,7 +389,6 @@ class EmbeddingService:
                     "error": celery_status.get("error"),
                     "meta": celery_status.get("meta"),
 
-                    # ✨ Add MongoDB metadata for UI consistency
                     "task_type": task_doc.task_type,
                     "user_id": task_doc.user_id,
                     "file_id": task_doc.file_id,
@@ -448,109 +442,10 @@ class EmbeddingService:
             logger.error(f"❌ Error getting enhanced status for {task_id}: {e}")
             return embedding_client.get_task_status(task_id)
 
-    @staticmethod
-    def get_task_status(task_id: str) -> Dict[str, Any]:
-        """
-        Get the status of an embedding task by task ID
-        Returns merged data from Celery (real-time status) and MongoDB (metadata)
-        Also syncs status to MongoDB as a fallback if signals didn't update
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing task status and information with complete metadata
-        """
-
-        try:
-            logger.debug(f"Getting embedding task status: {task_id}")
-
-            # Try to run async version
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If already in async context, we need to use asyncio.create_task
-                    # But since we can't await in sync function, fallback to sync approach
-                    raise RuntimeError("Already in async context")
-                else:
-                    # If not in async context, run it directly
-                    return loop.run_until_complete(EmbeddingService.get_task_status_async(task_id))
-            except (RuntimeError, Exception) as async_error:
-                logger.warning(f"⚠️ Async approach failed for {task_id}: {async_error}, using sync fallback")
-
-                # ✨ Sync fallback approach
-                celery_status = embedding_client.get_task_status(task_id)
-
-                # Try to get MongoDB data synchronously (limited functionality)
-                try:
-                    from app.crud.task import TaskCRUD
-                    task_crud = TaskCRUD()
-
-                    # Create new event loop for this operation
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-
-                    try:
-                        task_doc = new_loop.run_until_complete(task_crud.get_by_task_id(task_id))
-
-                        if task_doc:
-                            # Merge data
-                            enhanced_status = {
-                                **celery_status,
-                                "task_type": task_doc.task_type,
-                                "user_id": task_doc.user_id,
-                                "file_id": task_doc.file_id,
-                                "knowledge_store_id": task_doc.knowledge_store_id,
-                                "provider": task_doc.provider,
-                                "model_id": task_doc.model_id,
-                                "created_at": task_doc.created_at.isoformat() if task_doc.created_at else None,
-                                "updated_at": task_doc.updated_at.isoformat() if task_doc.updated_at else None,
-                            }
-
-                            # Sync status if needed
-                            celery_status_val = celery_status.get("status")
-                            if celery_status_val != task_doc.status:
-                                update_data = {"status": celery_status_val}
-                                if celery_status_val == "SUCCESS" and celery_status.get("result"):
-                                    if not task_doc.metadata:
-                                        task_doc.metadata = {}
-                                    update_data["metadata"] = {**task_doc.metadata, "result": celery_status.get("result")}
-
-                                new_loop.run_until_complete(task_crud.update(task_doc, update_data))
-                                logger.info(f"🔄 Synced task {task_id} status to {celery_status_val} in MongoDB")
-
-                            return enhanced_status
-                        else:
-                            return celery_status
-
-                    finally:
-                        new_loop.close()
-
-                except Exception as sync_error:
-                    logger.warning(f"⚠️ Sync MongoDB access failed for {task_id}: {sync_error}")
-                    return celery_status
-
-        except Exception as e:
-            logger.error(f"❌ Error getting task status for {task_id}: {e}")
-            # Final fallback to Celery data only
-            try:
-                return embedding_client.get_task_status(task_id)
-            except Exception as fallback_error:
-                logger.error(f"❌ Fallback also failed for {task_id}: {fallback_error}")
-                return {
-                    "task_id": task_id,
-                    "status": "ERROR",
-                    "ready": False,
-                    "successful": False,
-                    "failed": True,
-                    "result": None,
-                    "error": f"Service error: {str(e)}",
-                    "meta": None
-                }
 
 
     @staticmethod
-    async def cancel_task_async(task_id: str) -> Dict[str, Any]:
+    async def cancel_task(task_id: str) -> Dict[str, Any]:
         """
         Async version to cancel a running embedding task and update MongoDB
         """
@@ -587,101 +482,3 @@ class EmbeddingService:
                 "error": f"Failed to cancel task: {str(e)}"
             }
 
-    @staticmethod
-    def cancel_task(task_id: str) -> Dict[str, Any]:
-        """
-        Cancel a running embedding task
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing cancellation status
-        """
-
-        try:
-            logger.info(f"Cancelling embedding task: {task_id}")
-
-            # Cancel in Celery
-            celery_result = embedding_client.cancel_task(task_id)
-
-            # ✨ Update MongoDB status properly
-            try:
-                from app.crud.task import TaskCRUD
-                task_crud = TaskCRUD()
-
-                # Create new event loop for this operation
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-
-                try:
-                    task_doc = new_loop.run_until_complete(task_crud.get_by_task_id(task_id))
-                    if task_doc:
-                        # Map Celery status to MongoDB status
-                        mongodb_status = "REVOKED" if celery_result.get("status") == "CANCELLED" else celery_result.get("status")
-
-                        new_loop.run_until_complete(task_crud.update(task_doc, {
-                            "status": mongodb_status,
-                            "error": celery_result.get("error")
-                        }))
-                        logger.info(f"🔄 Updated task {task_id} status to {mongodb_status} in MongoDB")
-                    else:
-                        logger.warning(f"⚠️ Task {task_id} not found in MongoDB during cancellation")
-
-                finally:
-                    new_loop.close()
-
-            except Exception as mongo_error:
-                logger.warning(f"⚠️ Failed to update MongoDB for cancelled task {task_id}: {mongo_error}")
-
-            return celery_result
-
-        except Exception as e:
-            logger.error(f"❌ Error cancelling embedding task {task_id}: {e}")
-            return {
-                "task_id": task_id,
-                "status": "ERROR",
-                "error": f"Service error: {str(e)}"
-            }
-
-    # @staticmethod
-    # def get_active_tasks() -> Dict[str, Any]:
-    #     """
-    #     Get information about currently active embedding tasks
-
-    #     Returns:
-    #         Dict containing active task information
-    #     """
-
-    #     try:
-    #         logger.debug("Getting active embedding tasks information")
-    #         return embedding_client.get_active_tasks()
-
-    #     except Exception as e:
-    #         logger.error(f"Error getting active embedding tasks: {e}")
-    #         return {
-    #             "active_tasks": {},
-    #             "total_active": 0,
-    #             "error": f"Service error: {str(e)}"
-    #         }
-
-    # @staticmethod
-    # def get_active_tasks() -> Dict[str, Any]:
-    #     """
-    #     Get information about currently active embedding tasks
-
-    #     Returns:
-    #         Dict containing active task information
-    #     """
-
-    #     try:
-    #         logger.debug("Getting active embedding tasks information")
-    #         return embedding_client.get_active_tasks()
-
-    #     except Exception as e:
-    #         logger.error(f"Error getting active embedding tasks: {e}")
-    #         return {
-    #             "active_tasks": {},
-    #             "total_active": 0,
-    #             "error": f"Service error: {str(e)}"
-    #         }

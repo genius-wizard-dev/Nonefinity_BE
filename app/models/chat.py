@@ -53,8 +53,7 @@ class ChatMessage(TimeMixin, Document):
     owner_id: Annotated[str, Indexed()] = Field(..., description="Owner ID from authentication")
     role: str = Field(..., description="user / assistant / system / tool")
     content: str = Field("", description="Message content")
-    tool_calls: Optional[List[dict]] = Field(None, description="Tool calls made by the model")
-    tool_results: Optional[List[dict]] = Field(None, description="Tool results made by the model")
+    tools: Optional[List[dict]] = Field(None, description="Tools data as sent by frontend")
 
 
     class Settings:
