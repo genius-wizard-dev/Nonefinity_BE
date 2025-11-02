@@ -1,10 +1,10 @@
 from langchain.tools import tool, ToolRuntime
 from langchain.agents import AgentState
-from app.agents.context import AgentContext
+from app.agents.types import AgentContext
 from app.utils.preprocess_sql import is_select_query
 from langchain_core.messages.tool import ToolMessage
 
-@tool
+@tool("get_data")
 def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
   """Execute SQL query on user's datasets and return results.
 
@@ -67,6 +67,6 @@ def describe_table(table_name: str, runtime: ToolRuntime[AgentContext, AgentStat
 
 dataset_tools = [
   run_sql_query,
-  get_list_table,
-  describe_table
+  # get_list_table,
+  # describe_table
 ]

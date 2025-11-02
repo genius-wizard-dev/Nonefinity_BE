@@ -1,6 +1,6 @@
 from typing import Optional
 
-from app.crud.user import UserCRUD
+from app.crud import user_crud
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.services.minio_admin_service import  minio_admin_service
 from app.utils import generate_secret_key
@@ -10,8 +10,8 @@ from app.configs.settings import settings
 logger = get_logger(__name__)
 
 class UserService:
-    def __init__(self, crud: Optional[UserCRUD] = None):
-        self.crud = crud or UserCRUD()
+    def __init__(self):
+        self.crud = user_crud
 
     async def get_user_by_clerk_id(self, clerk_id: str) -> Optional[UserResponse]:
         user = await self.crud.get_by_clerk_id(clerk_id)

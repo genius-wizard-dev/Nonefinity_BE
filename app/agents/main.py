@@ -1,18 +1,17 @@
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
-from app.agents.context import AgentContext
+from app.agents.types import AgentContext
 from app.utils import get_logger
-from app.agents.llms import LLMConfig
+from app.agents.llms import llm_config
 from app.agents.prompts import SYSTEM_PROMPT
-from app.agents.context import AgentContext
 from langchain_core.tools.base import BaseTool
-from typing import List, Dict, Optional
+from typing import List, Dict
 from langchain.agents.middleware import AgentMiddleware
 import asyncio
 from langchain_core.runnables.config import RunnableConfig
 from datetime import datetime, timedelta
-import uuid
-
+from langchain.chat_models.base import BaseChatModel
+from langchain.embeddings import Embeddings
 logger = get_logger(__name__)
 
 
@@ -29,7 +28,8 @@ class AgentManager:
         self,
         thread_id: str,
         tools: List[BaseTool],
-        llm_config: LLMConfig,
+        embedding_model: Embeddings,
+        llm: BaseChatModel,
         middleware: List[AgentMiddleware] = None
     ):
         """Get existing agent or create new one for thread_id"""
@@ -59,7 +59,7 @@ class AgentManager:
             # Create new agent
             logger.info(f"Creating new agent for thread {thread_id}")
             agent = create_agent(
-                model=llm_config.get_model(),
+                model=llm,
                 tools=tools,
                 middleware=middleware,
                 context_schema=AgentContext,
@@ -147,11 +147,9 @@ agent_manager.start_cleanup_task()
 
 
 
-
-
-async def get_agent_for_thread(thread_id: str, tools: List[BaseTool], llm_config: LLMConfig, middleware: List[AgentMiddleware] = None):
+async def get_agent_for_thread(thread_id: str, tools: List[BaseTool], middleware: List[AgentMiddleware] = None):
     """Get agent for specific thread_id"""
-    return await agent_manager.get_or_create_agent(thread_id, tools, llm_config, middleware)
+    return await agent_manager.get_or_create_agent(thread_id, tools, middleware)
 
 
 

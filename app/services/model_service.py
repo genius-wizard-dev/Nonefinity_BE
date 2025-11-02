@@ -1,21 +1,20 @@
 from typing import Optional, Dict, Any
 
-from app.crud.model import ModelCRUD
-from app.crud.credential import CredentialCRUD
+from app.crud import model_crud, credential_crud
 from app.models.model import Model, ModelType
 from app.schemas.model import ModelCreate, ModelResponse, ModelStats, ModelUpdateRequest
 from app.core.exceptions import AppError
 from app.utils.logging import get_logger
-from app.services.credential_service import CredentialService
+from app.services import credential_service
 from langchain_openai import OpenAIEmbeddings
 from openai import NotFoundError, UnprocessableEntityError, BadRequestError
 logger = get_logger(__name__)
 
 class ModelService:
     def __init__(self):
-        self.crud = ModelCRUD()
-        self.credential_crud = CredentialCRUD()
-        self.credential_service = CredentialService()
+        self.crud = model_crud
+        self.credential_crud = credential_crud
+        self._credential_service = credential_service
 
 
     def _verify_and_get_embed_dimension(self, model: str, base_url, api_key) -> int:
@@ -29,13 +28,13 @@ class ModelService:
             raise AppError(message=f"{e.response.json()["error"]["message"]}", status_code=404)
         except UnprocessableEntityError as e:
             logger.error(f"Model is not supported: {e}")
-            raise AppError(message=f"Model is not supported", status_code=400)
+            raise AppError(message="Model is not supported", status_code=400)
         except BadRequestError as e:
             logger.error(f"Model is not supported: {e}")
             raise AppError(message=f"{e.response.json()["error"]["message"]}", status_code=400)
         except Exception as e:
             logger.error(f"Model is not supported: {e}")
-            raise AppError(message=f"Model is not supported", status_code=500)
+            raise AppError(message="Model is not supported", status_code=500)
 
 
     async def create_model(self, owner_id: str, model_data: ModelCreate) -> bool:
@@ -223,3 +222,5 @@ class ModelService:
                 created_at=model.created_at,
                 updated_at=model.updated_at
             )
+
+model_service = ModelService()

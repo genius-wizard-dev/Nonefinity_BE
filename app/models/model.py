@@ -30,7 +30,7 @@ class Model(TimeMixin, Document):
         return await Credential.find_one(
             Credential.id == ObjectId(self.credential_id) ,
             Credential.owner_id == self.owner_id,
-            Credential.is_active == True
+            Credential.is_active
         )
 
     class Settings:

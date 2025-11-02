@@ -5,8 +5,6 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import InvalidToken
 from app.services import redis_service
-from app.crud.credential import CredentialCRUD
-from app.crud.model import ModelCRUD
 from app.schemas.credential import (
     CredentialCreate, CredentialUpdate, CredentialDetail,
     CredentialList, ModelCredentialResponse
@@ -18,13 +16,14 @@ from app.core.exceptions import AppError
 from app.schemas.model import ModelType
 from app.utils import get_logger
 from app.utils.request import get
+from app.crud import model_crud, credential_crud
 logger = get_logger(__name__)
 
 
 class CredentialService:
-    def __init__(self, crud: Optional[CredentialCRUD] = None):
-        self.crud = crud or CredentialCRUD()
-        self.model_crud = ModelCRUD()
+    def __init__(self):
+        self.crud = credential_crud
+        self.model_crud = model_crud
         self._cipher_suite = None
         self._initialize_encryption()
 

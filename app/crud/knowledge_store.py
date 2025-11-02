@@ -1,7 +1,7 @@
 from app.crud.base import BaseCRUD
 from app.models.knowledge_store import KnowledgeStore
 from app.schemas.knowledge_store import KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from bson import ObjectId
 
 class KnowledgeStoreCRUD(BaseCRUD[KnowledgeStore, KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest]):
@@ -52,5 +52,4 @@ class KnowledgeStoreCRUD(BaseCRUD[KnowledgeStore, KnowledgeStoreCreateRequest, K
             include_deleted=False,
         )
 
-# Global instance
 knowledge_store_crud = KnowledgeStoreCRUD()

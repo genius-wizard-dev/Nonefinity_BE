@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Path, Body, status, HTTPException
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_400_BAD_REQUEST
 from typing import Optional, List
 
 from app.schemas.knowledge_store import (
@@ -18,7 +18,7 @@ from app.core.exceptions import AppError
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils import get_logger
-from app.utils.cache_decorator import cache_list, invalidate_cache
+from app.utils.cache_decorator import invalidate_cache
 
 logger = get_logger(__name__)
 
@@ -101,7 +101,7 @@ async def create_knowledge_store(
         owner_id, service = await get_owner_and_service(current_user)
         result = await service.create_knowledge_store(owner_id, request)
         return created(data=result, message="Knowledge store created successfully")
-    except HTTPException as e:
+    except HTTPException:
         raise
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

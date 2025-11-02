@@ -1,26 +1,22 @@
 from typing import Dict, Any, Optional
-import asyncio
 from app.utils.celery_client import embedding_client
 from app.utils.logging import get_logger
-from app.services.credential_service import CredentialService
-from app.services.model_service import ModelService
-from app.services.provider_service import ProviderService
-from app.crud.task import TaskCRUD
+from app.crud import task_crud
 from app.schemas.embedding import EmbeddingRequest, TextEmbeddingRequest
-from app.crud.file import FileCRUD
-from app.crud.user import UserCRUD
+from app.crud import user_crud, file_crud
 from app.crud.knowledge_store import knowledge_store_crud
+from app.services import model_service, provider_service, credential_service
 logger = get_logger(__name__)
 
 
 class EmbeddingService:
     """Service class for managing embedding tasks with external AI Tasks System"""
     def __init__(self):
-        self.model_service = ModelService()
-        self.provider_service = ProviderService()
-        self.credential_service = CredentialService()
-        self.file_crud = FileCRUD()
-        self.user_crud = UserCRUD()
+        self.model_service = model_service
+        self.provider_service = provider_service
+        self.credential_service = credential_service
+        self.file_crud = file_crud
+        self.user_crud = user_crud
 
     async def create_embedding_task(
         self,
@@ -105,7 +101,7 @@ class EmbeddingService:
 
             task_id = embedding_client.create_embedding_task(**task_kwargs)
             try:
-                task_crud = TaskCRUD()
+
                 task_data = {
                     "task_id": task_id,
                     "task_type": "embedding",
@@ -224,7 +220,6 @@ class EmbeddingService:
             task_id = embedding_client.create_text_embedding_task(**task_kwargs)
 
             try:
-                task_crud = TaskCRUD()
                 task_data = {
                     "task_id": task_id,
                     "task_type": "text_embedding",
@@ -300,7 +295,7 @@ class EmbeddingService:
                 f"Creating search task for user {user_id}, credential {credential_id}")
 
             # Initialize credential service for AI providers
-            credential_service = CredentialService()
+
             db_credential = await credential_service.crud.get_by_owner_and_id(user_id, credential_id)
             if not db_credential:
                 return {
@@ -329,7 +324,6 @@ class EmbeddingService:
             logger.info(f"Search task created successfully: {task_id}")
             # Persist search task
             try:
-                task_crud = TaskCRUD()
                 await task_crud.create({
                     "task_id": task_id,
                     "task_type": "search",
@@ -373,9 +367,6 @@ class EmbeddingService:
             celery_status = embedding_client.get_task_status(task_id)
 
             # Get task metadata from MongoDB
-            from app.crud.task import TaskCRUD
-            task_crud = TaskCRUD()
-
             task_doc = await task_crud.get_by_task_id(task_id)
 
             if task_doc:
@@ -456,9 +447,6 @@ class EmbeddingService:
             celery_result = embedding_client.cancel_task(task_id)
 
             # Update MongoDB status
-            from app.crud.task import TaskCRUD
-            task_crud = TaskCRUD()
-
             task_doc = await task_crud.get_by_task_id(task_id)
             if task_doc:
                 # Map Celery status to MongoDB status
@@ -482,3 +470,5 @@ class EmbeddingService:
                 "error": f"Failed to cancel task: {str(e)}"
             }
 
+
+embedding_service = EmbeddingService()

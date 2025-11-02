@@ -22,7 +22,7 @@ class Credential(TimeMixin, Document):
         """Get the associated provider for this credential"""
         return await Provider.find_one(
             Provider.id == ObjectId(self.provider_id),
-            Provider.is_active == True
+            Provider.is_active
         )
 
     class Settings:

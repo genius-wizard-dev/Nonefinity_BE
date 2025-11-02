@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field
 
 class ChatConfigCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Name of the chat session")

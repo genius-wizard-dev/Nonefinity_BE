@@ -1,125 +1,48 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Any
 import json
-from uuid import UUID
 
-from app.crud.chat import chat_config_crud, chat_session_crud, chat_message_crud
+from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
 from app.models.chat import ChatMessage
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
-    SaveChatMessageRequest
+    SaveChatMessageRequest,
 )
-from app.databases.qdrant import QdrantDB
-from langchain.embeddings import init_embeddings
+from langchain_core.tools.base import BaseTool
+from app.models.chat import ChatConfig
+from app.databases.qdrant import qdrant
 from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
-from app.agents.context import AgentContext
+from app.agents.types import AgentContext
 from app.agents.prompts import SYSTEM_PROMPT
-from app.agents.llms import LLMConfig
+from app.agents.llms import LLMConfig, EmbeddingModelConfig
 from app.agents.tools import dataset_tools, knowledge_tools
-from app.crud.model import ModelCRUD
-from app.crud.credential import CredentialCRUD
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
 from langchain_core.runnables.config import RunnableConfig
-
-from app.services.provider_service import ProviderService
-from app.crud.user import UserCRUD
-from app.services.credential_service import CredentialService
-from app.crud.dataset import DatasetCRUD
-from app.crud.knowledge_store import KnowledgeStoreCRUD
+from app.services import provider_service, credential_service
+from app.agents.middleware import NonfinityAgentMiddleware
 logger = get_logger(__name__)
-
-
-def _extract_text_from_content(raw_content: Any) -> str:
-    """Normalize stored message content to a plain string.
-
-    Handles cases where content is:
-    - a JSON-encoded list of segments like [{"type":"text","text":"..."}]
-    - a plain JSON-encoded string
-    - already a plain string
-    """
-    if raw_content is None:
-        return ""
-
-    # If already a list/dict (unlikely from DB), handle directly
-    if isinstance(raw_content, list):
-        try:
-            return "".join(
-                segment.get("text", "")
-                for segment in raw_content
-                if isinstance(segment, dict) and segment.get("type") == "text"
-            )
-        except Exception:
-            return json.dumps(raw_content, ensure_ascii=False)
-
-    if not isinstance(raw_content, str):
-        return str(raw_content)
-
-    # Try parse JSON
-    try:
-        parsed = json.loads(raw_content)
-        if isinstance(parsed, list):
-            return "".join(
-                segment.get("text", "")
-                for segment in parsed
-                if isinstance(segment, dict) and segment.get("type") == "text"
-            )
-        if isinstance(parsed, dict) and "text" in parsed:
-            return str(parsed.get("text", ""))
-        if isinstance(parsed, (int, float)):
-            return str(parsed)
-        if isinstance(parsed, str):
-            return parsed
-        # Fallback to JSON string to preserve info
-        return json.dumps(parsed, ensure_ascii=False)
-    except Exception:
-        # Not JSON, treat as plain string
-        return raw_content
-
-
-def _convert_chat_message_to_langchain_message(chat_message: ChatMessage) -> BaseMessage:
-    """Convert stored ChatMessage to a LangChain BaseMessage.
-
-    We only feed user/assistant textual content into history.
-    Tool calls/results are already persisted in DB but aren't part of the core
-    language history for most models, so they're ignored here.
-    """
-    role = (chat_message.role or "").lower()
-    content = _extract_text_from_content(chat_message.content)
-
-    if role == "user":
-        return HumanMessage(content=content)
-    elif role in ("assistant", "ai", "ai_result"):
-        return AIMessage(content=content)
-    elif role in ("system",):
-        return SystemMessage(content=content)
-    # For tool messages, include as a tool message with best-effort content
-    elif role in ("tool", "tool_result", "tool_calls"):
-        return ToolMessage(content=content, name=getattr(chat_message, "name", None))
-    # Default to human if unknown
-    return HumanMessage(content=content)
-
 
 
 class ChatService:
     """Service for chat operations"""
 
     def __init__(self):
-        self.chat_config_crud = chat_config_crud
-        self.chat_session_crud = chat_session_crud
-        self.chat_message_crud = chat_message_crud
-        self._model_crud = ModelCRUD()
-        self._credential_crud = CredentialCRUD()
-        self._provider_service = ProviderService()
-        self._user_crud = UserCRUD()
-        self._credential_service = CredentialService()
-        self._dataset_crud = DatasetCRUD()
-        self._knowledge_store_crud = KnowledgeStoreCRUD()
+        self._chat_config_crud = chat_config_crud
+        self._chat_session_crud = chat_session_crud
+        self._chat_message_crud = chat_message_crud
+        self._model_crud = model_crud
+        self._credential_crud = credential_crud
+        self._provider_service = provider_service
+        self._user_crud = user_crud
+        self._credential_service = credential_service
+        self._dataset_crud = dataset_crud
+        self._knowledge_store_crud = knowledge_store_crud
 
     async def create_chat_config(self, owner_id: str, chat_config_data: ChatConfigCreate) -> ChatConfigResponse:
         """Create a new chat configuration  """
@@ -159,7 +82,7 @@ class ChatService:
         )
 
 
-    async def get_chat_config(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
+    async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
         """Get a specific chat by ID"""
         chat_config = await self.chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
         if not chat_config:
@@ -177,9 +100,9 @@ class ChatService:
             updated_at=chat_config.updated_at,
         )
 
-    async def get_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
+    async def get_list_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
         """Get all chats for a user"""
-        chat_configs = await self.chat_config_crud.list(owner_id=owner_id, skip=skip, limit=limit)
+        chat_configs = await self._chat_config_crud.list(owner_id=owner_id, skip=skip, limit=limit)
         config_responses = [
             ChatConfigResponse(
                 id=str(config.id),
@@ -203,13 +126,13 @@ class ChatService:
 
     async def update_chat_config(self, owner_id: str, chat_config_id: str, chat_config_data: ChatConfigUpdate) -> ChatConfigResponse:
         """Update a chat configuration"""
-        chat_config = await self.chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
 
         update_dict = chat_config_data.model_dump(exclude_unset=True)
         if 'name' in update_dict and update_dict['name'] != chat_config.name:
-            existing_chat_config = await self.chat_config_crud.get_by_name(update_dict['name'], owner_id)
+            existing_chat_config = await self._chat_config_crud.get_by_name(update_dict['name'], owner_id)
             if existing_chat_config and str(existing_chat_config.id) != chat_config_id:
                 raise AppError(
                     message="Chat config with this name already exists",
@@ -261,43 +184,23 @@ class ChatService:
 
     async def delete_chat_config(self, owner_id: str, chat_config_id: str) -> bool:
         """Delete a chat configuration"""
-        chat_config = await self.chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
-        await self.chat_config_crud.delete_by_chat_config_id(chat_config_id)
+        await self._chat_config_crud.delete_by_chat_config_id(chat_config_id)
         return True
 
     async def create_chat_session(self, owner_id: str, chat_session_data: ChatSessionCreate) -> ChatSessionResponse:
         """Create a new chat session"""
         if chat_session_data.name:
-            existing_chat_session = await self.chat_session_crud.get_by_name(chat_session_data.name, owner_id)
+            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id)
             if existing_chat_session:
                 raise AppError(message="Chat session with this name already exists", status_code=HTTP_400_BAD_REQUEST)
-        chat_config = await self.chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
 
-        model = await self._model_crud.get_by_id(id=chat_config.chat_model_id, owner_id=owner_id)
-        if not model:
-            raise AppError(message="Model not found", status_code=HTTP_404_NOT_FOUND)
-
-        credential = await self._credential_crud.get_by_id(id=model.credential_id, owner_id=owner_id)
-        if not credential:
-            raise AppError(message="Credential not found", status_code=HTTP_404_NOT_FOUND)
-
-        api_key = self._credential_service._decrypt_api_key(credential.api_key)
-        base_url = credential.base_url if credential.base_url else None
-        provider = await self._provider_service.get_provider_by_id(credential.provider_id)
-        if not provider:
-            raise AppError(message="Provider not found", status_code=HTTP_404_NOT_FOUND)
-
-        llm_config = LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
-        if chat_config.dataset_ids:
-            tools = dataset_tools
-        else:
-            tools = []
-
-        chat_session = await self.chat_session_crud.create(chat_session_data, owner_id=owner_id)
+        chat_session = await self._chat_session_crud.create(chat_session_data, owner_id=owner_id)
         if not chat_session:
             raise AppError(message="Failed to create chat session", status_code=HTTP_400_BAD_REQUEST)
 
@@ -317,10 +220,10 @@ class ChatService:
 
     async def get_chat_session(self, owner_id: str, chat_session_id: str, skip: int = 0, limit: int = 100) -> ChatSessionResponse:
         """Get a specific chat session"""
-        chat_session = await self.chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
+        chat_session = await self._chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
         if not chat_session:
             raise AppError(message="Chat session not found", status_code=HTTP_404_NOT_FOUND)
-        messages = await self.chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id, skip=skip, limit=limit)
+        messages = await self._chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id, skip=skip, limit=limit)
         message_responses = []
         for message in messages:
             tools_value = message.tools
@@ -356,7 +259,7 @@ class ChatService:
 
     async def get_chat_sessions(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatSessionListResponse:
         """Get all chat sessions for a user"""
-        chat_sessions = await self.chat_session_crud.list(owner_id=owner_id, skip=skip, limit=limit)
+        chat_sessions = await self._chat_session_crud.list(owner_id=owner_id, skip=skip, limit=limit)
         session_responses = [
             ChatSessionResponse(
                 id=str(session.id),
@@ -382,18 +285,18 @@ class ChatService:
 
     async def delete_chat_session(self, owner_id: str, chat_session_id: str) -> bool:
         """Delete a chat session"""
-        chat_session = await self.chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
+        chat_session = await self._chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
         if not chat_session:
             raise AppError(message="Chat session not found", status_code=HTTP_404_NOT_FOUND)
-        await self.chat_session_crud.delete_by_chat_session_id(chat_session_id)
+        await self._chat_session_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
     async def delete_chat_session_messages(self, owner_id: str, chat_session_id: str) -> bool:
         """Delete all messages for a chat session"""
-        messages = await self.chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id)
+        messages = await self._chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id)
         if not messages:
             raise AppError(message="No messages found", status_code=HTTP_404_NOT_FOUND)
-        await self.chat_message_crud.delete_by_chat_session_id(chat_session_id)
+        await self._chat_message_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
     async def create_chat_message(self, owner_id: str, chat_session_id: str, chat_message_data: ChatMessageCreate) -> ChatMessageResponse:
@@ -401,7 +304,7 @@ class ChatService:
         # Ensure session_id is set in the data
         if chat_message_data.session_id != chat_session_id:
             chat_message_data = chat_message_data.model_copy(update={"session_id": chat_session_id})
-        chat_message = await self.chat_message_crud.create(chat_message_data, owner_id=owner_id)
+        chat_message = await self._chat_message_crud.create(chat_message_data, owner_id=owner_id)
         tools_value = chat_message.tools
         if isinstance(tools_value, dict):
             tools_value = [tools_value]
@@ -422,7 +325,7 @@ class ChatService:
         """Save a batch of messages representing complete conversation flow"""
         try:
             # Verify session exists
-            chat_session = await self.chat_session_crud.get_by_id(id=session_id, owner_id=owner_id)
+            chat_session = await self._chat_session_crud.get_by_id(id=session_id, owner_id=owner_id)
             if not chat_session:
                 raise AppError(
                     message="Chat session not found",
@@ -440,7 +343,7 @@ class ChatService:
                     content=content,
                     tools=message_data.tools,
                 )
-                await self.chat_message_crud.create(chat_message_data, owner_id=owner_id)
+                await self._chat_message_crud.create(chat_message_data, owner_id=owner_id)
 
             return True
 
@@ -454,52 +357,16 @@ class ChatService:
                 status_code=HTTP_400_BAD_REQUEST
             )
 
-    async def _create_llm_config(self, owner_id: str, model_id: str):
-      model = await self._model_crud.get_by_id(id=model_id, owner_id=owner_id)
-      if not model:
-        raise AppError(
-          message="Model not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
-      credential = await self._credential_crud.get_by_id(id=model.credential_id, owner_id=owner_id)
-      if not credential:
-        raise AppError(
-          message="Credential not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
-      provider = await self._provider_service.get_provider_by_id(credential.provider_id)
-      if not provider:
-        raise AppError(
-          message="Provider not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
-      api_key = self._credential_service._decrypt_api_key(credential.api_key)
-      base_url = credential.base_url if credential.base_url else None
-      return LLMConfig(model=model.model, provider=provider.provider, api_key=api_key, base_url=base_url)
 
-    async def _create_embedding_model_config(self, owner_id: str, embedding_model_id: str):
-      embedding_model = await self._model_crud.get_by_id(id=embedding_model_id, owner_id=owner_id)
-      if not embedding_model:
-        raise AppError(
-          message="Embedding model not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
-      credential = await self._credential_crud.get_by_id(id=embedding_model.credential_id, owner_id=owner_id)
-      if not credential:
-        raise AppError(
-          message="Credential not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
+    async def _get_recent_messages(self, owner_id: str, chat_session_id: str) -> List[ChatMessage]:
+        """Get recent messages for a chat session"""
+        pass
 
-      provider = await self._provider_service.get_provider_by_id(credential.provider_id)
-      if not provider:
-        raise AppError(
-          message="Provider not found",
-          status_code=HTTP_404_NOT_FOUND
-        )
-      api_key = self._credential_service._decrypt_api_key(credential.api_key)
-      base_url = credential.base_url if credential.base_url else None
-      return init_embeddings(provider=provider.provider, model=embedding_model.model, api_key=api_key, base_url=base_url)
+    async def _setup_tools(self, chat_config: ChatConfig) -> List[BaseTool]:
+        """Setup tools for a chat config"""
+        tools = dataset_tools if chat_config.dataset_ids else []
+        tools += knowledge_tools if chat_config.knowledge_store_id else []
+        return tools
 
 
     async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str):
@@ -521,7 +388,7 @@ class ChatService:
                 )
 
             # Get chat session
-            chat_session = await self.chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
+            chat_session = await self._chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
             if not chat_session:
                 raise AppError(
                     message="Chat session not found",
@@ -529,28 +396,32 @@ class ChatService:
                 )
 
             # Get chat config
-            chat_config = await self.chat_config_crud.get_by_id(id=chat_session.chat_config_id, owner_id=owner_id)
+            chat_config = await self._chat_config_crud.get_by_id(id=chat_session.chat_config_id, owner_id=owner_id)
             if not chat_config:
                 raise AppError(
                     message="Chat config not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
 
-            llm_config = await self._create_llm_config(owner_id, chat_config.chat_model_id)
+            llm_config = await LLMConfig.from_model_id(
+              owner_id=owner_id,
+              model_id=chat_config.chat_model_id,
+            )
+            llm = llm_config.get_llm()
             embedding_model = None
             if chat_config.embedding_model_id:
-              embedding_model = await self._create_embedding_model_config(owner_id, chat_config.embedding_model_id)
-            # Prepare tools
-            tools = dataset_tools if chat_config.dataset_ids else []
-            tools += knowledge_tools if chat_config.knowledge_store_id else []
+              embedding_model_config = await EmbeddingModelConfig.from_model_id(
+                owner_id=owner_id,
+                embedding_model_id=chat_config.embedding_model_id,
+              )
+              embedding_model = embedding_model_config.get_embedding_model()
+
+            tools = await self._setup_tools(chat_config)
             dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
             datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
-
-            knowledge_store = None
             knowledge_store_collection_name = None
 
             if chat_config.knowledge_store_id and embedding_model:
-              knowledge_store = QdrantDB()
               knowledge_store_collection = await self._knowledge_store_crud.get_by_owner_and_id(owner_id, chat_config.knowledge_store_id)
               if not knowledge_store_collection:
                 raise AppError(
@@ -560,42 +431,50 @@ class ChatService:
               knowledge_store_collection_name = knowledge_store_collection.collection_name
 
 
+            def render_schema_field(field):
+                return f"""  - {field['column_name']} ({field['column_type']}): {field.get('desc', '')}"""
 
-            # Get last 5 messages for history (newest first, then reverse to oldest first)
-            # Query messages sorted by created_at descending to get most recent ones
-            recent_messages = await self.chat_message_crud.model.find(
-                {"session_id": chat_session_id, "owner_id": owner_id}
-            ).sort("-created_at").limit(10).to_list()
-            # Reverse to get oldest first (for proper conversation flow)
-            recent_messages.reverse()
+            datasets_str = ""
+            if datasets:
+                for ds in datasets:
+                    ds_desc = getattr(ds, "description", "") or ""
+                    name = getattr(ds, "name", "") or ""
+                    schema = getattr(ds, "data_schema", [])
+                    schema_str_lines = []
+                    for f in schema:
+                        schema_str_lines.append(render_schema_field(f))
+                    schema_str = "\n".join(schema_str_lines)
+                    # After schema, add a note for the AI about using '{{data á}}' for JSON data.
+                    datasets_str += (
+                        f"- {name}: {ds_desc}\n"
+                        f"  Các cột và mô tả:\n"
+                        f"{schema_str}\n"
+                    )
 
-            # Convert ChatMessage to LangChain messages
-            history_messages = [_convert_chat_message_to_langchain_message(msg) for msg in recent_messages]
-
-            new_user_message = HumanMessage(content=message)
-            all_messages = history_messages + [new_user_message]
-            system_prompt = SYSTEM_PROMPT.format(datasets=datasets, tools=tools)
+            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=tools, instruction_prompt=chat_config.instruction_prompt)
 
             agent = create_agent(
-                model=llm_config.get_model(),
+                model=llm,
                 tools=tools,
-                middleware=[],
+                middleware=[NonfinityAgentMiddleware()],
                 context_schema=AgentContext,
                 state_schema=AgentState,
                 checkpointer=InMemorySaver(),
                 system_prompt=system_prompt
             )
-            context = AgentContext(user_id=owner_id, dataset_service=dataset_service, datasets=datasets, knowledge_store=knowledge_store, knowledge_store_collection_name=knowledge_store_collection_name, embedding_model=embedding_model)
-            logger.info(f"Context: {context}")
-            messages_input = {"messages": all_messages}
+            context = AgentContext(user_id=owner_id, dataset_service=dataset_service, datasets=datasets, knowledge_store_collection_name=knowledge_store_collection_name, embedding_model=embedding_model, session_id=chat_session_id)
+
+            messages_input = {"messages": [
+              HumanMessage(content=message),
+            ]}
 
 
             config = RunnableConfig(configurable={"thread_id": chat_session_id})
             async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
+              logger.info(f"Chunk: {chunk}")
               for key, value in chunk.items():
                   msg = value["messages"][0]
 
-                  # 1️⃣ Model yêu cầu gọi tool
                   if "function_call" in msg.additional_kwargs:
                       fc = msg.additional_kwargs["function_call"]
                       yield {
@@ -606,7 +485,6 @@ class ChatService:
                           })
                       }
 
-                  # 2️⃣ Tool thực thi xong, trả về kết quả
                   elif key == "tools":
                       yield {
                           "event": "tool_results",
@@ -616,12 +494,9 @@ class ChatService:
                           })
                       }
 
-                  # 3️⃣ Model phản hồi cuối cùng (kết quả hiển thị cho user)
                   elif key == "model":
                       content = msg.content
-                      # Nếu content là list dạng [{"type": "text", "text": "..."}], thì lấy ra chuỗi text ghép lại
                       if isinstance(content, list):
-                          # Chỉ lấy trường 'text' của các phần tử type='text', tránh lấy phần khác
                           content = "".join(
                               segment.get("text", "")
                               for segment in content
@@ -634,9 +509,6 @@ class ChatService:
                               "content": content,
                           })
                       }
-
-
-
 
         except AppError as e:
             logger.error(f"Stream error: {e.message}")
@@ -659,3 +531,5 @@ class ChatService:
 
 
 
+
+chat_service = ChatService()

@@ -167,3 +167,5 @@ def list_cache_key(prefix: str, user_id: str, skip: int = 0, limit: int = 100, *
     # Remove None values and sort for consistent key generation
     clean_filters = {k: v for k, v in filters.items() if v is not None}
     return cache_key(prefix, user_id, skip=skip, limit=limit, **clean_filters)
+
+
