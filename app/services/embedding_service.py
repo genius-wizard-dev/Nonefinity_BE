@@ -5,18 +5,20 @@ from app.crud import task_crud
 from app.schemas.embedding import EmbeddingRequest, TextEmbeddingRequest
 from app.crud import user_crud, file_crud
 from app.crud.knowledge_store import knowledge_store_crud
-from app.services import model_service, provider_service, credential_service
+from app.services.model_service import model_service
+from app.services.provider_service import provider_service
+from app.services.credential_service import credential_service
 logger = get_logger(__name__)
 
 
 class EmbeddingService:
     """Service class for managing embedding tasks with external AI Tasks System"""
     def __init__(self):
-        self.model_service = model_service
-        self.provider_service = provider_service
-        self.credential_service = credential_service
-        self.file_crud = file_crud
-        self.user_crud = user_crud
+        self._model_service = model_service
+        self._provider_service = provider_service
+        self._credential_service = credential_service
+        self._file_crud = file_crud
+        self._user_crud = user_crud
 
     async def create_embedding_task(
         self,
@@ -34,7 +36,7 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-            user = await self.user_crud.get_by_id(id=user_id)
+            user = await self._user_crud.get_by_id(id=user_id)
             if not user:
                 raise ValueError(f"User with ID '{user_id}' not found")
 
@@ -42,7 +44,7 @@ class EmbeddingService:
             if not secret_key:
                 raise ValueError("User MinIO secret key not found")
 
-            file = await self.file_crud.get_by_id(id=embedding_data.file_id, owner_id=user_id)
+            file = await self._file_crud.get_by_id(id=embedding_data.file_id, owner_id=user_id)
             if not file:
                 raise ValueError(f"File with ID '{embedding_data.file_id}' not found")
 
@@ -57,7 +59,7 @@ class EmbeddingService:
                     raise ValueError(f"Knowledge store with ID '{embedding_data.knowledge_store_id}' not found")
 
             # Get model configuration (required)
-            model = await self.model_service.get_model(user_id, embedding_data.model_id)
+            model = await self._model_service.get_model(user_id, embedding_data.model_id)
             if not model:
                 raise ValueError(f"Model with ID '{embedding_data.model_id}' not found")
 
@@ -65,11 +67,11 @@ class EmbeddingService:
             if not model.is_active:
                 raise ValueError(f"Model '{model.name}' is not active. Please activate the model or choose another one.")
 
-            credential = await self.credential_service.get_credential(user_id, model.credential_id)
+            credential = await self._credential_service.get_credential(user_id, model.credential_id)
             if not credential:
                 raise ValueError(f"Credential with ID '{model.credential_id}' not found")
 
-            provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
+            provider_obj = await self._provider_service.get_provider_by_id(credential.provider_id)
             if not provider_obj:
                 raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
 
@@ -163,7 +165,7 @@ class EmbeddingService:
             Dict containing task creation result
         """
         try:
-            user = await self.user_crud.get_by_id(id=user_id)
+            user = await self._user_crud.get_by_id(id=user_id)
             if not user:
                 raise ValueError(f"User with ID '{user_id}' not found")
 
@@ -178,7 +180,7 @@ class EmbeddingService:
                     raise ValueError(f"Knowledge store with ID '{text_data.knowledge_store_id}' not found")
 
             # Get model configuration (required)
-            model = await self.model_service.get_model(user_id, text_data.model_id)
+            model = await self._model_service.get_model(user_id, text_data.model_id)
             if not model:
                 raise ValueError(f"Model with ID '{text_data.model_id}' not found")
 
@@ -186,11 +188,11 @@ class EmbeddingService:
             if not model.is_active:
                 raise ValueError(f"Model '{model.name}' is not active. Please activate the model or choose another one.")
 
-            credential = await self.credential_service.get_credential(user_id, model.credential_id)
+            credential = await self._credential_service.get_credential(user_id, model.credential_id)
             if not credential:
                 raise ValueError(f"Credential with ID '{model.credential_id}' not found")
 
-            provider_obj = await self.provider_service.get_provider_by_id(credential.provider_id)
+            provider_obj = await self._provider_service.get_provider_by_id(credential.provider_id)
             if not provider_obj:
                 raise ValueError(f"Provider with ID '{credential.provider_id}' not found")
 
