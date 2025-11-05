@@ -47,7 +47,7 @@ class ChatService:
     async def create_chat_config(self, owner_id: str, chat_config_data: ChatConfigCreate) -> ChatConfigResponse:
         """Create a new chat configuration  """
         # Check if chat name already exists for this owner
-        existing_chat_config = await self.chat_config_crud.get_by_name(chat_config_data.name, owner_id)
+        existing_chat_config = await self._chat_config_crud.get_by_name(chat_config_data.name, owner_id)
         if existing_chat_config:
             raise AppError(
                 message="Chat config with this name already exists",
@@ -68,7 +68,7 @@ class ChatService:
             )
 
         # Create chat
-        chat_config = await self.chat_config_crud.create(chat_config_data, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.create(chat_config_data, owner_id=owner_id)
         return ChatConfigResponse(
             id=str(chat_config.id),
             name=chat_config.name,
@@ -84,7 +84,7 @@ class ChatService:
 
     async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
         """Get a specific chat by ID"""
-        chat_config = await self.chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
 

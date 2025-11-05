@@ -7,7 +7,6 @@ from langchain_core.messages.tool import ToolMessage
 @tool("get_data")
 def run_sql_query(query: str, runtime: ToolRuntime[AgentContext, AgentState]):
   """Execute SQL query on user's datasets and return results.
-
   Args:
     query: The SQL query to execute
   Returns:
@@ -67,6 +66,6 @@ def describe_table(table_name: str, runtime: ToolRuntime[AgentContext, AgentStat
 
 dataset_tools = [
   run_sql_query,
-  # get_list_table,
-  # describe_table
+  get_list_table,
+  describe_table
 ]

@@ -65,7 +65,7 @@ async def check_knowledge_store_name(
     """Check if a knowledge store name is available."""
     try:
         owner_id, service = await get_owner_and_service(current_user)
-        existing = await service.crud.get_by_owner_and_name(owner_id, name)
+        existing = await service._crud.get_by_owner_and_name(owner_id, name)
         is_available = existing is None
 
         return ok(
