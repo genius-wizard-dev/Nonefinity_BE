@@ -1,28 +1,24 @@
 from app.databases.qdrant import qdrant
-from app.crud.knowledge_store import knowledge_store_crud
 from app.crud.task import task_crud
 from app.schemas.knowledge_store import KnowledgeStoreCreateRequest, KnowledgeStoreUpdateRequest, KnowledgeStoreResponse, KnowledgeStoreListResponse, ScrollDataRequest, ScrollDataResponse
-from app.models.knowledge_store import KnowledgeStore
 from qdrant_client.models import Distance
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 from app.utils import get_logger
-from app.services.model_service import ModelService
-from app.services.credential_service import CredentialService
-from app.services.provider_service import ProviderService
-from app.crud.chat import chat_config_crud
-logger = get_logger(__name__)
+from app.services import model_service, credential_service, provider_service
+from app.crud import chat_config_crud,  knowledge_store_crud
 import uuid
+logger = get_logger(__name__)
 
 class KnowledgeStoreService:
     def __init__(self):
-        self.qdrant = qdrant
-        self.crud = knowledge_store_crud
-        self.model_service = ModelService()
-        self.credential_service = CredentialService()
-        self.provider_service = ProviderService()
-        self.chat_config_crud = chat_config_crud
+        self._qdrant = qdrant
+        self._crud = knowledge_store_crud
+        self._model_service = model_service
+        self._credential_service = credential_service
+        self._provider_service = provider_service
+        self._chat_config_crud = chat_config_crud
 
     def _create_name_collection(self, name: str) -> str:
         """Create a name for a knowledge store."""
@@ -32,7 +28,7 @@ class KnowledgeStoreService:
         """Create a new knowledge store."""
         try:
             # Check if knowledge store with same name exists for owner
-            existing = await self.crud.get_by_owner_and_name(owner_id, request.name)
+            existing = await self._crud.get_by_owner_and_name(owner_id, request.name)
             if existing:
                 raise HTTPException(
                     status_code=HTTP_409_CONFLICT,
@@ -43,7 +39,7 @@ class KnowledgeStoreService:
             collection_name = self._create_name_collection(request.name)
 
             # Create collection in Qdrant
-            success = self.qdrant.create_collection(
+            success = self._qdrant .create_collection(
                 collection_name=collection_name,
                 vector_size=request.dimension.value,
                 distance=request.distance
@@ -56,7 +52,7 @@ class KnowledgeStoreService:
                     detail="Failed to create collection in Qdrant"
             )
 
-            qdrant_info = self.qdrant.get_collection_info(collection_name)
+            qdrant_info = self._qdrant .get_collection_info(collection_name)
             if not qdrant_info:
                 raise HTTPException(
                     status_code=HTTP_400_BAD_REQUEST,
@@ -73,7 +69,7 @@ class KnowledgeStoreService:
                 "distance": request.distance.value,
             }
 
-            knowledge_store = await self.crud.create(knowledge_store_data)
+            knowledge_store = await self._crud.create(knowledge_store_data)
 
             # Get status from Qdrant for the response
             status = qdrant_info["status"]
@@ -109,7 +105,7 @@ class KnowledgeStoreService:
 
     async def get_knowledge_store(self, knowledge_store_id: str, owner_id: str) -> KnowledgeStoreResponse:
         """Get a knowledge store by ID."""
-        knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+        knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
         if not knowledge_store:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -117,12 +113,12 @@ class KnowledgeStoreService:
             )
 
         # Get status from Qdrant
-        qdrant_info = self.qdrant.get_collection_info(knowledge_store.collection_name)
+        qdrant_info = self._qdrant .get_collection_info(knowledge_store.collection_name)
         status = qdrant_info["status"] if qdrant_info else "unknown"
         points_count = qdrant_info["points_count"] if qdrant_info else 0
 
         # Check if knowledge store is being used in chat configs
-        chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+        chat_configs = await self._chat_config_crud.get_by_knowledge_store_id(
             knowledge_store_id=str(knowledge_store.id),
             owner_id=owner_id
         )
@@ -150,7 +146,7 @@ class KnowledgeStoreService:
         status: Optional[str] = None
     ) -> KnowledgeStoreListResponse:
         """List knowledge stores for an owner."""
-        knowledge_stores = await self.crud.list_by_owner(
+        knowledge_stores = await self._crud.list_by_owner(
             owner_id=owner_id,
             limit=limit,
             skip=skip,
@@ -160,12 +156,12 @@ class KnowledgeStoreService:
         # Get status from Qdrant for each knowledge store
         knowledge_store_responses = []
         for ks in knowledge_stores:
-            qdrant_info = self.qdrant.get_collection_info(ks.collection_name)
+            qdrant_info = self._qdrant .get_collection_info(ks.collection_name)
             current_status = qdrant_info["status"] if qdrant_info else "unknown"
             points_count = qdrant_info["points_count"] if qdrant_info else 0
 
             # Check if knowledge store is being used in chat configs
-            chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+            chat_configs = await self._chat_config_crud.get_by_knowledge_store_id(
                 knowledge_store_id=str(ks.id),
                 owner_id=owner_id
             )
@@ -188,7 +184,7 @@ class KnowledgeStoreService:
                 knowledge_store_responses.append(result)
 
         # Get total count (all knowledge stores for owner, not filtered by status)
-        total = len(await self.crud.list_by_owner(owner_id=owner_id))
+        total = len(await self._crud.list_by_owner(owner_id=owner_id))
 
         return KnowledgeStoreListResponse(
             knowledge_stores=knowledge_store_responses,
@@ -204,7 +200,7 @@ class KnowledgeStoreService:
         owner_id: str
     ) -> KnowledgeStoreResponse:
         """Update a knowledge store."""
-        knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+        knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
         if not knowledge_store:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -213,22 +209,22 @@ class KnowledgeStoreService:
 
         # Check if new name conflicts with existing knowledge store
         if request.name and request.name != knowledge_store.name:
-            existing = await self.crud.get_by_owner_and_name(owner_id, request.name)
+            existing = await self._crud.get_by_owner_and_name(owner_id, request.name)
             if existing and existing.id != knowledge_store_id:
                 raise HTTPException(
                     status_code=HTTP_409_CONFLICT,
                     detail="Knowledge store with this name already exists"
                 )
 
-        updated_knowledge_store = await self.crud.update(knowledge_store, request)
+        updated_knowledge_store = await self._crud.update(knowledge_store, request)
 
         # Get status from Qdrant
-        qdrant_info = self.qdrant.get_collection_info(updated_knowledge_store.collection_name)
+        qdrant_info = self._qdrant .get_collection_info(updated_knowledge_store.collection_name)
         status = qdrant_info["status"] if qdrant_info else "unknown"
         points_count = qdrant_info["points_count"] if qdrant_info else 0
 
         # Check if knowledge store is being used in chat configs
-        chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+        chat_configs = await self._chat_config_crud.get_by_knowledge_store_id(
             knowledge_store_id=str(updated_knowledge_store.id),
             owner_id=owner_id
         )
@@ -250,7 +246,7 @@ class KnowledgeStoreService:
 
     async def delete_knowledge_store(self, knowledge_store_id: str, owner_id: str) -> bool:
         """Delete a knowledge store and all related tasks."""
-        knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+        knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
         if not knowledge_store:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -258,7 +254,7 @@ class KnowledgeStoreService:
             )
         # INSERT_YOUR_CODE
         # Check if this knowledge_store is used in any chat config
-        chat_config_in_use = await self.chat_config_crud.get_by_knowledge_store_id(knowledge_store_id=knowledge_store_id, owner_id=owner_id)
+        chat_config_in_use = await self._chat_config_crud.get_by_knowledge_store_id(knowledge_store_id=knowledge_store_id, owner_id=owner_id)
         if len(chat_config_in_use) > 0:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
@@ -274,7 +270,7 @@ class KnowledgeStoreService:
             # Continue with knowledge store deletion even if task deletion fails
 
         # Delete collection from Qdrant
-        success = self.qdrant.delete_collection(knowledge_store.collection_name)
+        success = self._qdrant .delete_collection(knowledge_store.collection_name)
         if not success:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
@@ -282,23 +278,23 @@ class KnowledgeStoreService:
             )
 
         # Hard delete the knowledge store record from database
-        await self.crud.delete(knowledge_store)
+        await self._crud.delete(knowledge_store)
         return True
 
     def create_collection(self, collection_name: str, vector_size: int = 384, distance: Distance = Distance.COSINE) -> bool:
         """Create a collection in Qdrant."""
-        return self.qdrant.create_collection(collection_name, vector_size, distance)
+        return self._qdrant .create_collection(collection_name, vector_size, distance)
 
     def delete_collection(self, collection_name: str) -> bool:
         """Delete a collection from Qdrant."""
-        return self.qdrant.delete_collection(collection_name)
+        return self._qdrant .delete_collection(collection_name)
 
     async def get_collection_info(self, knowledge_store_id: str, owner_id: str) -> Dict[str, Any]:
         """
         Get collection information from Qdrant, but return the 'name' from DB (not collection_name).
         """
         # Get the knowledge store from database
-        knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+        knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
         if not knowledge_store:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -306,7 +302,7 @@ class KnowledgeStoreService:
             )
 
         # Get info from Qdrant
-        qdrant_info = self.qdrant.get_collection_info(knowledge_store.collection_name)
+        qdrant_info = self._qdrant .get_collection_info(knowledge_store.collection_name)
 
         if not qdrant_info:
             return None
@@ -324,7 +320,7 @@ class KnowledgeStoreService:
         """
         try:
             # Get knowledge store by ID and verify ownership
-            knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+            knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
             if not knowledge_store:
                 raise HTTPException(
                     status_code=HTTP_404_NOT_FOUND,
@@ -332,20 +328,19 @@ class KnowledgeStoreService:
                 )
 
             # Perform scroll operation using collection_name from knowledge store
-            result = self.qdrant.scroll(
+            result = self._qdrant .scroll(
                 collection_name=knowledge_store.collection_name,
                 limit=request.limit,
                 offset=request.scroll_id
             )
 
             points, next_scroll_id = result
-
             # Convert points to dictionaries for JSON serialization
             points_data = []
             for point in points:
                 point_dict = {
                     "id": point.id,
-                    "text": point.payload.get("text", "") if point.payload else "",
+                    "text": point.payload.get("page_content", "") if point.payload else "",
                     "vector": point.vector
                 }
                 points_data.append(point_dict)
@@ -366,7 +361,7 @@ class KnowledgeStoreService:
 
     async def get_knowledge_store_dimension(self, dimension: int, owner_id: str) -> List[KnowledgeStoreResponse]:
         """Get knowledge stores by dimension."""
-        knowledge_stores = await self.crud.get_by_owner_and_dimension(owner_id, dimension)
+        knowledge_stores = await self._crud.get_by_owner_and_dimension(owner_id, dimension)
         if not knowledge_stores:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -376,12 +371,12 @@ class KnowledgeStoreService:
         # Get status from Qdrant for each knowledge store
         knowledge_store_responses = []
         for ks in knowledge_stores:
-            qdrant_info = self.qdrant.get_collection_info(ks.collection_name)
+            qdrant_info = self._qdrant .get_collection_info(ks.collection_name)
             status = qdrant_info["status"] if qdrant_info else "unknown"
             points_count = qdrant_info["points_count"] if qdrant_info else 0
 
             # Check if knowledge store is being used in chat configs
-            chat_configs = await self.chat_config_crud.get_by_knowledge_store_id(
+            chat_configs = await self._chat_config_crud.get_by_knowledge_store_id(
                 knowledge_store_id=str(ks.id),
                 owner_id=owner_id
             )
@@ -421,7 +416,7 @@ class KnowledgeStoreService:
         """
         try:
             # Get knowledge store and verify ownership
-            knowledge_store = await self.crud.get_by_id(knowledge_store_id, owner_id=owner_id)
+            knowledge_store = await self._crud.get_by_id(knowledge_store_id, owner_id=owner_id)
             if not knowledge_store:
                 raise HTTPException(
                     status_code=HTTP_404_NOT_FOUND,
@@ -436,7 +431,7 @@ class KnowledgeStoreService:
                 )
 
             # Delete points from Qdrant collection
-            success = self.qdrant.delete_documents(
+            success = self._qdrant .delete_documents(
                 ids=point_ids,
                 collection_name=knowledge_store.collection_name
             )

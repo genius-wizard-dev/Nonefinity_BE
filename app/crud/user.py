@@ -14,3 +14,6 @@ class UserCRUD(BaseCRUD[User, UserCreate, UserUpdate]):
 
     async def get_by_clerk_id(self, clerk_id: str) -> Optional[User]:
         return await self.model.find_one(User.clerk_id == clerk_id)
+
+
+user_crud = UserCRUD()

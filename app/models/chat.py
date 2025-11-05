@@ -2,8 +2,6 @@ from typing import Annotated, List, Optional
 from beanie import Document, Indexed
 from pydantic import Field
 from pymongo import IndexModel
-from pydantic import BaseModel
-from datetime import datetime
 
 from app.models.time_mixin import TimeMixin
 

@@ -1,5 +1,4 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status
 from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel
@@ -8,11 +7,11 @@ import json
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
     ChatSessionCreate, ChatSessionResponse, ChatSessionListResponse,
-    SaveChatMessageRequest, SaveConversationRequest,
+    SaveConversationRequest,
 )
 from app.services.chat import ChatService
 from app.services.user import user_service
-from app.utils.api_response import ok, created, paginated
+from app.utils.api_response import ok, created
 from app.utils.verify_token import verify_token
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
@@ -88,7 +87,7 @@ async def list_chat_configs(
     """Get all chat configurations for the current user"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-        chat_configs = await chat_service.get_chat_configs(owner_id, skip, limit)
+        chat_configs = await chat_service.get_list_chat_configs(owner_id, skip, limit)
         return ok(data=chat_configs, message="Chat configs retrieved successfully")
 
     except HTTPException:
@@ -106,14 +105,14 @@ async def list_chat_configs(
     summary="Get Chat Config",
     description="Get a specific chat configuration by ID"
 )
-async def get_chat_config(
+async def get_chat_config_by_id(
     config_id: str = Path(..., description="Chat Config ID"),
     current_user: dict = Depends(verify_token)
 ):
     """Get a specific chat configuration by ID"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-        chat_config = await chat_service.get_chat_config(owner_id, config_id)
+        chat_config = await chat_service.get_chat_config_by_id(owner_id, config_id)
         return ok(data=chat_config, message="Chat config retrieved successfully")
 
     except HTTPException:
@@ -377,19 +376,19 @@ async def stream_chat(
     except HTTPException:
         raise
     except AppError as e:
-        async def error_sse():
+        async def error_sse(e):
             yield format_sse_message("error", {"message": e.message})
         return StreamingResponse(
-            error_sse(),
+            error_sse(e),
             media_type="text/event-stream",
             status_code=e.status_code
         )
     except Exception as e:
         logger.error(f"Stream chat failed: {str(e)}")
-        async def error_sse():
-            yield format_sse_message("error", {"message": str(e)})
+        async def error_sse(e):
+            yield format_sse_message("error", {"message": e.message})
         return StreamingResponse(
-            error_sse(),
+            error_sse(e),
             media_type="text/event-stream",
             status_code=500
         )

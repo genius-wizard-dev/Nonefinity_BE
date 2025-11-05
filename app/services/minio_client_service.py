@@ -1,7 +1,6 @@
 from minio import Minio
 from app.configs.settings import settings
 from app.utils import get_logger
-from fastapi import UploadFile
 from io import BytesIO
 from datetime import timedelta
 

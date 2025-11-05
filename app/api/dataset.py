@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.status import HTTP_400_BAD_REQUEST
-
+from typing import Dict
 from app.services.dataset_service import DatasetService
 from app.services import user_service
 from app.core.exceptions import AppError
@@ -11,7 +11,7 @@ from app.utils.cache_decorator import cache_list, invalidate_cache
 from app.schemas.dataset import (
    DatasetUpdate, DatasetUpdateRequest,
     DatasetCreateRequest, DatasetConvertRequest, DatasetQueryRequest,
-    DatasetSchemaUpdateRequest, Dataset
+    Dataset
 )
 from app.schemas.response import ApiResponse, ApiError
 
@@ -219,16 +219,15 @@ async def update_dataset(
 @invalidate_cache("datasets")
 async def update_dataset_schema(
     dataset_id: str,
-    request: DatasetSchemaUpdateRequest,
+    request: Dict[str, str],
     current_user = Depends(verify_token)
 ):
     """Update dataset schema descriptions only"""
     try:
-        logger.info(f"Updating schema for dataset {dataset_id}")
-        logger.info(f"Received descriptions: {request.descriptions}")
+
 
         user_id, dataset_service = await get_user_and_service(current_user)
-        await dataset_service.update_dataset_schema(user_id, dataset_id, request.descriptions)
+        await dataset_service.update_dataset_schema(user_id, dataset_id, request)
         return ok(message="Dataset schema descriptions updated successfully")
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")

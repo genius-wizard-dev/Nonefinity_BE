@@ -1,13 +1,11 @@
 from app.utils import get_logger
 from app.databases.duckdb import DuckDB
-from app.crud.dataset import DatasetCRUD
-from app.crud.file import FileCRUD
 from app.schemas.dataset import DatasetCreate, DataSchemaField, DatasetUpdate
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql
-from typing import List
-
+from typing import List, Dict
+from app.crud import file_crud, dataset_crud
 logger = get_logger(__name__)
 
 
@@ -18,8 +16,8 @@ class DatasetService:
         """Initialize DatasetService with MinIO credentials"""
         self.access_key = access_key
         self.secret_key = secret_key
-        self.crud = DatasetCRUD()
-        self.file_crud = FileCRUD()
+        self.crud = dataset_crud
+        self.file_crud = file_crud
         self.duckdb = DuckDB(user_id=access_key, access_key=access_key, secret_key=secret_key)
 
     async def create_dataset(self, user_id: str, dataset_name: str, description: str, schema: List[DataSchemaField]):
@@ -104,9 +102,8 @@ class DatasetService:
     async def convert_csv_to_dataset(self, user_id: str, file_path: str, dataset_name: str, description: str):
         try:
             with self.duckdb as db:
-
                 # Create table in DuckLake
-                db.execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}', ignore_errors=true)")
+                db.execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}')")
                 db_info = db.execute(f"DESCRIBE {dataset_name}").df()
                 column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
                 return column_schemas
@@ -523,7 +520,7 @@ class DatasetService:
       updated_dataset = await self.crud.update(dataset, update_dict)
       return updated_dataset
 
-    async def update_dataset_schema(self, user_id: str, dataset_id: str, descriptions: dict):
+    async def update_dataset_schema(self, user_id: str, dataset_id: str, descriptions: Dict[str, str]):
         """Update dataset schema descriptions in MongoDB only"""
         dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
         if not dataset:

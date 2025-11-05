@@ -1,5 +1,5 @@
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from uuid import uuid4
 import tempfile
 import os
@@ -10,7 +10,6 @@ from langchain_classic.document_loaders import (
     CSVLoader,
     UnstructuredExcelLoader,
 )
-from qdrant_client.http import models as qm
 
 from app.tasks import celery_app
 from app.services.minio_client_service import MinIOClientService

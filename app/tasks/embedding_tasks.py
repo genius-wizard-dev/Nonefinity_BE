@@ -7,7 +7,6 @@ from celery.signals import task_success, task_failure, task_retry, task_revoked
 from app.configs.settings import settings
 from app.tasks.embed import run_embedding, run_text_embedding, search_similar
 from app.utils import get_logger
-import asyncio
 
 logger = get_logger(__name__)
 

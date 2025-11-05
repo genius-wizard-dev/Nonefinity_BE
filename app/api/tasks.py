@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from bson import ObjectId
 
 from app.services.user import user_service

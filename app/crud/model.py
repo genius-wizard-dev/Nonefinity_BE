@@ -198,3 +198,5 @@ class ModelCRUD(BaseCRUD[Model, ModelCreate, ModelUpdate]):
         return await self.model.find({"credential_id": credential_id}).count()
 
 
+
+model_crud = ModelCRUD()

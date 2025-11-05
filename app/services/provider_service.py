@@ -218,3 +218,5 @@ class ProviderService:
 
         providers = await Provider.find(query).to_list()
         return providers
+
+provider_service = ProviderService()
