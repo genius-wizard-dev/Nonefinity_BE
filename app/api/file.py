@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from app.services import FileService, user_service
+from app.services.google_services import GoogleServices
 from app.schemas.response import ApiResponse, ApiError
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.core.exceptions import AppError
@@ -10,7 +11,14 @@ from app.schemas.file import (
 from app.utils.verify_token import verify_token
 from app.utils.api_response import created, ok
 from app.utils.cache_decorator import cache_list, invalidate_cache
+from app.utils import get_logger
+from app.configs.settings import settings
+from clerk_backend_api import Clerk
+from pydantic import BaseModel, Field, validator, model_validator
 from typing import Optional, List
+import re
+
+logger = get_logger(__name__)
 
 router = APIRouter(
     tags=["Files"],
@@ -87,12 +95,29 @@ async def save_file_metadata(
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
     try:
-        result = await file_service.save_file_metadata(
+        # Set source_file to "upload" for regular uploads
+        file_created = await file_service.save_file_metadata(
             user_id=user_id,
             object_name=request.object_name,
             file_name=request.file_name,
             file_type=request.file_type,
-            file_size=request.file_size
+            file_size=request.file_size,
+            source_file="upload"
+        )
+
+        # Convert File model to FileResponse
+        result = FileResponse(
+            id=str(file_created.id),
+            owner_id=file_created.owner_id,
+            bucket=file_created.bucket,
+            file_path=file_created.file_path,
+            file_name=file_created.file_name,
+            file_ext=file_created.file_ext,
+            file_type=file_created.file_type,
+            file_size=file_created.file_size,
+            source_file=getattr(file_created, 'source_file', 'upload'),
+            created_at=file_created.created_at,
+            updated_at=file_created.updated_at
         )
 
         return created(result, message="File metadata saved successfully")
@@ -160,7 +185,25 @@ async def list_files(current_user = Depends(verify_token)):
     if files is None:
         raise AppError("Failed to list files", status_code=HTTP_400_BAD_REQUEST)
 
-    return ok(data=files, message="Files listed successfully")
+    # Convert File model to FileResponse
+    file_responses = [
+        FileResponse(
+            id=str(file.id),
+            owner_id=file.owner_id,
+            bucket=file.bucket,
+            file_path=file.file_path,
+            file_name=file.file_name,
+            file_ext=file.file_ext,
+            file_type=file.file_type,
+            file_size=file.file_size,
+            source_file=getattr(file, 'source_file', 'upload'),
+            created_at=file.created_at,
+            updated_at=file.updated_at
+        )
+        for file in files
+    ]
+
+    return ok(data=file_responses, message="Files listed successfully")
 
 @router.put("/rename/{file_id}", response_model=ApiResponse[FileResponse])
 @invalidate_cache("files")
@@ -240,8 +283,25 @@ async def search_files(
     else:
         files = await file_service.crud.search_files_by_name(user_id, q, limit)
 
+    # Convert File model to FileResponse
+    file_responses = [
+        FileResponse(
+            id=str(file.id),
+            owner_id=file.owner_id,
+            bucket=file.bucket,
+            file_path=file.file_path,
+            file_name=file.file_name,
+            file_ext=file.file_ext,
+            file_type=file.file_type,
+            file_size=file.file_size,
+            source_file=getattr(file, 'source_file', 'upload'),
+            created_at=file.created_at,
+            updated_at=file.updated_at
+        )
+        for file in files
+    ]
 
-    return ok(data=files, message="Search completed successfully")
+    return ok(data=file_responses, message="Search completed successfully")
 
 @router.get("/stats", response_model=ApiResponse[dict])
 @cache_list("files", ttl=300)
@@ -345,7 +405,25 @@ async def get_list_allow_convert(current_user = Depends(verify_token)):
 
     files = await file_service.get_list_allow_convert(user_id)
 
-    return ok(data=files, message="List of files that are allowed to be converted to dataset retrieved successfully")
+    # Convert File model to FileResponse
+    file_responses = [
+        FileResponse(
+            id=str(file.id),
+            owner_id=file.owner_id,
+            bucket=file.bucket,
+            file_path=file.file_path,
+            file_name=file.file_name,
+            file_ext=file.file_ext,
+            file_type=file.file_type,
+            file_size=file.file_size,
+            source_file=getattr(file, 'source_file', 'upload'),
+            created_at=file.created_at,
+            updated_at=file.updated_at
+        )
+        for file in files
+    ]
+
+    return ok(data=file_responses, message="List of files that are allowed to be converted to dataset retrieved successfully")
 
 
 @router.get("/allow-extract", response_model=ApiResponse[List[FileResponse]])
@@ -362,4 +440,269 @@ async def get_list_allow_extract(current_user = Depends(verify_token)):
 
     files = await file_service.get_list_allow_extract(user_id)
 
-    return ok(data=files, message="List of files that are allowed to be extracted retrieved successfully")
+    # Convert File model to FileResponse
+    file_responses = [
+        FileResponse(
+            id=str(file.id),
+            owner_id=file.owner_id,
+            bucket=file.bucket,
+            file_path=file.file_path,
+            file_name=file.file_name,
+            file_ext=file.file_ext,
+            file_type=file.file_type,
+            file_size=file.file_size,
+            source_file=getattr(file, 'source_file', 'upload'),
+            created_at=file.created_at,
+            updated_at=file.updated_at
+        )
+        for file in files
+    ]
+
+    return ok(data=file_responses, message="List of files that are allowed to be extracted retrieved successfully")
+
+
+# Import from Google Drive schemas
+class ImportFilesRequest(BaseModel):
+    """Schema for importing files from Google Drive"""
+    file_ids: List[str] = Field(..., min_items=1, description="List of Google Drive file IDs")
+    file_types: List[str] = Field(..., min_items=1, description="List of file types (sheet/pdf)")
+
+    @validator('file_types')
+    def validate_file_types(cls, v):
+        allowed_types = ['sheet', 'pdf']
+        for file_type in v:
+            if file_type not in allowed_types:
+                raise ValueError(f"File type must be one of {allowed_types}")
+        return v
+
+    @model_validator(mode='after')
+    def validate_lists_match(self):
+        if len(self.file_ids) != len(self.file_types):
+            raise ValueError("file_ids and file_types must have the same length")
+        return self
+
+
+class ImportSheetUrlRequest(BaseModel):
+    """Schema for importing sheet from URL"""
+    sheet_url: str = Field(..., description="Google Sheet URL")
+
+    @validator('sheet_url')
+    def validate_sheet_url(cls, v):
+        if not v.strip():
+            raise ValueError("Sheet URL cannot be empty")
+        # Extract sheet ID from various Google Sheets URL formats
+        patterns = [
+            r'/spreadsheets/d/([a-zA-Z0-9-_]+)',
+            r'id=([a-zA-Z0-9-_]+)',
+            r'/([a-zA-Z0-9-_]{44})',  # Standard sheet ID length
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, v)
+            if match:
+                return v
+        raise ValueError("Invalid Google Sheet URL format")
+
+
+@router.post(
+    "/import-from-drive",
+    response_model=ApiResponse[List[FileResponse]],
+    status_code=status.HTTP_201_CREATED,
+    summary="Import Files from Google Drive",
+    description="Import multiple files from Google Drive to MinIO storage. Sets source_file to 'drive'."
+)
+@invalidate_cache("files")
+async def import_files_from_drive(
+    request: ImportFilesRequest,
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Import files from Google Drive to MinIO storage
+
+    This endpoint imports multiple files from Google Drive (Sheets or PDFs) to the user's MinIO storage.
+    Files are downloaded from Drive, uploaded to MinIO, and metadata is saved to the database with source_file='drive'.
+
+    **Request Body:**
+    - **file_ids**: List of Google Drive file IDs
+    - **file_types**: List of file types ('sheet' or 'pdf') corresponding to each file_id
+
+    **Response:**
+    - List of imported files with metadata (source_file='drive')
+    """
+    try:
+        # Get user and access token
+        clerk_id = current_user.get("sub")
+        user = await user_service.crud.get_by_clerk_id(clerk_id)
+        if not user or not user.minio_secret_key:
+            raise AppError("User not found", status_code=HTTP_400_BAD_REQUEST)
+
+        user_id = str(user.id)
+
+        with Clerk(bearer_auth=settings.CLERK_SECRET_KEY) as clerk:
+            res = clerk.users.get_o_auth_access_token(
+                user_id=clerk_id,
+                provider="oauth_google"
+            )
+            access_token = res[0].token
+
+        # Initialize file service
+        file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+        # Import files
+        imported_files = []
+        errors = []
+
+        for file_id, file_type in zip(request.file_ids, request.file_types):
+            try:
+                logger.info(f"[API_IMPORT] Processing file - file_id: {file_id}, type: {file_type}, user_id: {user_id}")
+                # Get file info to get the name
+                file_info = GoogleServices.get_file_info(access_token, file_id)
+                file_name = file_info.get("name", f"file_{file_id}")
+                logger.info(f"[API_IMPORT] File info - name: {file_name}")
+
+                # Import file (source_file will be set to "drive" in import_from_drive)
+                imported_file = await file_service.import_from_drive(
+                    user_id=user_id,
+                    file_id=file_id,
+                    file_name=file_name,
+                    file_type=file_type,
+                    access_token=access_token
+                )
+                logger.info(f"[API_IMPORT] Successfully imported - file_id: {imported_file.id}, name: {file_name}, source: {imported_file.source_file}")
+
+                # Convert to FileResponse
+                file_response = FileResponse(
+                    id=str(imported_file.id),
+                    owner_id=imported_file.owner_id,
+                    bucket=imported_file.bucket,
+                    file_path=imported_file.file_path,
+                    file_name=imported_file.file_name,
+                    file_ext=imported_file.file_ext,
+                    file_type=imported_file.file_type,
+                    file_size=imported_file.file_size,
+                    source_file=imported_file.source_file,
+                    created_at=imported_file.created_at,
+                    updated_at=imported_file.updated_at
+                )
+                imported_files.append(file_response)
+
+            except Exception as e:
+                error_msg = f"Failed to import file {file_id}: {str(e)}"
+                logger.error(f"[API_IMPORT] Failed to import file - file_id: {file_id}, error: {error_msg}", exc_info=True)
+                errors.append({"file_id": file_id, "error": error_msg})
+                continue
+
+        if not imported_files:
+            raise AppError("Failed to import any files", status_code=HTTP_400_BAD_REQUEST)
+
+        return created(
+            data=imported_files,
+            message=f"Imported {len(imported_files)} file(s) successfully. {len(errors)} failed." if errors else f"Imported {len(imported_files)} file(s) successfully"
+        )
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error(f"[API_IMPORT] Unexpected error: {str(e)}", exc_info=True)
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+
+@router.post(
+    "/import-sheet-url",
+    response_model=ApiResponse[FileResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Import Sheet from URL",
+    description="Import a Google Sheet from URL to MinIO storage. Sets source_file to 'drive'."
+)
+@invalidate_cache("files")
+async def import_sheet_from_url(
+    request: ImportSheetUrlRequest,
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Import a Google Sheet from URL to MinIO storage
+
+    This endpoint extracts the sheet ID from a Google Sheets URL, exports it to Excel format,
+    uploads it to MinIO, and saves metadata to the database with source_file='drive'.
+
+    **Request Body:**
+    - **sheet_url**: Google Sheet URL (various formats supported)
+
+    **Response:**
+    - Imported file with metadata (source_file='drive')
+    """
+    try:
+        # Extract sheet ID from URL
+        patterns = [
+            r'/spreadsheets/d/([a-zA-Z0-9-_]+)',
+            r'id=([a-zA-Z0-9-_]+)',
+            r'/([a-zA-Z0-9-_]{44})',  # Standard sheet ID length
+        ]
+
+        sheet_id = None
+        for pattern in patterns:
+            match = re.search(pattern, request.sheet_url)
+            if match:
+                sheet_id = match.group(1)
+                break
+
+        if not sheet_id:
+            raise AppError("Could not extract sheet ID from URL", status_code=HTTP_400_BAD_REQUEST)
+
+        # Get user and access token
+        clerk_id = current_user.get("sub")
+        user = await user_service.crud.get_by_clerk_id(clerk_id)
+        if not user or not user.minio_secret_key:
+            raise AppError("User not found", status_code=HTTP_400_BAD_REQUEST)
+
+        user_id = str(user.id)
+
+        with Clerk(bearer_auth=settings.CLERK_SECRET_KEY) as clerk:
+            res = clerk.users.get_o_auth_access_token(
+                user_id=clerk_id,
+                provider="oauth_google"
+            )
+            access_token = res[0].token
+
+        # Initialize file service
+        file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
+
+        # Get file info to get the name
+        file_info = GoogleServices.get_file_info(access_token, sheet_id)
+        file_name = file_info.get("name", "sheet")
+
+        # Import file (source_file will be set to "drive" in import_from_drive)
+        imported_file = await file_service.import_from_drive(
+            user_id=user_id,
+            file_id=sheet_id,
+            file_name=file_name,
+            file_type="sheet",
+            access_token=access_token
+        )
+
+        logger.info(f"[API_IMPORT] Successfully imported sheet from URL - file_id: {imported_file.id}, name: {file_name}, source: {imported_file.source_file}")
+
+        # Convert to FileResponse
+        file_response = FileResponse(
+            id=str(imported_file.id),
+            owner_id=imported_file.owner_id,
+            bucket=imported_file.bucket,
+            file_path=imported_file.file_path,
+            file_name=imported_file.file_name,
+            file_ext=imported_file.file_ext,
+            file_type=imported_file.file_type,
+            file_size=imported_file.file_size,
+            source_file=imported_file.source_file,
+            created_at=imported_file.created_at,
+            updated_at=imported_file.updated_at
+        )
+
+        return created(
+            data=file_response,
+            message="Sheet imported successfully"
+        )
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error(f"[API_IMPORT] Unexpected error importing sheet from URL: {str(e)}", exc_info=True)
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)

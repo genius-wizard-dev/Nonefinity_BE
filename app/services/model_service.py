@@ -36,7 +36,6 @@ class ModelService:
             logger.error(f"Model is not supported: {e}")
             raise AppError(message="Model is not supported", status_code=500)
 
-
     async def create_model(self, owner_id: str, model_data: ModelCreate) -> bool:
         """Create a new AI model configuration"""
         try:

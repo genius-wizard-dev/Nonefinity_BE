@@ -1,4 +1,5 @@
 from app.services.minio_client_service import MinIOClientService
+from app.services.google_services import GoogleServices
 from app.schemas.file import FileCreate, FileUpdate
 from app.crud import file_crud
 from app.core.exceptions import AppError
@@ -70,53 +71,57 @@ class FileService:
         deletion_errors = []
 
         try:
-            logger.info(f"Starting file deletion for user {user_id}, file_id: {file_id}")
+            logger.info(f"[FILE_DELETE] Starting deletion - user_id: {user_id}, file_id: {file_id}")
 
             file = await self.crud.get_by_id(file_id)
             if not file:
-                logger.warning(f"File not found: {file_id}")
+                logger.warning(f"[FILE_DELETE] File not found - file_id: {file_id}, user_id: {user_id}")
                 raise AppError("File not found")
 
             if file.owner_id != user_id:
-                logger.warning(f"Unauthorized file deletion attempt: {file_id} by {user_id}")
+                logger.warning(f"[FILE_DELETE] Unauthorized attempt - file_id: {file_id}, file_owner: {file.owner_id}, requester: {user_id}")
                 raise AppError("Unauthorized: Cannot delete file")
+
+            logger.info(f"[FILE_DELETE] File found - name: {file.file_name}{file.file_ext}, path: {file.file_path}, size: {file.file_size} bytes")
 
             # Delete file from MinIO
             try:
+                logger.info(f"[FILE_DELETE] Deleting from MinIO - bucket: {user_id}, object: {file.file_path}")
                 main_file_deleted = self._minio_client.delete_file(bucket_name=user_id, file_name=file.file_path)
                 if main_file_deleted:
-                    logger.info(f"Deleted main file from MinIO: {file.file_path}")
+                    logger.info(f"[FILE_DELETE] Successfully deleted from MinIO - path: {file.file_path}")
                 else:
                     error_msg = f"Failed to delete main file from MinIO: {file.file_path}"
-                    logger.error(error_msg)
+                    logger.error(f"[FILE_DELETE] {error_msg}")
                     deletion_errors.append(error_msg)
             except Exception as e:
                 error_msg = f"Failed to delete main file: {str(e)}"
-                logger.error(error_msg)
+                logger.error(f"[FILE_DELETE] MinIO deletion error - {error_msg}", exc_info=True)
                 deletion_errors.append(error_msg)
 
             # Delete record from database (hard delete)
             try:
+                logger.info(f"[FILE_DELETE] Deleting from database - file_id: {file_id}")
                 await self.crud.delete(file)
-                logger.info(f"Deleted file record from database: {file_id}")
+                logger.info(f"[FILE_DELETE] Successfully deleted from database - file_id: {file_id}")
             except Exception as e:
                 error_msg = f"Failed to delete file record from database: {str(e)}"
-                logger.error(error_msg)
+                logger.error(f"[FILE_DELETE] Database deletion error - {error_msg}", exc_info=True)
                 deletion_errors.append(error_msg)
                 raise AppError("Failed to delete file record from database")
 
             # Check and report results
             if deletion_errors:
-                logger.warning(f"File deletion completed with some errors: {'; '.join(deletion_errors)}")
+                logger.warning(f"[FILE_DELETE] Completed with errors - file_id: {file_id}, errors: {'; '.join(deletion_errors)}")
             else:
-                logger.info(f"File deleted successfully: {file_id}")
+                logger.info(f"[FILE_DELETE] Successfully completed - file_id: {file_id}, name: {file.file_name}{file.file_ext}")
 
             return True
 
         except AppError:
             raise
         except Exception as e:
-            logger.error(f"File deletion failed: {str(e)}")
+            logger.error(f"[FILE_DELETE] Deletion failed - user_id: {user_id}, file_id: {file_id}, error: {str(e)}", exc_info=True)
             raise AppError(f"Deletion failed: {str(e)}")
 
     async def rename_file(self, user_id: str, file_id: str, new_name: str) -> Optional[FileCreate]:
@@ -223,7 +228,7 @@ class FileService:
             logger.error(f"Failed to get upload URL: {str(e)}")
             raise AppError(f"Failed to get upload URL: {str(e)}")
 
-    async def save_file_metadata(self, user_id: str, object_name: str, file_name: str, file_type: str, file_size: int = None) -> FileCreate:
+    async def save_file_metadata(self, user_id: str, object_name: str, file_name: str, file_type: str, file_size: int = None, source_file: str = "upload") -> FileCreate:
         """Save file metadata to database after upload
 
         Args:
@@ -232,6 +237,7 @@ class FileService:
             file_name: Original file name
             file_type: File MIME type
             file_size: File size in bytes
+            source_file: File source ('upload' or 'drive')
 
         Returns:
             File object
@@ -251,7 +257,8 @@ class FileService:
                 file_path=object_name,
                 file_size=file_size,
                 file_type=file_type,
-                owner_id=user_id
+                owner_id=user_id,
+                source_file=source_file
             )
 
             file_create = await self.crud.create(obj_in=file_info)
@@ -336,3 +343,138 @@ class FileService:
         logger.info(f"Files: {files}")
 
         return files
+
+    async def import_from_drive(self, user_id: str, file_id: str, file_name: str, file_type: str, access_token: str) -> FileCreate:
+        """
+        Import file from Google Drive to MinIO storage
+
+        Args:
+            user_id: User ID
+            file_id: Google Drive file ID
+            file_name: Original file name
+            file_type: File type ('sheet' or 'pdf')
+            access_token: Google OAuth access token
+
+        Returns:
+            FileCreate object with imported file metadata
+        """
+        try:
+            logger.info(f"[DRIVE_IMPORT] Starting import - user_id: {user_id}, file_id: {file_id}, file_type: {file_type}, file_name: {file_name}")
+
+            # Get file info from Google Drive
+            file_info = GoogleServices.get_file_info(access_token, file_id)
+            drive_file_name = file_info.get("name", file_name)
+            drive_mime_type = file_info.get("mimeType", "")
+            logger.info(f"[DRIVE_IMPORT] File info retrieved - name: {drive_file_name}, mime_type: {drive_mime_type}")
+
+            # Determine file extension and MIME type based on file_type
+            if file_type == "sheet":
+                # Check if it's a native Google Sheet or uploaded Excel file
+                is_google_sheet = drive_mime_type == "application/vnd.google-apps.spreadsheet"
+                is_excel_file = drive_mime_type in [
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel",
+                    "application/vnd.ms-excel.sheet.macroEnabled.12"
+                ]
+
+                if is_google_sheet:
+                    # Export Google Sheet to Excel format
+                    try:
+                        file_content = GoogleServices.export_sheet(access_token, file_id, format='xlsx')
+                        file_ext = ".xlsx"
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        # Use original name from Drive, add .xlsx if not present
+                        if not drive_file_name.endswith('.xlsx') and not drive_file_name.endswith('.xls'):
+                            drive_file_name = f"{drive_file_name}.xlsx"
+                    except Exception as e:
+                        logger.error(f"Failed to export Google Sheet, trying direct download: {str(e)}")
+                        # Fallback: try to download directly if export fails
+                        file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                        # Determine extension from original file
+                        if drive_file_name.endswith('.xlsx'):
+                            file_ext = ".xlsx"
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        elif drive_file_name.endswith('.xls'):
+                            file_ext = ".xls"
+                            mime_type = "application/vnd.ms-excel"
+                        else:
+                            file_ext = ".xlsx"
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            drive_file_name = f"{drive_file_name}.xlsx"
+                elif is_excel_file:
+                    # Download Excel file directly (already in Excel format)
+                    file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                    # Determine extension from original file
+                    if drive_file_name.endswith('.xlsx'):
+                        file_ext = ".xlsx"
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    elif drive_file_name.endswith('.xls'):
+                        file_ext = ".xls"
+                        mime_type = "application/vnd.ms-excel"
+                    else:
+                        # Default to xlsx if extension not found
+                        file_ext = ".xlsx"
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        drive_file_name = f"{drive_file_name}.xlsx"
+                else:
+                    # Unknown sheet type, try to export first, then download
+                    try:
+                        file_content = GoogleServices.export_sheet(access_token, file_id, format='xlsx')
+                        file_ext = ".xlsx"
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        if not drive_file_name.endswith('.xlsx') and not drive_file_name.endswith('.xls'):
+                            drive_file_name = f"{drive_file_name}.xlsx"
+                    except Exception:
+                        # Fallback to direct download
+                        file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                        file_ext = ".xlsx"
+                        mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        if not drive_file_name.endswith('.xlsx') and not drive_file_name.endswith('.xls'):
+                            drive_file_name = f"{drive_file_name}.xlsx"
+            elif file_type == "pdf":
+                # Download PDF directly
+                file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                file_ext = ".pdf"
+                mime_type = "application/pdf"
+                # Use original name from Drive, add .pdf if not present
+                if not drive_file_name.endswith('.pdf'):
+                    drive_file_name = f"{drive_file_name}.pdf"
+            else:
+                raise AppError(f"Unsupported file type: {file_type}")
+
+            # Generate unique filename for storage
+            unique_filename, _ = self._generate_unique_filename(drive_file_name)
+            object_name = f"raw/{unique_filename}{file_ext}"
+
+            # Upload to MinIO
+            file_size = len(file_content)
+            upload_success = self._minio_client.upload_bytes(
+                bucket_name=user_id,
+                object_name=object_name,
+                data=file_content,
+                content_type=mime_type
+            )
+
+            if not upload_success:
+                raise AppError("Failed to upload file to MinIO")
+
+            logger.info(f"[DRIVE_IMPORT] File uploaded to MinIO - bucket: {user_id}, object: {object_name}, size: {file_size} bytes")
+
+            # Save metadata to database
+            file_metadata = await self.save_file_metadata(
+                user_id=user_id,
+                object_name=object_name,
+                file_name=drive_file_name,
+                file_type=mime_type,
+                file_size=file_size,
+                source_file="drive"
+            )
+
+            logger.info(f"[DRIVE_IMPORT] Successfully imported file - file_id: {file_metadata.id}, name: {drive_file_name}, type: {mime_type}, size: {file_size} bytes")
+            return file_metadata
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"[DRIVE_IMPORT] Failed to import file - user_id: {user_id}, file_id: {file_id}, error: {str(e)}", exc_info=True)
+            raise AppError(f"Failed to import file from Drive: {str(e)}")
