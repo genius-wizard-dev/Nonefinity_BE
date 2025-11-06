@@ -26,12 +26,12 @@ class DatasetService:
         if dataset:
           raise AppError("Dataset already exists", status_code=HTTP_400_BAD_REQUEST)
 
-        self.duckdb.execute(f"""CREATE TABLE IF NOT EXISTS {dataset_name}
+        self.duckdb.execute(f"""CREATE TABLE IF NOT EXISTS '{dataset_name}'
                             (
                               {', '.join([f'{field.column_name} {field.column_type}' for field in schema])}
                             )
                             """)
-        db_info = self.duckdb.execute(f"DESCRIBE {dataset_name}").df()
+        db_info = self.duckdb.execute(f"DESCRIBE '{dataset_name}'").df()
 
         # Create a mapping of column names to their descriptions from input schema
         schema_desc_map = {field.column_name: field.desc for field in schema if field.desc is not None}
@@ -103,8 +103,8 @@ class DatasetService:
         try:
             with self.duckdb as db:
                 # Create table in DuckLake
-                db.execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}')")
-                db_info = db.execute(f"DESCRIBE {dataset_name}").df()
+                db.execute(f"CREATE TABLE '{dataset_name}' AS SELECT * FROM read_csv('s3://{user_id}/{file_path}')")
+                db_info = db.execute(f"DESCRIBE '{dataset_name}'").df()
                 column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
                 return column_schemas
         except Exception as e:
@@ -115,7 +115,15 @@ class DatasetService:
 
 
     async def convert_excel_to_dataset(self, user_id: str, file_path: str, dataset_name: str, description: str):
-      pass
+        try:
+          with self.duckdb as db:
+            db.execute(f"CREATE TABLE '{dataset_name}' AS SELECT * FROM read_xlsx('s3://{user_id}/{file_path}')")
+            db_info = db.execute(f"DESCRIBE '{dataset_name}'").df()
+            column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
+            return column_schemas
+        except Exception as e:
+          logger.error(f"Error when converting Excel into dataset for user {user_id}: {str(e)}")
+          raise AppError(f"Error when converting Excel into dataset: {str(e)}", status_code=HTTP_400_BAD_REQUEST)
 
 
 
@@ -213,7 +221,7 @@ class DatasetService:
 
                     # Get row count for new dataset
                     try:
-                        row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM {table_name}").df()["count"].iloc[0]
+                        row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM '{table_name}'").df()["count"].iloc[0]
                         new_dataset_with_count = await self._add_row_count_to_dataset(new_dataset, row_count)
                         available_datasets.append(new_dataset_with_count)
                     except Exception:
@@ -261,12 +269,12 @@ class DatasetService:
             for table_name in table_names:
                 try:
                     # Get schema
-                    columns_info = self.duckdb.execute(f"DESCRIBE {table_name}").df()
+                    columns_info = self.duckdb.execute(f"DESCRIBE '{table_name}'").df()
                     schema_data = columns_info[['column_name', 'column_type']].to_dict('records')
                     all_schemas[table_name] = schema_data
 
                     # Get row count
-                    row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM {table_name}").df()["count"].iloc[0]
+                    row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM '{table_name}'").df()["count"].iloc[0]
                     row_counts[table_name] = row_count
 
                 except Exception as e:
@@ -341,7 +349,7 @@ class DatasetService:
             # Fallback: add all datasets without sync but with row counts
             for dataset in datasets:
                 try:
-                    row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM {dataset.name}").df()["count"].iloc[0]
+                    row_count = self.duckdb.execute(f"SELECT COUNT(*) as count FROM '{dataset.name}'").df()["count"].iloc[0]
                     dataset_with_count = await self._add_row_count_to_dataset(dataset, row_count)
                     available_datasets.append(dataset_with_count)
                 except Exception:
@@ -374,7 +382,7 @@ class DatasetService:
                 return None
 
             # Get current schema from DuckDB
-            current_columns_info = self.duckdb.execute(f"DESCRIBE {dataset_name}").df()
+            current_columns_info = self.duckdb.execute(f"DESCRIBE '{dataset_name}'").df()
             current_schema_data = current_columns_info[['column_name', 'column_type']].to_dict('records')
 
             # Create current schema fields
@@ -442,7 +450,7 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-          self.duckdb.execute(f"DROP TABLE {dataset.name}")
+          self.duckdb.execute(f"DROP TABLE '{dataset.name}'")
           logger.info(f"Deleted dataset: {dataset.name} for user {user_id}")
       except Exception as e:
         logger.error(f"Error when deleting dataset for user {user_id}: {str(e)}")
@@ -458,7 +466,7 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-          data = self.duckdb.execute(f"SELECT * FROM {dataset.name} LIMIT {limit} OFFSET {skip}").df()
+          data = self.duckdb.execute(f"SELECT * FROM '{dataset.name}' LIMIT {limit} OFFSET {skip}").df()
           if data.empty:
             return {
               "data": [],
@@ -515,7 +523,7 @@ class DatasetService:
 
       # If name is being updated, rename the table in DuckDB
       if 'name' in update_dict and update_dict['name'] != dataset.name:
-        self.duckdb.execute(f"ALTER TABLE {dataset.name} RENAME TO {update_dict['name']}")
+        self.duckdb.execute(f"ALTER TABLE '{dataset.name}' RENAME TO '{update_dict['name']}'")
 
       updated_dataset = await self.crud.update(dataset, update_dict)
       return updated_dataset
@@ -673,7 +681,7 @@ class DatasetService:
                 self.duckdb.execute(f"CREATE TEMP TABLE {temp_table} AS SELECT * FROM read_excel('{s3_path}', header=true)")
 
             # Get count of rows to insert
-            row_count = self.duckdb.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
+            row_count = self.duckdb.execute(f"SELECT COUNT(*) FROM '{temp_table}'").fetchone()[0]
 
             # Build INSERT query with column mapping
             dataset_columns = list(column_mapping.values())
@@ -685,7 +693,7 @@ class DatasetService:
 
             # Insert data with mapping
             insert_query = f"""
-                INSERT INTO {dataset_name} ({', '.join(dataset_columns)})
+                INSERT INTO '{dataset_name}' ({', '.join(dataset_columns)})
                 SELECT {', '.join(column_selection)}
                 FROM {temp_table}
             """
@@ -693,7 +701,7 @@ class DatasetService:
             self.duckdb.execute(insert_query)
 
             # Clean up temporary table
-            self.duckdb.execute(f"DROP TABLE {temp_table}")
+            self.duckdb.execute(f"DROP TABLE '{temp_table}'")
 
             return {"rows_inserted": row_count}
 

@@ -12,6 +12,7 @@ class FileCreate(BaseModel):
     file_ext: str = Field(..., description="File extension")
     file_type: str = Field(..., description="File MIME type")
     file_size: Optional[int] = Field(None, description="File size (bytes)")
+    source_file: str = Field(default="upload", description="File source: 'upload' or 'drive'")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -55,8 +56,9 @@ class FileResponse(BaseModel):
     file_ext: str = Field(..., description="File extension")
     file_type: str = Field(..., description="File MIME type")
     file_size: Optional[int] = Field(None, description="File size in bytes")
+    source_file: str = Field(default="upload", description="File source: 'upload' or 'drive'")
     created_at: datetime = Field(..., description="File creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
 
     model_config = ConfigDict(
         from_attributes=True,
