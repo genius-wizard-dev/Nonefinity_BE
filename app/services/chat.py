@@ -10,6 +10,7 @@ from app.schemas.chat import (
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest,
 )
+from app.schemas.integration import normalize_integrations
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
 from app.databases.qdrant import qdrant
@@ -92,6 +93,11 @@ class ChatService:
         # Ensure id_alias is not in the create data, we'll add it manually
         create_data = chat_config_data.model_dump(exclude={"id_alias"})
         create_data["id_alias"] = id_alias
+
+        # Normalize integrations format if provided
+        if "integrations" in create_data and create_data["integrations"]:
+            create_data["integrations"] = normalize_integrations(create_data["integrations"])
+
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
         # Ensure id_alias exists (should always exist for new records)
@@ -113,6 +119,7 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
+
             integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )
@@ -150,6 +157,7 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
+            # Model already normalizes integrations via field_validator, but ensure it's normalized
             integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )
@@ -207,6 +215,11 @@ class ChatService:
         chat_config = await self._ensure_id_alias(chat_config)
 
         update_dict = chat_config_data.model_dump(exclude_unset=True)
+
+        # Normalize integrations format if updating
+        if "integrations" in update_dict and update_dict["integrations"]:
+            update_dict["integrations"] = normalize_integrations(update_dict["integrations"])
+
         if 'name' in update_dict and update_dict['name'] != chat_config.name:
             existing_chat_config = await self._chat_config_crud.get_by_name(update_dict['name'], owner_id)
             if existing_chat_config and str(existing_chat_config.id) != chat_config_id:
@@ -233,15 +246,17 @@ class ChatService:
                 )
 
         # Update chat
-        # Handle None values explicitly for embedding_model_id and knowledge_store_id
+        # Handle None values explicitly for embedding_model_id, knowledge_store_id, and integrations
         if 'embedding_model_id' in update_dict:
             chat_config.embedding_model_id = update_dict['embedding_model_id']
         if 'knowledge_store_id' in update_dict:
             chat_config.knowledge_store_id = update_dict['knowledge_store_id']
+        if 'integrations' in update_dict:
+            chat_config.integrations = update_dict['integrations']
 
         # Update other fields normally
         for key, value in update_dict.items():
-            if key not in ['embedding_model_id', 'knowledge_store_id'] and value is not None:
+            if key not in ['embedding_model_id', 'knowledge_store_id', 'integrations'] and value is not None:
                 setattr(chat_config, key, value)
 
         # Save the chat object directly to handle None values
@@ -263,6 +278,7 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
+            # Model already normalizes integrations via field_validator, but ensure it's normalized
             integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )

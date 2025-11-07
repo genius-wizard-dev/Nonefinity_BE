@@ -25,8 +25,8 @@ class ChatConfig(TimeMixin, Document):
 
     id_alias: Optional[Annotated[str, Indexed()]] = Field(None, description="ID alias")
 
-    # Integrations
-    integrations: Optional[dict] = Field(None, description="Third-party integrations configuration (e.g. Google Sheet)")
+    # Integrations (array to support multiple providers)
+    integrations: Optional[List[dict]] = Field(None, description="Third-party integrations configuration array (e.g. Google Sheet)")
 
     class Settings:
         name = "chat_configs"

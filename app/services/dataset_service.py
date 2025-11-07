@@ -3,7 +3,7 @@ from app.databases.duckdb import DuckDB
 from app.schemas.dataset import DatasetCreate, DataSchemaField, DatasetUpdate
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
-from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql
+from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql, is_schema_modifying_query, extract_table_names_from_query
 from typing import List, Dict
 from app.crud import file_crud, dataset_crud
 logger = get_logger(__name__)
@@ -165,6 +165,84 @@ class DatasetService:
 
         return False
 
+    def _smart_match_columns(self, mongodb_schema: List[DataSchemaField], duckdb_schema: List[DataSchemaField]) -> Dict[str, str]:
+        """
+        Smart column matching to preserve descriptions when column names change.
+        Uses multiple strategies:
+        1. Exact name match
+        2. Position-based match (if same count and types match)
+        3. Type-based match (if unique type)
+
+        Returns:
+            Dict mapping new_column_name -> old_column_name (for description preservation)
+        """
+        column_mapping = {}
+
+        # Strategy 1: Exact name match
+        mongodb_dict = {field.column_name: field for field in mongodb_schema}
+        duckdb_dict = {field.column_name: field for field in duckdb_schema}
+
+        for new_col_name, new_col_field in duckdb_dict.items():
+            if new_col_name in mongodb_dict:
+                # Exact match found
+                column_mapping[new_col_name] = new_col_name
+            else:
+                # No exact match, try position-based matching
+                column_mapping[new_col_name] = None
+
+        # Strategy 2: Position-based matching (if same count and types match)
+        if len(mongodb_schema) == len(duckdb_schema):
+            for i, (new_col, old_col) in enumerate(zip(duckdb_schema, mongodb_schema)):
+                if column_mapping.get(new_col.column_name) is None:
+                    # Check if types match (allowing for some type variations)
+                    if self._types_compatible(old_col.column_type, new_col.column_type):
+                        column_mapping[new_col.column_name] = old_col.column_name
+
+        # Strategy 3: Type-based matching for unmatched columns
+        unmatched_new = [col for col in duckdb_schema if column_mapping.get(col.column_name) is None]
+        unmatched_old = [col for col in mongodb_schema if col.column_name not in column_mapping.values()]
+
+        for new_col in unmatched_new:
+            # Find old column with same type
+            for old_col in unmatched_old:
+                if self._types_compatible(old_col.column_type, new_col.column_type):
+                    # Check if this type is unique in both schemas
+                    new_type_count = sum(1 for c in duckdb_schema if c.column_type == new_col.column_type)
+                    old_type_count = sum(1 for c in mongodb_schema if c.column_type == old_col.column_type)
+
+                    if new_type_count == 1 and old_type_count == 1:
+                        column_mapping[new_col.column_name] = old_col.column_name
+                        unmatched_old.remove(old_col)
+                        break
+
+        return column_mapping
+
+    def _types_compatible(self, type1: str, type2: str) -> bool:
+        """Check if two column types are compatible"""
+        type1_lower = type1.lower() if type1 else ""
+        type2_lower = type2.lower() if type2 else ""
+
+        # Exact match
+        if type1_lower == type2_lower:
+            return True
+
+        # Numeric types compatibility
+        numeric_types = ['integer', 'bigint', 'smallint', 'tinyint', 'float', 'double', 'decimal', 'numeric']
+        if type1_lower in numeric_types and type2_lower in numeric_types:
+            return True
+
+        # String types compatibility
+        string_types = ['string', 'varchar', 'text', 'char']
+        if type1_lower in string_types and type2_lower in string_types:
+            return True
+
+        # Date/time types compatibility
+        datetime_types = ['date', 'timestamp', 'datetime']
+        if type1_lower in datetime_types and type2_lower in datetime_types:
+            return True
+
+        return False
+
     async def _sync_datasets_with_duckdb(self, user_id: str, datasets: List, duckdb_tables: set, available_datasets: List):
         """Sync datasets between DuckDB and MongoDB"""
         # Get list of dataset names already in MongoDB
@@ -258,7 +336,7 @@ class DatasetService:
             await self._batch_sync_schemas(datasets_to_check, available_datasets)
 
     async def _batch_sync_schemas(self, datasets: List, available_datasets: List):
-        """Batch sync schemas for multiple datasets"""
+        """Batch sync schemas for multiple datasets with smart column matching"""
         # Get all table schemas and row counts in one go
         try:
             # Create a single query to get all table schemas and row counts
@@ -311,15 +389,29 @@ class DatasetService:
 
                     # Compare schemas
                     if self._schemas_different(mongodb_schema_fields, current_schema_fields):
-                        # Create updated schema with preserved descriptions
+                        # Use smart column matching to preserve descriptions
+                        column_mapping = self._smart_match_columns(mongodb_schema_fields, current_schema_fields)
+
+                        # Create updated schema with preserved descriptions using smart matching
                         updated_schema_fields = []
                         for current_field in current_schema_fields:
-                            existing_field = next(
-                                (f for f in mongodb_schema_fields if f.column_name == current_field.column_name),
-                                None
-                            )
+                            # Try to find matching old column using smart mapping
+                            old_column_name = column_mapping.get(current_field.column_name)
 
-                            desc = existing_field.desc if existing_field else None
+                            if old_column_name:
+                                # Find the old field to get description
+                                existing_field = next(
+                                    (f for f in mongodb_schema_fields if f.column_name == old_column_name),
+                                    None
+                                )
+                                desc = existing_field.desc if existing_field else None
+                            else:
+                                # No match found, try direct name match as fallback
+                                existing_field = next(
+                                    (f for f in mongodb_schema_fields if f.column_name == current_field.column_name),
+                                    None
+                                )
+                                desc = existing_field.desc if existing_field else None
 
                             updated_schema_fields.append(DataSchemaField(
                                 column_name=current_field.column_name,
@@ -332,7 +424,7 @@ class DatasetService:
                         # Add row count to updated dataset
                         updated_dataset_with_count = await self._add_row_count_to_dataset(updated_dataset, row_counts.get(dataset.name, 0))
                         available_datasets.append(updated_dataset_with_count)
-                        logger.info(f"Updated schema for dataset: {dataset.name}")
+                        logger.info(f"Updated schema for dataset: {dataset.name} (preserved descriptions using smart matching)")
                     else:
                         # Add row count to existing dataset
                         dataset_with_count = await self._add_row_count_to_dataset(dataset, row_counts.get(dataset.name, 0))
@@ -372,8 +464,46 @@ class DatasetService:
         # Return dict instead of SimpleNamespace to avoid serialization issues
         return dataset_dict
 
+    async def _sync_affected_datasets_after_query(self, user_id: str, table_names: List[str]):
+        """Sync schemas for datasets affected by a SQL query"""
+        try:
+            for table_name in table_names:
+                # Remove quotes if present
+                table_name = table_name.strip("'\"")
+
+                if not table_name:
+                    continue
+
+                # Get dataset from MongoDB
+                dataset = await self.crud.get_by_name(table_name, user_id)
+                if not dataset:
+                    logger.debug(f"Dataset {table_name} not found in MongoDB, skipping sync")
+                    continue
+
+                # Verify table exists in DuckDB before syncing
+                try:
+                    duckdb_tables = set(row[0] for row in self.duckdb.execute("SHOW TABLES").fetchall())
+                    if table_name not in duckdb_tables:
+                        logger.warning(f"Table {table_name} not found in DuckDB, skipping sync")
+                        continue
+                except Exception as e:
+                    logger.warning(f"Error checking table existence for {table_name}: {str(e)}")
+                    continue
+
+                # Sync this specific dataset
+                try:
+                    await self.sync_dataset_schema(user_id, table_name)
+                except Exception as sync_error:
+                    logger.warning(f"Error syncing dataset {table_name}: {str(sync_error)}")
+                    # Continue with other tables even if one fails
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error syncing affected datasets after query: {str(e)}")
+            # Don't raise, just log - we don't want to fail the query if sync fails
+
     async def sync_dataset_schema(self, user_id: str, dataset_name: str):
-        """Manually sync a specific dataset schema"""
+        """Manually sync a specific dataset schema with smart column matching"""
         try:
             # Get dataset from MongoDB
             dataset = await self.crud.get_by_name(dataset_name, user_id)
@@ -405,14 +535,29 @@ class DatasetService:
 
             # Compare and update if needed
             if self._schemas_different(mongodb_schema_fields, current_schema_fields):
-                # Create new schema with description from MongoDB
+                # Use smart column matching to preserve descriptions
+                column_mapping = self._smart_match_columns(mongodb_schema_fields, current_schema_fields)
+
+                # Create updated schema with preserved descriptions using smart matching
                 updated_schema_fields = []
                 for current_field in current_schema_fields:
-                    existing_field = next(
-                        (f for f in mongodb_schema_fields if f.column_name == current_field.column_name),
-                        None
-                    )
-                    desc = existing_field.desc if existing_field else None
+                    # Try to find matching old column using smart mapping
+                    old_column_name = column_mapping.get(current_field.column_name)
+
+                    if old_column_name:
+                        # Find the old field to get description
+                        existing_field = next(
+                            (f for f in mongodb_schema_fields if f.column_name == old_column_name),
+                            None
+                        )
+                        desc = existing_field.desc if existing_field else None
+                    else:
+                        # No match found, try direct name match as fallback
+                        existing_field = next(
+                            (f for f in mongodb_schema_fields if f.column_name == current_field.column_name),
+                            None
+                        )
+                        desc = existing_field.desc if existing_field else None
 
                     updated_schema_fields.append(DataSchemaField(
                         column_name=current_field.column_name,
@@ -422,7 +567,7 @@ class DatasetService:
 
                 # Update schema in MongoDB
                 updated_dataset = await self.crud.update_schema(dataset.id, updated_schema_fields)
-                logger.info(f"Synced schema for dataset: {dataset_name}")
+                logger.info(f"Synced schema for dataset: {dataset_name} (preserved descriptions using smart matching)")
                 return updated_dataset
             else:
                 logger.info(f"Schema for dataset {dataset_name} is already up to date")
@@ -492,14 +637,41 @@ class DatasetService:
             if not check_sql_syntax(query):
                 raise AppError("Invalid SQL syntax", status_code=HTTP_400_BAD_REQUEST)
 
-            # Check if it's a SELECT query
-            # if not is_select_query(query):
-            #     raise AppError("Only SELECT queries are allowed", status_code=HTTP_400_BAD_REQUEST)
+            # Check if query modifies schema
+            is_schema_modifying = is_schema_modifying_query(query)
 
-            # Add limit to query if not present
-            processed_query = add_limit_sql(query, limit)
-            data = self.duckdb.execute(processed_query).df()
-            return data.to_dict('records')
+            # Extract table names from query
+            table_names = extract_table_names_from_query(query)
+
+            # Execute query
+            if is_schema_modifying:
+                # For schema-modifying queries, execute directly without limit
+                processed_query = query
+                result = self.duckdb.execute(processed_query)
+                # Schema-modifying queries don't return data
+                data_result = None
+            else:
+                # For SELECT queries, add limit and get data
+                processed_query = add_limit_sql(query, limit)
+                data_result = self.duckdb.execute(processed_query).df()
+
+            # If schema was modified, sync affected datasets
+            if is_schema_modifying and table_names:
+                try:
+                    await self._sync_affected_datasets_after_query(user_id, table_names)
+                    logger.info(f"Synced schemas for affected tables: {table_names}")
+                except Exception as sync_error:
+                    logger.warning(f"Failed to sync schemas after query: {str(sync_error)}")
+                    # Don't fail the query if sync fails, just log warning
+
+            # Return results
+            if is_schema_modifying:
+                return {
+                    "message": "Schema modified successfully",
+                    "affected_tables": table_names
+                }
+            else:
+                return data_result.to_dict('records') if data_result is not None and not data_result.empty else []
 
         except AppError:
             raise
