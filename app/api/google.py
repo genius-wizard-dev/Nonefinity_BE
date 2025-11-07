@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query
 from clerk_backend_api import Clerk
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing import Optional
@@ -7,15 +7,10 @@ from app.core.exceptions import AppError
 from app.utils.api_response import ok
 from app.utils.verify_token import verify_token
 from app.services.google_services import GoogleServices
-from app.schemas.response import ApiResponse, ApiError
+from app.schemas.response import ApiError
+from app.utils import get_logger
+logger = get_logger(__name__)
 
-logger = None
-try:
-    from app.utils import get_logger
-    logger = get_logger(__name__)
-except:
-    import logging
-    logger = logging.getLogger(__name__)
 
 router = APIRouter(
     tags=["Google Drive"],

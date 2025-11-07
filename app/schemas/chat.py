@@ -9,7 +9,6 @@ class ChatConfigCreate(BaseModel):
     knowledge_store_id: Optional[str] = Field(None, description="Knowledge store ID (optional)")
     dataset_ids: Optional[List[str]] = Field(None, description="List of dataset IDs")
     instruction_prompt: str = Field("", description="Custom instruction prompt")
-    integrations: Optional[List[dict]] = Field(None, description="Third-party integrations configuration array (e.g. Google Sheet)")
 class ChatConfigUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="Name of the chat session")
     chat_model_id: Optional[str] = Field(None, description="AI model ID used for the chat")
@@ -17,7 +16,6 @@ class ChatConfigUpdate(BaseModel):
     knowledge_store_id: Optional[str] = Field(None, description="Knowledge store ID (optional)")
     dataset_ids: Optional[List[str]] = Field(None, description="List of dataset IDs")
     instruction_prompt: Optional[str] = Field(None, description="Custom instruction prompt")
-    integrations: Optional[List[dict]] = Field(None, description="Third-party integrations configuration array (e.g. Google Sheet)")
 
 class ChatConfigResponse(BaseModel):
     id: str = Field(..., description="Chat config ID")
@@ -30,7 +28,6 @@ class ChatConfigResponse(BaseModel):
     created_at: datetime = Field(..., description="Chat config created at")
     id_alias: str = Field(..., description="ID alias")
     updated_at: Optional[datetime] = Field(None, description="Chat config updated at")
-    integrations: Optional[List[dict]] = Field(None, description="Third-party integrations configuration array (e.g. Google Sheet)")
     is_used: bool = Field(False, description="Whether this config is being used by at least one session (computed field)")
 
 class ChatConfigListResponse(BaseModel):

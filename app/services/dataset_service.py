@@ -648,8 +648,8 @@ class DatasetService:
                 # For schema-modifying queries, execute directly without limit
                 processed_query = query
                 result = self.duckdb.execute(processed_query)
-                # Schema-modifying queries don't return data
-                data_result = None
+
+                data_result = result
             else:
                 # For SELECT queries, add limit and get data
                 processed_query = add_limit_sql(query, limit)

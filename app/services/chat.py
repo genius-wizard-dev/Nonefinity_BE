@@ -1,6 +1,5 @@
-from typing import List, Any
+from typing import List
 import json
-import time
 import random
 from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
 from app.models.chat import ChatMessage
@@ -10,10 +9,8 @@ from app.schemas.chat import (
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest,
 )
-from app.schemas.integration import normalize_integrations
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
-from app.databases.qdrant import qdrant
 from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
@@ -24,7 +21,7 @@ from app.agents.types import AgentContext
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig, EmbeddingModelConfig
 from app.agents.tools import dataset_tools, knowledge_tools
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
 from app.agents.middleware import NonfinityAgentMiddleware
@@ -94,9 +91,9 @@ class ChatService:
         create_data = chat_config_data.model_dump(exclude={"id_alias"})
         create_data["id_alias"] = id_alias
 
-        # Normalize integrations format if provided
-        if "integrations" in create_data and create_data["integrations"]:
-            create_data["integrations"] = normalize_integrations(create_data["integrations"])
+        # Convert None to empty list for dataset_ids (model requires List[str], not Optional)
+        if create_data.get("dataset_ids") is None:
+            create_data["dataset_ids"] = []
 
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
@@ -119,8 +116,6 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
-
-            integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )
 
@@ -157,8 +152,6 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
-            # Model already normalizes integrations via field_validator, but ensure it's normalized
-            integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )
 
@@ -188,7 +181,6 @@ class ChatService:
                     created_at=config.created_at,
                     updated_at=config.updated_at,
                     id_alias=config.id_alias,
-                    integrations=config.integrations if config.integrations else None,
                     is_used=is_used,
                 )
             )
@@ -216,9 +208,9 @@ class ChatService:
 
         update_dict = chat_config_data.model_dump(exclude_unset=True)
 
-        # Normalize integrations format if updating
-        if "integrations" in update_dict and update_dict["integrations"]:
-            update_dict["integrations"] = normalize_integrations(update_dict["integrations"])
+        # Convert None to empty list for dataset_ids (model requires List[str], not Optional)
+        if "dataset_ids" in update_dict and update_dict["dataset_ids"] is None:
+            update_dict["dataset_ids"] = []
 
         if 'name' in update_dict and update_dict['name'] != chat_config.name:
             existing_chat_config = await self._chat_config_crud.get_by_name(update_dict['name'], owner_id)
@@ -246,17 +238,15 @@ class ChatService:
                 )
 
         # Update chat
-        # Handle None values explicitly for embedding_model_id, knowledge_store_id, and integrations
+        # Handle None values explicitly for embedding_model_id and knowledge_store_id
         if 'embedding_model_id' in update_dict:
             chat_config.embedding_model_id = update_dict['embedding_model_id']
         if 'knowledge_store_id' in update_dict:
             chat_config.knowledge_store_id = update_dict['knowledge_store_id']
-        if 'integrations' in update_dict:
-            chat_config.integrations = update_dict['integrations']
 
         # Update other fields normally
         for key, value in update_dict.items():
-            if key not in ['embedding_model_id', 'knowledge_store_id', 'integrations'] and value is not None:
+            if key not in ['embedding_model_id', 'knowledge_store_id'] and value is not None:
                 setattr(chat_config, key, value)
 
         # Save the chat object directly to handle None values
@@ -278,8 +268,6 @@ class ChatService:
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
-            # Model already normalizes integrations via field_validator, but ensure it's normalized
-            integrations=chat_config.integrations if chat_config.integrations else None,
             is_used=is_used,
         )
 
