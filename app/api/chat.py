@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Body, status
 from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import json
 
 from app.schemas.chat import (
@@ -278,6 +278,38 @@ async def delete_chat_session(
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Delete chat session failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+class DeleteSessionsRequest(BaseModel):
+    session_ids: list[str] = Field(..., description="List of session IDs to delete")
+
+
+@router.delete(
+    "/sessions",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Multiple Chat Sessions",
+    description="Delete multiple chat sessions and their messages"
+)
+async def delete_chat_sessions(
+    request: DeleteSessionsRequest = Body(...),
+    current_user: dict = Depends(verify_token)
+):
+    """Delete multiple chat sessions"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+        deleted_count = await chat_service.delete_chat_sessions(owner_id, request.session_ids)
+        return ok(
+            message=f"Deleted {deleted_count} session(s) successfully",
+            data={"deleted_count": deleted_count}
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Delete chat sessions failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

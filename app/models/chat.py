@@ -23,11 +23,17 @@ class ChatConfig(TimeMixin, Document):
     # Custom instructions
     instruction_prompt: str = Field("", description="Custom instruction prompt")
 
+    id_alias: Optional[Annotated[str, Indexed()]] = Field(None, description="ID alias")
+
+    # Integrations
+    integrations: Optional[dict] = Field(None, description="Third-party integrations configuration (e.g. Google Sheet)")
+
     class Settings:
         name = "chat_configs"
         indexes = [
             IndexModel([("owner_id", 1), ("name", 1)]),
             IndexModel([("owner_id", 1), ("created_at", -1)]),
+            IndexModel([("owner_id", 1), ("id_alias", 1)]),
         ]
 
 
