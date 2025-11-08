@@ -148,8 +148,13 @@ class CredentialSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="CREDENTIAL_")
 
+class ComposioSettings(BaseSettings):
+    COMPOSIO_API_KEY: str
+    COMPOSIO_WEBHOOK_SECRET: str
 
-class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="COMPOSIO_")
+
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

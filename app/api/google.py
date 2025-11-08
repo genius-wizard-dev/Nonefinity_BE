@@ -21,8 +21,6 @@ router = APIRouter(
     }
 )
 
-
-
 @router.get("/list-sheets")
 async def list_sheets(
     page_token: Optional[str] = Query(None, description="Page token for pagination (from previous response)"),
