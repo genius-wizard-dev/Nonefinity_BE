@@ -9,6 +9,7 @@ from app.schemas.chat import (
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest,
 )
+from datetime import datetime
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
 from app.services.dataset_service import DatasetService
@@ -17,7 +18,9 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
+from app.services.intergrate_service import integration_service
 from app.agents.types import AgentContext
+from app.services.composio_service import composio_service
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig, EmbeddingModelConfig
 from app.agents.tools import dataset_tools, knowledge_tools
@@ -55,7 +58,7 @@ class ChatService:
         random_part = random.randint(100000, 999999)
         return f"{normalized_name}-{random_part}"
 
-    async def  _ensure_id_alias(self, chat_config: ChatConfig) -> ChatConfig:
+    async def _ensure_id_alias(self, chat_config: ChatConfig) -> ChatConfig:
         """Ensure chat config has id_alias, generate if missing (for backward compatibility)"""
         if not chat_config.id_alias:
             chat_config.id_alias = self._create_id_alias(chat_config.name)
@@ -117,6 +120,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
 
@@ -153,6 +158,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
     async def get_list_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
@@ -182,6 +189,7 @@ class ChatService:
                     updated_at=config.updated_at,
                     id_alias=config.id_alias,
                     is_used=is_used,
+                    integration_ids=config.integration_ids if config.integration_ids else None,
                 )
             )
         return ChatConfigListResponse(
@@ -219,6 +227,12 @@ class ChatService:
                     message="Chat config with this name already exists",
                     status_code=HTTP_400_BAD_REQUEST
                 )
+
+        if 'integration_ids' in update_dict and update_dict['integration_ids'] is None:
+            update_dict['integration_ids'] = []
+
+        if 'mcp_ids' in update_dict and update_dict['mcp_ids'] is None:
+            update_dict['mcp_ids'] = []
 
         # Validate configuration updates
         if "embedding_model_id" in update_dict or "knowledge_store_id" in update_dict:
@@ -269,6 +283,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
     async def delete_chat_config(self, owner_id: str, chat_config_id: str) -> bool:
@@ -483,6 +499,14 @@ class ChatService:
         """Setup tools for a chat config"""
         tools = dataset_tools if chat_config.dataset_ids else []
         tools += knowledge_tools if chat_config.knowledge_store_id else []
+        integration_ids = chat_config.integration_ids if chat_config.integration_ids else []
+        if integration_ids:
+          integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
+          logger.info(f"Integration slugs: {integration_slugs}")
+          integration_tools = composio_service.get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+          logger.info(f"Integration tools: {integration_tools}")
+          tools += integration_tools
+        logger.info(f"Tools: {tools}")
         return tools
 
 
@@ -536,6 +560,8 @@ class ChatService:
               embedding_model = embedding_model_config.get_embedding_model()
 
             tools = await self._setup_tools(chat_config)
+            json_tools = [tool.model_dump() for tool in tools]
+            logger.info(f"JSON tools: {json_tools}")
             dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
             datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
             knowledge_store_collection_name = None
@@ -570,7 +596,7 @@ class ChatService:
                         f"{schema_str}\n"
                     )
 
-            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=tools, instruction_prompt=chat_config.instruction_prompt)
+            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=tools, instruction_prompt=chat_config.instruction_prompt, current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
 
             agent = create_agent(
                 model=llm,

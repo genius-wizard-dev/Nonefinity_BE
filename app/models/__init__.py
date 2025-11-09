@@ -10,6 +10,7 @@ from app.models.task import Task
 from app.models.knowledge_store import KnowledgeStore
 from app.models.chat import ChatConfig, ChatSession, ChatMessage
 from app.models.intergrate import Integration
+from app.models.mcp import MCP
 
 # Export all models for easy import
 __all__ = [
@@ -27,7 +28,8 @@ __all__ = [
     "ChatSession",
     "ChatMessage",
     "Task",
-    "Integration"
+    "Integration",
+    "MCP"
 ]
 
 # List of all document models for Beanie initialization
@@ -45,4 +47,5 @@ DOCUMENT_MODELS = [
     ChatSession,
     ChatMessage,
     Integration,
+    MCP,
 ]

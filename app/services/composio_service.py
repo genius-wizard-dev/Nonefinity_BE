@@ -46,7 +46,7 @@ class ComposioService:
             return None
 
 
-    def get_list_tools(self, toolkit_slug: list[str]) -> List[dict]:
+    def get_list_tools_by_toolkit_slug(self, toolkit_slug: list[str]) -> List[dict]:
         """
         Get list of tools from Composio
         """
@@ -59,3 +59,11 @@ class ComposioService:
                 "description": item.description,
             })
         return data
+
+
+    def get_list_tools(self, slug: list[str], user_id: str) -> dict:
+      tools = self._composio.tools.get(tools=slug, user_id=user_id)
+      return tools
+
+
+composio_service = ComposioService()

@@ -3,18 +3,13 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-class ConfigItemSchema(BaseModel):
-    """Config item schema with id, name, toolkit_slug, logo and tools"""
-    id: str = Field(..., description="Auth config ID from Composio")
-    name: str = Field(..., description="Auth config name from Composio")
-    logo: str = Field(..., description="Auth config logo from Composio")
-    toolkit_slug: Optional[str] = Field(default=None, description="Toolkit slug from Composio")
-    list_tools_slug: List[str] = Field(default_factory=list, description="List of tools from Composio")
-
-
 class IntegrationBase(BaseModel):
     """Base schema for Integration"""
-    configs: List[ConfigItemSchema] = Field(default_factory=list, description="List of connected configs with id, name, toolkit_slug and tools")
+    auth_config_id: str = Field(..., description="Auth config ID from Composio")
+    auth_config_name: str = Field(..., description="Auth config name from Composio")
+    logo: str = Field(default="", description="Auth config logo from Composio")
+    toolkit_slug: Optional[str] = Field(default=None, description="Toolkit slug from Composio")
+    list_tools_slug: List[str] = Field(default_factory=list, description="List of tools from Composio")
 
 
 class IntegrationCreate(IntegrationBase):
@@ -24,7 +19,10 @@ class IntegrationCreate(IntegrationBase):
 
 class IntegrationUpdate(BaseModel):
     """Schema for updating integration"""
-    configs: Optional[List[ConfigItemSchema]] = Field(None, description="List of connected configs with id, name, toolkit_slug and tools")
+    auth_config_name: Optional[str] = Field(None, description="Auth config name from Composio")
+    logo: Optional[str] = Field(None, description="Auth config logo from Composio")
+    toolkit_slug: Optional[str] = Field(None, description="Toolkit slug from Composio")
+    list_tools_slug: Optional[List[str]] = Field(None, description="List of tools from Composio")
 
 
 class IntegrationResponse(IntegrationBase):
@@ -36,6 +34,15 @@ class IntegrationResponse(IntegrationBase):
 
     class Config:
         from_attributes = True
+
+
+class ConfigItemSchema(BaseModel):
+    """Config item schema with id, name, toolkit_slug, logo and tools (for backward compatibility)"""
+    id: str = Field(..., description="Auth config ID from Composio")
+    name: str = Field(..., description="Auth config name from Composio")
+    logo: str = Field(..., description="Auth config logo from Composio")
+    toolkit_slug: Optional[str] = Field(default=None, description="Toolkit slug from Composio")
+    list_tools_slug: List[str] = Field(default_factory=list, description="List of tools from Composio")
 
 
 class IntegrationItemResponse(BaseModel):
@@ -55,3 +62,12 @@ class IntegrationListResponse(BaseModel):
     total_pages: float = Field(..., description="Total number of pages")
     next_cursor: Optional[str] = Field(None, description="Cursor for next page")
 
+
+class AddToolsRequest(BaseModel):
+    """Request model for adding tools"""
+    tool_slugs: List[str] = Field(..., description="List of tool slugs to add")
+
+
+class ConnectAccountRequest(BaseModel):
+    """Request model for connecting an account"""
+    auth_config_id: str = Field(..., description="The authentication configuration ID from Composio")

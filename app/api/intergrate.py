@@ -9,6 +9,7 @@ from app.services.intergrate_service import integration_service
 from app.services import user_service
 from app.schemas.response import ApiError
 from app.utils import get_logger
+from app.schemas.intergrate import AddToolsRequest, ConnectAccountRequest
 from app.utils.verify_token import verify_token
 import asyncio
 
@@ -24,9 +25,6 @@ router = APIRouter(
 )
 
 
-class ConnectAccountRequest(BaseModel):
-    """Request model for connecting an account"""
-    auth_config_id: str = Field(..., description="The authentication configuration ID from Composio")
 
 
 async def get_user_id(current_user: dict) -> str:
@@ -241,7 +239,7 @@ async def get_tools(toolkit_slug: str, current_user: dict = Depends(verify_token
     try:
         user_id = await get_user_id(current_user)
         composio_service = ComposioService()
-        tools = composio_service.get_list_tools(toolkit_slug=[toolkit_slug])
+        tools = composio_service.get_list_tools_by_toolkit_slug(toolkit_slug=[toolkit_slug])
 
         # Get selected tools from MongoDB for this user and toolkit_slug
         selected_tool_slugs = await integration_service.get_selected_tools_by_toolkit_slug(user_id, toolkit_slug)
@@ -262,9 +260,7 @@ async def get_tools(toolkit_slug: str, current_user: dict = Depends(verify_token
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
 
 
-class AddToolsRequest(BaseModel):
-    """Request model for adding tools"""
-    tool_slugs: List[str] = Field(..., description="List of tool slugs to add")
+
 
 
 @router.post("/tools/{toolkit_slug}")
@@ -322,3 +318,18 @@ async def add_tools(
         logger.error(f"Error adding tools: {str(e)}")
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
 
+
+
+
+@router.get("/config")
+async def get_list_config_item_by_user_id(current_user: dict = Depends(verify_token)):
+    """
+    Get list of integrate by user ID
+    """
+    try:
+        user_id = await get_user_id(current_user)
+        intergrate = await integration_service.get_list_config_item_by_user_id(user_id)
+        return ok(data=intergrate, message="Get integrate successfully")
+    except Exception as e:
+        logger.error(f"Error getting integrate: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)

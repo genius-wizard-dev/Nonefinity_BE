@@ -11,5 +11,6 @@ from app.api.tasks import router as tasks_router
 from app.api.chat import router as chat_router
 from app.api.google import router as google_router
 from app.api.intergrate import router as intergrate_router
+from app.api.mcp import router as mcp_router
 
-__all__ = ["webhooks_router", "file_router", "auth_router", "duckdb_router", "dataset_router", "credential_router", "provider_router", "embedding_router", "model_router", "tasks_router", "chat_router", "google_router", "intergrate_router"]
+__all__ = ["webhooks_router", "file_router", "auth_router", "duckdb_router", "dataset_router", "credential_router", "provider_router", "embedding_router", "model_router", "tasks_router", "chat_router", "google_router", "intergrate_router", "mcp_router"]
