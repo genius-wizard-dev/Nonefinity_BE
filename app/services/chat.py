@@ -291,6 +291,29 @@ class ChatService:
         await self._chat_session_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
+    async def delete_chat_sessions(self, owner_id: str, chat_session_ids: List[str]) -> dict:
+        """Delete multiple chat sessions"""
+        # Verify all sessions belong to the owner
+        sessions = await self._chat_session_crud.list(
+            filter_={"_id": {"$in": chat_session_ids}, "owner_id": owner_id},
+            include_deleted=False
+        )
+        
+        if not sessions:
+            return {"deleted_count": 0, "not_found": chat_session_ids}
+        
+        # Get found session IDs
+        found_ids = [str(session.id) for session in sessions]
+        not_found = [sid for sid in chat_session_ids if sid not in found_ids]
+        
+        # Delete the sessions
+        await self._chat_session_crud.delete_by_chat_session_ids(found_ids)
+        
+        return {
+            "deleted_count": len(found_ids),
+            "not_found": not_found
+        }
+
     async def delete_chat_session_messages(self, owner_id: str, chat_session_id: str) -> bool:
         """Delete all messages for a chat session"""
         messages = await self._chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id)
