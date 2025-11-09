@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Body, status
+from typing import List
 from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -12,7 +13,7 @@ from app.schemas.chat import (
 from app.services.chat import ChatService
 from app.services.user import user_service
 from app.utils.api_response import ok, created
-from app.utils.verify_token import verify_token
+from app.utils.api_key_auth import verify_api_key_or_token, validate_chat_config_access
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
 from app.utils import get_logger
@@ -32,17 +33,21 @@ router = APIRouter(
 
 async def get_owner_and_service(current_user):
     """Helper function to get owner ID and chat service"""
-    clerk_id = current_user.get("sub")
-    user = await user_service.crud.get_by_clerk_id(clerk_id)
-    if not user:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail="User not found"
-        )
+    # API keys already contain owner_id in 'sub'
+    if current_user.get("auth_type") == "api_key":
+        owner_id = current_user.get("sub")
+    else:
+        # JWT tokens contain clerk_id in 'sub', need to look up user
+        clerk_id = current_user.get("sub")
+        user = await user_service.crud.get_by_clerk_id(clerk_id)
+        if not user:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="User not found"
+            )
+        owner_id = str(user.id)
 
-    owner_id = str(user.id)
     chat_service = ChatService()
-
     return owner_id, chat_service
 
 
@@ -55,7 +60,7 @@ async def get_owner_and_service(current_user):
 )
 async def create_chat_config(
     request: ChatConfigCreate,
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Create a new chat configuration"""
     try:
@@ -80,9 +85,10 @@ async def create_chat_config(
 )
 async def list_chat_configs(
     request: Request,
-    current_user: dict = Depends(verify_token),
+    current_user: dict = Depends(verify_api_key_or_token),
     skip: int = Query(0, ge=0, description="Number of configs to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of configs to return")
+    limit: int = Query(100, ge=1, le=1000,
+                       description="Number of configs to return")
 ):
     """Get all chat configurations for the current user"""
     try:
@@ -107,7 +113,7 @@ async def list_chat_configs(
 )
 async def get_chat_config_by_id(
     config_id: str = Path(..., description="Chat Config ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Get a specific chat configuration by ID"""
     try:
@@ -133,7 +139,7 @@ async def get_chat_config_by_id(
 async def update_chat_config(
     request: ChatConfigUpdate,
     config_id: str = Path(..., description="Chat Config ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Update a chat configuration"""
     try:
@@ -158,7 +164,7 @@ async def update_chat_config(
 )
 async def delete_chat_config(
     config_id: str = Path(..., description="Chat Config ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Delete a chat configuration"""
     try:
@@ -185,11 +191,15 @@ async def delete_chat_config(
 )
 async def create_chat_session(
     request: ChatSessionCreate,
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Create a new chat session"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
+
+        # Validate API key has access to this chat config
+        validate_chat_config_access(current_user, request.chat_config_id)
+
         chat_session = await chat_service.create_chat_session(owner_id, request)
         return created(data=chat_session, message="Chat session created successfully")
 
@@ -210,9 +220,10 @@ async def create_chat_session(
 )
 async def list_chat_sessions(
     request: Request,
-    current_user: dict = Depends(verify_token),
+    current_user: dict = Depends(verify_api_key_or_token),
     skip: int = Query(0, ge=0, description="Number of sessions to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of sessions to return")
+    limit: int = Query(100, ge=1, le=1000,
+                       description="Number of sessions to return")
 ):
     """Get all chat sessions for the current user"""
     try:
@@ -237,9 +248,10 @@ async def list_chat_sessions(
 )
 async def get_chat_session(
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_token),
+    current_user: dict = Depends(verify_api_key_or_token),
     skip: int = Query(0, ge=0, description="Number of messages to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of messages to return")
+    limit: int = Query(100, ge=1, le=1000,
+                       description="Number of messages to return")
 ):
     """Get a specific chat session with messages"""
     try:
@@ -264,7 +276,7 @@ async def get_chat_session(
 )
 async def delete_chat_session(
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Delete a chat session"""
     try:
@@ -321,7 +333,7 @@ async def delete_chat_sessions(
 )
 async def clear_session_messages(
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Clear all messages from a chat session"""
     try:
@@ -338,7 +350,6 @@ async def clear_session_messages(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-
 class StreamMessageRequest(BaseModel):
     role: str = "user"
     content: str
@@ -348,9 +359,9 @@ def format_sse_message(event_type: str, data: dict) -> str:
     """Format data as Server-Sent Event message"""
     json_data = json.dumps(data)
     if event_type:
-      return f"event: {event_type}\ndata: {json_data}\n\n"
+        return f"event: {event_type}\ndata: {json_data}\n\n"
     else:
-      return f"data: {json_data}\n\n"
+        return f"data: {json_data}\n\n"
 
 
 async def stream_sse_response(generator):
@@ -369,12 +380,12 @@ async def stream_sse_response(generator):
 @router.post(
     "/sessions/{session_id}/stream",
     summary="Stream Chat Response",
-    description="Stream chat response using Server-Sent Events (SSE)"
+    description="Stream chat response using Server-Sent Events (SSE). Supports both JWT and API key authentication."
 )
 async def stream_chat(
     request: StreamMessageRequest,
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Stream chat response using SSE"""
     try:
@@ -417,6 +428,7 @@ async def stream_chat(
         )
     except Exception as e:
         logger.error(f"Stream chat failed: {str(e)}")
+
         async def error_sse(e):
             yield format_sse_message("error", {"message": e.message})
         return StreamingResponse(
@@ -424,8 +436,6 @@ async def stream_chat(
             media_type="text/event-stream",
             status_code=500
         )
-
-
 
 
 @router.post(
@@ -437,12 +447,11 @@ async def stream_chat(
 async def save_conversation(
     request: SaveConversationRequest,
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_api_key_or_token)
 ):
     """Save a batch of messages representing complete conversation flow"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-
 
         success = await chat_service.save_conversation_batch(owner_id, session_id, request.messages)
         if not success:
@@ -462,4 +471,3 @@ async def save_conversation(
     except Exception as e:
         logger.error(f"Save conversation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
