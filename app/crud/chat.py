@@ -37,6 +37,14 @@ class ChatConfigCRUD(BaseCRUD[ChatConfig, ChatConfigCreate, ChatConfigUpdate]):
             include_deleted=False
         )
 
+    async def get_by_id_alias(self, id_alias: str, owner_id: str) -> Optional[ChatConfig]:
+        """Get chat config by id_alias"""
+        return await self.get_one(
+            filter_={"id_alias": id_alias},
+            owner_id=owner_id,
+            include_deleted=False
+        )
+
 chat_config_crud = ChatConfigCRUD()
 
 class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
@@ -66,6 +74,24 @@ class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
             filter_={"name": name, "owner_id": owner_id},
             include_deleted=False
         )
+
+    async def count_sessions_by_config_id(self, chat_config_id: str, owner_id: str) -> int:
+        """Count number of sessions using this chat config"""
+        count = await ChatSession.find(
+            ChatSession.chat_config_id == chat_config_id,
+            ChatSession.owner_id == owner_id
+        ).count()
+        return count
+
+    async def delete_by_ids(self, session_ids: List[str], owner_id: str) -> int:
+        """Delete multiple sessions by IDs"""
+        deleted_count = 0
+        for session_id in session_ids:
+            session = await self.get_by_id(session_id, owner_id=owner_id)
+            if session:
+                await self.delete_by_chat_session_id(str(session.id))
+                deleted_count += 1
+        return deleted_count
 
 
 chat_session_crud = ChatSessionCRUD()

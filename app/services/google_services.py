@@ -204,8 +204,6 @@ class GoogleServices:
             done = False
             while not done:
                 status, done = downloader.next_chunk()
-                if status:
-                    logger.debug(f"Download progress: {int(status.progress() * 100)}%")
 
             file_content.seek(0)
             return file_content.read()
@@ -250,8 +248,6 @@ class GoogleServices:
             done = False
             while not done:
                 status, done = downloader.next_chunk()
-                if status:
-                    logger.debug(f"Export progress: {int(status.progress() * 100)}%")
 
             file_content.seek(0)
             return file_content.read()

@@ -50,8 +50,6 @@ class AITasksClient:
                 task_track_started=True,
             )
 
-            logger.debug(f"Configured AI Tasks Celery client: {self.app_name}")
-
         except Exception as e:
             logger.error(f"Failed to initialize AI Tasks client: {e}")
             raise
@@ -237,8 +235,6 @@ class AITasksClient:
         """
 
         try:
-            logger.debug(f"Getting status for task: {task_id}")
-
             result = AsyncResult(task_id, app=self.celery_app)
 
             response = {
@@ -299,8 +295,6 @@ class AITasksClient:
         """
 
         try:
-            logger.debug(f"Getting result for task: {task_id}")
-
             result = AsyncResult(task_id, app=self.celery_app)
 
             response = {

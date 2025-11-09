@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends
-import requests
 from clerk_backend_api import Clerk
 from starlette.status import HTTP_400_BAD_REQUEST
 from app.configs.settings import settings
@@ -51,13 +50,12 @@ async def google_token(current_user: dict = Depends(verify_token)):
                 user_id=current_user.get('sub'),
                 provider="oauth_google"
             )
-            logger.info(f"Google token: {res}")
             assert res is not None
 
             # Extract token from response (res is a list of OAuthAccessToken objects)
             token = res[0].token if isinstance(res, list) and len(res) > 0 else res.token
 
-            return ok({"token": token}, f"Get google token successfully")
+            return ok({"token": token}, "Get google token successfully")
     except Exception as e:
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
 

@@ -23,11 +23,17 @@ class ChatConfig(TimeMixin, Document):
     # Custom instructions
     instruction_prompt: str = Field("", description="Custom instruction prompt")
 
+    id_alias: Optional[Annotated[str, Indexed()]] = Field(None, description="ID alias")
+
+    integration_ids: List[str] = Field(default_factory=list, description="List of integration MongoDB IDs")
+    mcp_ids: List[str] = Field(default_factory=list, description="List of MCP configuration MongoDB IDs")
+
     class Settings:
         name = "chat_configs"
         indexes = [
             IndexModel([("owner_id", 1), ("name", 1)]),
             IndexModel([("owner_id", 1), ("created_at", -1)]),
+            IndexModel([("owner_id", 1), ("id_alias", 1)]),
         ]
 
 

@@ -45,7 +45,10 @@ dependencies = [
     "langchain-qdrant>=1.1.0",
     "langchain-text-splitters>=1.0.0",
     "langchain-community>=0.4.1",
+    "langchain-mcp-adapters>=0.1.0",
     "google-api-python-client>=2.187.0",
     "google-auth-httplib2>=0.2.1",
     "google-auth-oauthlib>=1.2.3",
+    "composio>=0.9.1",
+    "composio-langchain>=0.9.1",
 ]

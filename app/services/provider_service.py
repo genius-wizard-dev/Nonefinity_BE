@@ -115,7 +115,6 @@ class ProviderService:
         else:
             providers = await Provider.find_all().to_list()
 
-        logger.debug(f"Retrieved {len(providers)} providers (active_only={active_only})")
         return providers
 
     @staticmethod
@@ -150,7 +149,6 @@ class ProviderService:
             query["is_active"] = True
 
         providers = await Provider.find(query).to_list()
-        logger.debug(f"Found {len(providers)} providers supporting '{task_type}' task")
         return providers
 
     @staticmethod

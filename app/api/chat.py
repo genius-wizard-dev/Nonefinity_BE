@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, status
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Body, status
 from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import json
+from app.utils.verify_token import verify_token
 
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
@@ -293,6 +293,10 @@ async def delete_chat_session(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+class DeleteSessionsRequest(BaseModel):
+    session_ids: list[str] = Field(..., description="List of session IDs to delete")
+
+
 @router.delete(
     "/sessions",
     status_code=status.HTTP_200_OK,
@@ -300,20 +304,17 @@ async def delete_chat_session(
     description="Delete multiple chat sessions and their messages"
 )
 async def delete_chat_sessions(
-    session_ids: List[str] = Query(...,
-                                   description="List of chat session IDs to delete"),
-    current_user: dict = Depends(verify_api_key_or_token)
+    request: DeleteSessionsRequest = Body(...),
+    current_user: dict = Depends(verify_token)
 ):
     """Delete multiple chat sessions"""
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
-        result = await chat_service.delete_chat_sessions(owner_id, session_ids)
-
-        message = f"Deleted {result['deleted_count']} chat sessions"
-        if result['not_found']:
-            message += f". {len(result['not_found'])} sessions not found"
-
-        return ok(data=result, message=message)
+        deleted_count = await chat_service.delete_chat_sessions(owner_id, request.session_ids)
+        return ok(
+            message=f"Deleted {deleted_count} session(s) successfully",
+            data={"deleted_count": deleted_count}
+        )
 
     except HTTPException:
         raise

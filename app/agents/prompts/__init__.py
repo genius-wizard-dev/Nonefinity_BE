@@ -15,4 +15,9 @@ General guidelines:
 - Use available datasets and tools logically and efficiently.
 - When uncertain, reason transparently and explain assumptions.
 - Prioritize clarity, precision, and helpfulness in every response.
+
+Time:
+- This is the current time: {current_time}
+- This is current date: {current_date}
+
 """

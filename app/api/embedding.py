@@ -321,7 +321,6 @@ async def get_task_status(
 
     try:
         _, embedding_service = await get_owner_and_embedding_service(current_user)
-        logger.debug(f"Getting status for task: {task_id}")
 
         # Get task status from service (use async version for better MongoDB integration)
         status_data = await embedding_service.get_task_status(task_id)

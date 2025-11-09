@@ -1,6 +1,6 @@
-from typing import List, Any
+from typing import List
 import json
-
+import random
 from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
 from app.models.chat import ChatMessage
 from app.schemas.chat import (
@@ -9,20 +9,23 @@ from app.schemas.chat import (
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest,
 )
+from datetime import datetime
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
-from app.databases.qdrant import qdrant
 from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
+from app.services.intergrate_service import integration_service
 from app.agents.types import AgentContext
+from app.services.composio_service import composio_service
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig, EmbeddingModelConfig
 from app.agents.tools import dataset_tools, knowledge_tools
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
+from langchain_core.messages import HumanMessage
+from app.services.mcp_service import mcp_service
 from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
 from app.agents.middleware import NonfinityAgentMiddleware
@@ -43,6 +46,25 @@ class ChatService:
         self._credential_service = credential_service
         self._dataset_crud = dataset_crud
         self._knowledge_store_crud = knowledge_store_crud
+
+    def _create_id_alias(self, name: str) -> str:
+        """Create an ID alias from normalized name + 6 random digits"""
+        # Normalize name: lowercase, replace spaces with hyphens, remove special chars
+        normalized_name = name.strip().lower().replace(' ', '-')
+        # Remove special characters, keep only alphanumeric and hyphens
+        normalized_name = ''.join(c for c in normalized_name if c.isalnum() or c == '-')
+        # Remove consecutive hyphens
+        normalized_name = '-'.join(filter(None, normalized_name.split('-')))
+        # Generate 6 random digits
+        random_part = random.randint(100000, 999999)
+        return f"{normalized_name}-{random_part}"
+
+    async def _ensure_id_alias(self, chat_config: ChatConfig) -> ChatConfig:
+        """Ensure chat config has id_alias, generate if missing (for backward compatibility)"""
+        if not chat_config.id_alias:
+            chat_config.id_alias = self._create_id_alias(chat_config.name)
+            await chat_config.save()
+        return chat_config
 
     async def create_chat_config(self, owner_id: str, chat_config_data: ChatConfigCreate) -> ChatConfigResponse:
         """Create a new chat configuration  """
@@ -67,8 +89,26 @@ class ChatService:
                 status_code=HTTP_400_BAD_REQUEST
             )
 
+        # Create ID alias (normalized name + 6 random digits, backend generated)
+        id_alias = self._create_id_alias(chat_config_data.name)
+        # Ensure id_alias is not in the create data, we'll add it manually
+        create_data = chat_config_data.model_dump(exclude={"id_alias"})
+        create_data["id_alias"] = id_alias
+
+        # Convert None to empty list for dataset_ids (model requires List[str], not Optional)
+        if create_data.get("dataset_ids") is None:
+            create_data["dataset_ids"] = []
+
         # Create chat
-        chat_config = await self._chat_config_crud.create(chat_config_data, owner_id=owner_id)
+        chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
+        # Ensure id_alias exists (should always exist for new records)
+        chat_config = await self._ensure_id_alias(chat_config)
+        # Check if config is being used by any sessions
+        session_count = await self._chat_session_crud.count_sessions_by_config_id(
+            str(chat_config.id), owner_id
+        )
+        is_used = session_count > 0
+
         return ChatConfigResponse(
             id=str(chat_config.id),
             name=chat_config.name,
@@ -79,14 +119,33 @@ class ChatService:
             instruction_prompt=chat_config.instruction_prompt,
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
+            id_alias=chat_config.id_alias,
+            is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
 
     async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
-        """Get a specific chat by ID"""
+        """Get a specific chat by ID (supports both MongoDB ObjectId and id_alias)"""
+        # Try to get by MongoDB ObjectId first
         chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+
+        # If not found, try to get by id_alias (numeric string)
+        if not chat_config:
+            chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
+
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+
+        # Ensure id_alias exists (for backward compatibility with old records)
+        chat_config = await self._ensure_id_alias(chat_config)
+
+        # Check if config is being used by any sessions
+        session_count = await self._chat_session_crud.count_sessions_by_config_id(
+            str(chat_config.id), owner_id
+        )
+        is_used = session_count > 0
 
         return ChatConfigResponse(
             id=str(chat_config.id),
@@ -98,25 +157,42 @@ class ChatService:
             instruction_prompt=chat_config.instruction_prompt,
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
+            id_alias=chat_config.id_alias,
+            is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
     async def get_list_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
         """Get all chats for a user"""
         chat_configs = await self._chat_config_crud.list(owner_id=owner_id, skip=skip, limit=limit)
-        config_responses = [
-            ChatConfigResponse(
-                id=str(config.id),
-                name=config.name,
-                chat_model_id=config.chat_model_id,
-                embedding_model_id=config.embedding_model_id,
-                knowledge_store_id=config.knowledge_store_id,
-                dataset_ids=config.dataset_ids if config.dataset_ids else None,
-                instruction_prompt=config.instruction_prompt,
-                created_at=config.created_at,
-                updated_at=config.updated_at,
+        config_responses = []
+        for config in chat_configs:
+            # Ensure id_alias exists (for backward compatibility with old records)
+            config = await self._ensure_id_alias(config)
+
+            # Check if config is being used by any sessions
+            session_count = await self._chat_session_crud.count_sessions_by_config_id(
+                str(config.id), owner_id
             )
-            for config in chat_configs
-        ]
+            is_used = session_count > 0
+
+            config_responses.append(
+                ChatConfigResponse(
+                    id=str(config.id),
+                    name=config.name,
+                    chat_model_id=config.chat_model_id,
+                    embedding_model_id=config.embedding_model_id,
+                    knowledge_store_id=config.knowledge_store_id,
+                    dataset_ids=config.dataset_ids if config.dataset_ids else None,
+                    instruction_prompt=config.instruction_prompt,
+                    created_at=config.created_at,
+                    updated_at=config.updated_at,
+                    id_alias=config.id_alias,
+                    is_used=is_used,
+                    integration_ids=config.integration_ids if config.integration_ids else None,
+                )
+            )
         return ChatConfigListResponse(
             chat_configs=config_responses,
             total=len(config_responses),
@@ -125,12 +201,26 @@ class ChatService:
         )
 
     async def update_chat_config(self, owner_id: str, chat_config_id: str, chat_config_data: ChatConfigUpdate) -> ChatConfigResponse:
-        """Update a chat configuration"""
+        """Update a chat configuration (id_alias cannot be updated)"""
+        # Try to get by MongoDB ObjectId first
         chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+
+        # If not found, try to get by id_alias (numeric string)
+        if not chat_config:
+            chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
+
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
 
+        # Ensure id_alias exists (for backward compatibility with old records)
+        chat_config = await self._ensure_id_alias(chat_config)
+
         update_dict = chat_config_data.model_dump(exclude_unset=True)
+
+        # Convert None to empty list for dataset_ids (model requires List[str], not Optional)
+        if "dataset_ids" in update_dict and update_dict["dataset_ids"] is None:
+            update_dict["dataset_ids"] = []
+
         if 'name' in update_dict and update_dict['name'] != chat_config.name:
             existing_chat_config = await self._chat_config_crud.get_by_name(update_dict['name'], owner_id)
             if existing_chat_config and str(existing_chat_config.id) != chat_config_id:
@@ -138,6 +228,12 @@ class ChatService:
                     message="Chat config with this name already exists",
                     status_code=HTTP_400_BAD_REQUEST
                 )
+
+        if 'integration_ids' in update_dict and update_dict['integration_ids'] is None:
+            update_dict['integration_ids'] = []
+
+        if 'mcp_ids' in update_dict and update_dict['mcp_ids'] is None:
+            update_dict['mcp_ids'] = []
 
         # Validate configuration updates
         if "embedding_model_id" in update_dict or "knowledge_store_id" in update_dict:
@@ -170,6 +266,12 @@ class ChatService:
 
         # Save the chat object directly to handle None values
         await chat_config.save()
+        # Check if config is being used by any sessions
+        session_count = await self._chat_session_crud.count_sessions_by_config_id(
+            str(chat_config.id), owner_id
+        )
+        is_used = session_count > 0
+
         return ChatConfigResponse(
             id=str(chat_config.id),
             name=chat_config.name,
@@ -180,14 +282,39 @@ class ChatService:
             instruction_prompt=chat_config.instruction_prompt,
             created_at=chat_config.created_at,
             updated_at=chat_config.updated_at,
+            id_alias=chat_config.id_alias,
+            is_used=is_used,
+            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
+            mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
     async def delete_chat_config(self, owner_id: str, chat_config_id: str) -> bool:
-        """Delete a chat configuration"""
+        """Delete a chat configuration (supports both MongoDB ObjectId and id_alias)"""
+        # Try to get by MongoDB ObjectId first
         chat_config = await self._chat_config_crud.get_by_id(id=chat_config_id, owner_id=owner_id)
+
+        # If not found, try to get by id_alias (numeric string)
+        if not chat_config:
+            chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
+
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
-        await self._chat_config_crud.delete_by_chat_config_id(chat_config_id)
+
+        # Ensure id_alias exists before deletion (for logging/audit purposes)
+        chat_config = await self._ensure_id_alias(chat_config)
+
+        # Check if config is being used by any sessions
+        session_count = await self._chat_session_crud.count_sessions_by_config_id(
+            str(chat_config.id), owner_id
+        )
+        if session_count > 0:
+            raise AppError(
+                message=f"Cannot delete chat config. It is being used by {session_count} session(s). Please delete all sessions first.",
+                status_code=HTTP_400_BAD_REQUEST
+            )
+
+        # Use the actual MongoDB ID for deletion
+        await self._chat_config_crud.delete_by_chat_config_id(str(chat_config.id))
         return True
 
     async def create_chat_session(self, owner_id: str, chat_session_data: ChatSessionCreate) -> ChatSessionResponse:
@@ -199,6 +326,8 @@ class ChatService:
         chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
         if not chat_config:
             raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+        # Ensure id_alias exists (for backward compatibility with old records)
+        chat_config = await self._ensure_id_alias(chat_config)
 
         chat_session = await self._chat_session_crud.create(chat_session_data, owner_id=owner_id)
         if not chat_session:
@@ -291,28 +420,10 @@ class ChatService:
         await self._chat_session_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
-    async def delete_chat_sessions(self, owner_id: str, chat_session_ids: List[str]) -> dict:
+    async def delete_chat_sessions(self, owner_id: str, session_ids: List[str]) -> int:
         """Delete multiple chat sessions"""
-        # Verify all sessions belong to the owner
-        sessions = await self._chat_session_crud.list(
-            filter_={"_id": {"$in": chat_session_ids}, "owner_id": owner_id},
-            include_deleted=False
-        )
-        
-        if not sessions:
-            return {"deleted_count": 0, "not_found": chat_session_ids}
-        
-        # Get found session IDs
-        found_ids = [str(session.id) for session in sessions]
-        not_found = [sid for sid in chat_session_ids if sid not in found_ids]
-        
-        # Delete the sessions
-        await self._chat_session_crud.delete_by_chat_session_ids(found_ids)
-        
-        return {
-            "deleted_count": len(found_ids),
-            "not_found": not_found
-        }
+        deleted_count = await self._chat_session_crud.delete_by_ids(session_ids, owner_id)
+        return deleted_count
 
     async def delete_chat_session_messages(self, owner_id: str, chat_session_id: str) -> bool:
         """Delete all messages for a chat session"""
@@ -389,6 +500,16 @@ class ChatService:
         """Setup tools for a chat config"""
         tools = dataset_tools if chat_config.dataset_ids else []
         tools += knowledge_tools if chat_config.knowledge_store_id else []
+        integration_ids = chat_config.integration_ids if chat_config.integration_ids else []
+        mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
+        if integration_ids:
+          integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
+          integration_tools = composio_service.get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+          tools += integration_tools
+        if mcp_ids:
+          mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
+          tools += mcp_tools
+
         return tools
 
 
@@ -425,6 +546,8 @@ class ChatService:
                     message="Chat config not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
+             # Ensure id_alias exists (for backward compatibility with old records)
+            chat_config = await self._ensure_id_alias(chat_config)
 
             llm_config = await LLMConfig.from_model_id(
               owner_id=owner_id,
@@ -440,6 +563,7 @@ class ChatService:
               embedding_model = embedding_model_config.get_embedding_model()
 
             tools = await self._setup_tools(chat_config)
+            json_tools = [{"name": tool.name, "description": getattr(tool, "description", "")} for tool in tools]
             dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
             datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
             knowledge_store_collection_name = None
@@ -474,7 +598,7 @@ class ChatService:
                         f"{schema_str}\n"
                     )
 
-            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=tools, instruction_prompt=chat_config.instruction_prompt)
+            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=json_tools, instruction_prompt=chat_config.instruction_prompt, current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
 
             agent = create_agent(
                 model=llm,
@@ -494,7 +618,6 @@ class ChatService:
 
             config = RunnableConfig(configurable={"thread_id": chat_session_id})
             async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
-              logger.info(f"Chunk: {chunk}")
               for key, value in chunk.items():
                   msg = value["messages"][0]
 

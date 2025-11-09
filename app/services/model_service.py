@@ -103,7 +103,6 @@ class ModelService:
             )
 
             model_responses = [self._to_response(model) for model in models]
-            logger.debug(f"Models retrieved successfully: {model_responses}")
 
             return {
                 "models": model_responses,

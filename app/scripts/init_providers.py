@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-Script to initialize AI providers from YAML configuration.
-This can be run manually if needed.
-
-Usage:
-    python -m app.scripts.init_providers
-"""
 
 import asyncio
 import sys

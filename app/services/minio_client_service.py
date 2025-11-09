@@ -16,9 +16,6 @@ class MinIOClientService:
         self.access_key = access_key
         self.secret_key = secret_key
 
-        logger.debug(
-            f"Creating new MinIO client for user: {access_key[:10]}...")
-
         # Always create a new client
         self.client = Minio(
             endpoint=settings.MINIO_URL.replace(
