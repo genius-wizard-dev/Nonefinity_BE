@@ -56,7 +56,7 @@ class APIKeyCRUD:
         query = APIKey.find(APIKey.owner_id == owner_id)
 
         if not include_inactive:
-            query = query.find(APIKey.is_active)
+            query = query.find(APIKey.is_active == True)
 
         return await query.skip(skip).limit(limit).to_list()
 
@@ -96,7 +96,7 @@ class APIKeyCRUD:
         query = APIKey.find(APIKey.owner_id == owner_id)
 
         if not include_inactive:
-            query = query.find(APIKey.is_active)
+            query = query.find(APIKey.is_active == True)
 
         return await query.count()
 
