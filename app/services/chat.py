@@ -25,6 +25,7 @@ from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.llms import LLMConfig, EmbeddingModelConfig
 from app.agents.tools import dataset_tools, knowledge_tools
 from langchain_core.messages import HumanMessage
+from app.services.mcp_service import mcp_service
 from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
 from app.agents.middleware import NonfinityAgentMiddleware
@@ -500,13 +501,15 @@ class ChatService:
         tools = dataset_tools if chat_config.dataset_ids else []
         tools += knowledge_tools if chat_config.knowledge_store_id else []
         integration_ids = chat_config.integration_ids if chat_config.integration_ids else []
+        mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
         if integration_ids:
           integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
-          logger.info(f"Integration slugs: {integration_slugs}")
           integration_tools = composio_service.get_list_tools(integration_slugs, user_id=chat_config.owner_id)
-          logger.info(f"Integration tools: {integration_tools}")
           tools += integration_tools
-        logger.info(f"Tools: {tools}")
+        if mcp_ids:
+          mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
+          tools += mcp_tools
+
         return tools
 
 
@@ -560,8 +563,7 @@ class ChatService:
               embedding_model = embedding_model_config.get_embedding_model()
 
             tools = await self._setup_tools(chat_config)
-            json_tools = [tool.model_dump() for tool in tools]
-            logger.info(f"JSON tools: {json_tools}")
+            json_tools = [{"name": tool.name, "description": getattr(tool, "description", "")} for tool in tools]
             dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
             datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
             knowledge_store_collection_name = None
@@ -596,7 +598,7 @@ class ChatService:
                         f"{schema_str}\n"
                     )
 
-            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=tools, instruction_prompt=chat_config.instruction_prompt, current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
+            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=json_tools, instruction_prompt=chat_config.instruction_prompt, current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
 
             agent = create_agent(
                 model=llm,

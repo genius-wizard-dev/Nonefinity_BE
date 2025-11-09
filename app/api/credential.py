@@ -51,7 +51,6 @@ async def get_model_credential(
 ):
     try:
       owner_id, credential_service = await get_owner_and_service(current_user)
-      print(owner_id, id)
       result = await credential_service.get_model_credential(owner_id, id)
       return ok(data=result, message="Model retrieved successfully")
     except Exception as e:

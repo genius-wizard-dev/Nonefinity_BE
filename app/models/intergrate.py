@@ -1,6 +1,6 @@
 from typing import List, Optional
-from beanie import Document, Indexed
-from pydantic import BaseModel, Field
+from beanie import Document
+from pydantic import Field
 
 from app.models.time_mixin import TimeMixin
 

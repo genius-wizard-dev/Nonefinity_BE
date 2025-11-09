@@ -1,7 +1,6 @@
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from starlette.status import HTTP_400_BAD_REQUEST
-from pydantic import BaseModel, Field
 from app.core.exceptions import AppError
 from app.utils.api_response import ok
 from app.services.composio_service import ComposioService

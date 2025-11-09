@@ -13,8 +13,6 @@ from ..configs.settings import settings
 import json
 import base64
 import binascii
-import hashlib
-import hmac
 logger = get_logger(__name__)
 router = APIRouter(tags=["Webhooks"])
 

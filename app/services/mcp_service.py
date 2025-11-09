@@ -1,4 +1,5 @@
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools.base import BaseTool
 from typing import List, Optional, Dict, Any
 from app.crud.mcp import mcp_crud
 from app.schemas.mcp import MCPResponse, MCPListItemResponse, MCPCreateRequest
@@ -104,7 +105,6 @@ class MCPService:
     async def get_mcp_tools(self, mcp_id: str, user_id: str) -> Optional[List[Dict[str, Any]]]:
         """Get tools from MCP config"""
         mcp = await self.crud.get_by_id_and_user(mcp_id, user_id)
-        logger.info(f"MCP: {mcp}")
         if not mcp:
             return None
 
@@ -187,6 +187,62 @@ class MCPService:
     async def delete_mcp_config(self, mcp_id: str, user_id: str) -> bool:
         """Delete MCP config"""
         return await self.crud.delete_by_id_and_user(mcp_id, user_id)
+
+    async def get_tools_by_mcp_ids(self, user_id: str, mcp_ids: List[str]) -> List[BaseTool]:
+        """Get tools by MCP IDs - merges configs and gets tools from MCP client
+
+        Returns BaseTool objects that can be used directly in LangChain agents.
+        The configs are merged into format: {server_name: {config}}
+        """
+        if not mcp_ids:
+            return []
+
+        # Get all MCP configs by IDs
+        mcps = []
+        for mcp_id in mcp_ids:
+            mcp = await self.crud.get_by_id_and_user(mcp_id, user_id)
+            if mcp:
+                mcps.append(mcp)
+
+        if not mcps:
+            logger.warning(f"No MCP configs found for IDs: {mcp_ids}")
+            return []
+
+        try:
+            # Merge all MCP configs into one dict
+            # Format: {server_name: {config}}
+            # Example: {
+            #   "math": {"transport": "stdio", "command": "python", "args": ["/path/to/math_server.py"]},
+            #   "weather": {"transport": "streamable_http", "url": "http://localhost:8000/mcp"}
+            # }
+            merged_config = {}
+            for mcp in mcps:
+                # mcp.config is already in format {server_name: {config}}
+                merged_config.update(mcp.config)
+
+            logger.info(f"Merged MCP config for {len(mcps)} MCPs: {list(merged_config.keys())}")
+
+            # Create MultiServerMCPClient with merged config
+            client = MultiServerMCPClient(merged_config)
+
+            # Get tools from MCP client (returns List[BaseTool])
+            tools = await client.get_tools()
+
+            logger.info(f"Retrieved {len(tools)} tools from {len(mcps)} MCP configs")
+            return tools
+
+        except Exception as e:
+            logger.error(f"Error fetching tools from MCP configs: {str(e)}")
+            logger.exception(e)
+            # Return empty list on error - tools will be unavailable but won't break the chat
+            return []
+
+    async def get_tools_by_mcp_id(self, user_id: str, mcp_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Get tools by MCP ID"""
+        mcp = await self.crud.get_by_id_and_user(mcp_id, user_id)
+        if not mcp:
+            return None
+        return mcp.tools
 
 
 # Create instance
