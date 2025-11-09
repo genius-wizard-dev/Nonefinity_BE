@@ -34,7 +34,7 @@ class DuckDBInstance:
           self.con = duckdb.connect(database=self.db_path)
 
           # --- Install & load extensions ---
-          extensions = ["aws", "httpfs", "parquet", "ducklake", "postgres"]
+          extensions = ["aws", "httpfs", "parquet", "ducklake", "postgres", "excel"]
           for ext in extensions:
               self.con.execute(f"INSTALL {ext};")
               self.con.execute(f"LOAD {ext};")
