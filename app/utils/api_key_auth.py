@@ -1,10 +1,8 @@
 """API Key Authentication Middleware"""
 from fastapi import Security, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
 from app.models.api_key import APIKey
 from app.crud.api_key import api_key_crud
-from app.services.user import user_service
 from app.utils.jwt_verification import decode_token
 from app.utils import get_logger
 

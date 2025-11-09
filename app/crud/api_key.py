@@ -54,10 +54,10 @@ class APIKeyCRUD:
     async def list(self, owner_id: str, skip: int = 0, limit: int = 100, include_inactive: bool = False) -> List[APIKey]:
         """List API keys for a user"""
         query = APIKey.find(APIKey.owner_id == owner_id)
-        
+
         if not include_inactive:
-            query = query.find(APIKey.is_active == True)
-        
+            query = query.find(APIKey.is_active)
+
         return await query.skip(skip).limit(limit).to_list()
 
     async def update(self, api_key_id: str, owner_id: str, data: APIKeyUpdate) -> Optional[APIKey]:
@@ -94,10 +94,10 @@ class APIKeyCRUD:
     async def count(self, owner_id: str, include_inactive: bool = False) -> int:
         """Count API keys for a user"""
         query = APIKey.find(APIKey.owner_id == owner_id)
-        
+
         if not include_inactive:
-            query = query.find(APIKey.is_active == True)
-        
+            query = query.find(APIKey.is_active)
+
         return await query.count()
 
 

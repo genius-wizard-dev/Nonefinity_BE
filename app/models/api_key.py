@@ -1,5 +1,5 @@
 """API Key Model"""
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 from beanie import Document
 from pydantic import Field

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Request, Body, status
-from typing import List
 from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import json
+from app.utils.verify_token import verify_token
 
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
