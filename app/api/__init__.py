@@ -9,5 +9,6 @@ from app.api.embedding import router as embedding_router
 from app.api.model import router as model_router
 from app.api.tasks import router as tasks_router
 from app.api.chat import router as chat_router
+from app.api.api_keys import router as api_keys_router
 
-__all__ = ["webhooks_router", "file_router", "auth_router", "duckdb_router", "dataset_router", "credential_router", "provider_router", "embedding_router", "model_router", "tasks_router", "chat_router"]
+__all__ = ["webhooks_router", "file_router", "auth_router", "duckdb_router", "dataset_router", "credential_router", "provider_router", "embedding_router", "model_router", "tasks_router", "chat_router", "api_keys_router"]
