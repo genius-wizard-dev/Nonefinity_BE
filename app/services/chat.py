@@ -618,7 +618,6 @@ class ChatService:
 
             config = RunnableConfig(configurable={"thread_id": chat_session_id})
             async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
-              logger.info(f"Chunk: {chunk}")
               for key, value in chunk.items():
                   msg = value["messages"][0]
 

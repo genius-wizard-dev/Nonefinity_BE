@@ -110,7 +110,6 @@ class MCPService:
 
         # If tools are already stored, return them
         if mcp.tools:
-            logger.info(f"Tools already cached for MCP {mcp_id}")
             return mcp.tools
 
         try:
@@ -220,15 +219,12 @@ class MCPService:
                 # mcp.config is already in format {server_name: {config}}
                 merged_config.update(mcp.config)
 
-            logger.info(f"Merged MCP config for {len(mcps)} MCPs: {list(merged_config.keys())}")
-
             # Create MultiServerMCPClient with merged config
             client = MultiServerMCPClient(merged_config)
 
             # Get tools from MCP client (returns List[BaseTool])
             tools = await client.get_tools()
 
-            logger.info(f"Retrieved {len(tools)} tools from {len(mcps)} MCP configs")
             return tools
 
         except Exception as e:

@@ -477,7 +477,6 @@ class DatasetService:
                 # Get dataset from MongoDB
                 dataset = await self.crud.get_by_name(table_name, user_id)
                 if not dataset:
-                    logger.debug(f"Dataset {table_name} not found in MongoDB, skipping sync")
                     continue
 
                 # Verify table exists in DuckDB before syncing

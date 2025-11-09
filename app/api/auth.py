@@ -50,7 +50,6 @@ async def google_token(current_user: dict = Depends(verify_token)):
                 user_id=current_user.get('sub'),
                 provider="oauth_google"
             )
-            logger.info(f"Google token: {res}")
             assert res is not None
 
             # Extract token from response (res is a list of OAuthAccessToken objects)
