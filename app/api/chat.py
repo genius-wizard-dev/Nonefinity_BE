@@ -3,6 +3,7 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import json
+from app.utils.request import get_timezone_header
 from app.utils.verify_token import verify_token
 
 from app.schemas.chat import (
@@ -219,7 +220,6 @@ async def create_chat_session(
     description="Get all chat sessions for the current user"
 )
 async def list_chat_sessions(
-    request: Request,
     current_user: dict = Depends(verify_api_key_or_token),
     skip: int = Query(0, ge=0, description="Number of sessions to skip"),
     limit: int = Query(100, ge=1, le=1000,
@@ -385,7 +385,8 @@ async def stream_sse_response(generator):
 async def stream_chat(
     request: StreamMessageRequest,
     session_id: str = Path(..., description="Chat Session ID"),
-    current_user: dict = Depends(verify_api_key_or_token)
+    current_user: dict = Depends(verify_api_key_or_token),
+    timezone: str = Depends(get_timezone_header)
 ):
     """Stream chat response using SSE"""
     try:
@@ -397,7 +398,7 @@ async def stream_chat(
             yield format_sse_message(None, "[START]")
 
             # Stream agent response
-            async for chunk in chat_service.stream_agent_response(owner_id, session_id, message):
+            async for chunk in chat_service.stream_agent_response(owner_id, session_id, message, timezone):
                 event_type = chunk.get("event", "message")
                 event_data = chunk.get("data", {})
 

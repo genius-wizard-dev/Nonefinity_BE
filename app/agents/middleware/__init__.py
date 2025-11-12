@@ -10,6 +10,10 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 from typing import Any
 import json
 from app.utils import get_logger
+from langchain.agents.middleware import SummarizationMiddleware
+from langchain.chat_models import init_chat_model
+from app.configs.settings import settings
+
 logger = get_logger(__name__)
 class NonfinityAgentMiddleware(AgentMiddleware):
 
@@ -88,7 +92,7 @@ class NonfinityAgentMiddleware(AgentMiddleware):
         msg = state["messages"]
         recent_messages = await chat_message_crud.model.find(
             {"session_id": session_id, "owner_id": runtime.context.user_id}
-        ).sort("-created_at").limit(10).to_list()
+        ).sort("-created_at").limit(15).to_list()
         recent_messages.reverse()
         formatted_messages = [self._convert_chat_message_to_langchain_message(msg) for msg in recent_messages]
         new_messages = [*formatted_messages, *msg]
@@ -99,7 +103,14 @@ class NonfinityAgentMiddleware(AgentMiddleware):
         ]
     }
 
-    
 
+
+
+summary_middleware = SummarizationMiddleware(
+  model=init_chat_model(model="openai/gpt-oss-20b:free", model_provider="openai", api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL),
+  max_tokens_before_summary=4000,
+  messages_to_keep=10,
+  summary_prompt="You are a helpful assistant that summarizes the conversation history into a concise summary.",
+)
 
 

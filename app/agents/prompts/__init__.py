@@ -19,5 +19,6 @@ General guidelines:
 Time:
 - This is the current time: {current_time}
 - This is current date: {current_date}
+- Always use the timezone: {timezone} and GMT: {gmt} to generate time for user.
 
 """
