@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI):
         try:
             await mongodb.disconnect()
             # Shutdown DuckDB instance manager
-            shutdown_instance_manager()
+            await shutdown_instance_manager()
             # Close Redis connection
             try:
                 from app.services.redis_service import redis_service
@@ -241,9 +241,7 @@ def include_routers(app: FastAPI) -> None:
       @app.get("/scalar", include_in_schema=False)
       async def scalar_html():
         return get_scalar_api_reference(
-            # Your OpenAPI document
             openapi_url=app.openapi_url,
-            # Avoid CORS issues (optional)
             scalar_proxy_url="https://proxy.scalar.com",
         )
 
@@ -268,6 +266,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
+
     )
 
 

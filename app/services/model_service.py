@@ -5,7 +5,7 @@ from app.models.model import Model, ModelType
 from app.schemas.model import ModelCreate, ModelResponse, ModelStats, ModelUpdateRequest
 from app.core.exceptions import AppError
 from app.utils.logging import get_logger
-from app.services import credential_service
+from app.services.credential_service import credential_service
 from langchain_openai import OpenAIEmbeddings
 from openai import NotFoundError, UnprocessableEntityError, BadRequestError
 logger = get_logger(__name__)
@@ -13,12 +13,12 @@ logger = get_logger(__name__)
 class ModelService:
     def __init__(self):
         self.crud = model_crud
-        self.credential_crud = credential_crud
+        self._credential_crud = credential_crud
         self._credential_service = credential_service
 
 
     def _verify_and_get_embed_dimension(self, model: str, base_url, api_key) -> int:
-        """Get the embedding dimension for a model"""
+        """Get the embedding dimension for a model (synchronous, deprecated - use async_verify_and_get_embed_dimension)"""
         try:
             embeddings = OpenAIEmbeddings(model=model, base_url=base_url, api_key=api_key)
             result = embeddings.embed_query("Check!")
@@ -36,11 +36,18 @@ class ModelService:
             logger.error(f"Model is not supported: {e}")
             raise AppError(message="Model is not supported", status_code=500)
 
+    async def async_verify_and_get_embed_dimension(self, model: str, base_url, api_key) -> int:
+        """Get the embedding dimension for a model (async)"""
+        import asyncio
+        def _verify():
+            return self._verify_and_get_embed_dimension(model, base_url, api_key)
+        return await asyncio.to_thread(_verify)
+
     async def create_model(self, owner_id: str, model_data: ModelCreate) -> bool:
         """Create a new AI model configuration"""
         try:
             # Validate credential exists and belongs to user
-            credential = await self.credential_crud.get_by_owner_and_id(
+            credential = await self._credential_crud.get_by_owner_and_id(
                 owner_id, model_data.credential_id
             )
             if not credential:
@@ -52,10 +59,10 @@ class ModelService:
                 logger.error(f"Model name '{model_data.name}' already exists for user {owner_id}")
                 return False
 
-            api_key = self.credential_service._decrypt_api_key(credential.api_key)
+            api_key = self._credential_service._decrypt_api_key(credential.api_key)
 
             if model_data.type == ModelType.EMBEDDING:
-              embed_dimension = self._verify_and_get_embed_dimension(model_data.model, credential.base_url, api_key)
+              embed_dimension = await self.async_verify_and_get_embed_dimension(model_data.model, credential.base_url, api_key)
               if embed_dimension:
                 model_data.dimension = embed_dimension
               else:

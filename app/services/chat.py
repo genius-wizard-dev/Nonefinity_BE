@@ -98,6 +98,14 @@ class ChatService:
         if create_data.get("dataset_ids") is None:
             create_data["dataset_ids"] = []
 
+        # Convert None to empty list for integration_ids (model requires List[str], not Optional)
+        if create_data.get("integration_ids") is None:
+            create_data["integration_ids"] = []
+
+        # Convert None to empty list for mcp_ids (model requires List[str], not Optional)
+        if create_data.get("mcp_ids") is None:
+            create_data["mcp_ids"] = []
+
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
         # Ensure id_alias exists (should always exist for new records)
@@ -190,6 +198,7 @@ class ChatService:
                     id_alias=config.id_alias,
                     is_used=is_used,
                     integration_ids=config.integration_ids if config.integration_ids else None,
+                    mcp_ids=config.mcp_ids if config.mcp_ids else None,
                 )
             )
         return ChatConfigListResponse(
@@ -319,7 +328,7 @@ class ChatService:
     async def create_chat_session(self, owner_id: str, chat_session_data: ChatSessionCreate) -> ChatSessionResponse:
         """Create a new chat session"""
         if chat_session_data.name:
-            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id)
+            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id, chat_config_id=chat_session_data.chat_config_id )
             if existing_chat_session:
                 raise AppError(message="Chat session with this name already exists", status_code=HTTP_400_BAD_REQUEST)
         chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
@@ -503,7 +512,7 @@ class ChatService:
         mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
         if integration_ids:
           integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
-          integration_tools = composio_service.get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+          integration_tools = await composio_service.async_get_list_tools(integration_slugs, user_id=chat_config.owner_id)
           tools += integration_tools
         if mcp_ids:
           mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)

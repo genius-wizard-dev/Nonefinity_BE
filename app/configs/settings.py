@@ -5,9 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     APP_NAME: str = "Nonefinity Agent"
     APP_ENV: Literal["dev", "prod"] = "dev"
-    APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8000
-    APP_DEBUG: bool = True
+    APP_DEBUG: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
@@ -126,6 +124,9 @@ class DuckDBSettings(BaseSettings):
     DUCKDB_TEMP_FOLDER: str
     DUCKDB_INSTANCE_TTL: int = 600
     DUCKDB_CLEANUP_INTERVAL: int = 300
+    DUCKDB_CONNECTION_POOL_SIZE: int = 3
+    DUCKDB_QUERY_TIMEOUT: int = 30
+    DUCKDB_THREAD_POOL_SIZE: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="DUCKDB_")
 

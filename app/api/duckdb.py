@@ -16,8 +16,8 @@ async def get_duckdb_stats():
         Dict chứa thông tin về số lượng instances, TTL, cleanup interval, etc.
     """
     try:
-        manager = get_instance_manager()
-        stats = manager.get_stats()
+        manager = await get_instance_manager()
+        stats = await manager.get_stats()
 
         logger.info(f"DuckDB stats retrieved: {stats}")
 
@@ -44,8 +44,8 @@ async def force_cleanup():
         Thông báo cleanup thành công
     """
     try:
-        manager = get_instance_manager()
-        manager.cleanup_expired_instances()
+        manager = await get_instance_manager()
+        await manager.cleanup_expired_instances()
 
         logger.info("Manual cleanup DuckDB instances completed")
 

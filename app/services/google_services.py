@@ -1,3 +1,4 @@
+import asyncio
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -15,14 +16,7 @@ class GoogleServices:
     def list_sheets(access_token: str, page_token: Optional[str] = None, page_size: int = 50) -> Dict:
         """
         List Google Sheets in the user's drive using OAuth access token with pagination support
-
-        Args:
-            access_token: OAuth access token
-            page_token: Optional page token for pagination (from previous response)
-            page_size: Number of files to return per page (default: 50, max: 1000)
-
-        Returns:
-            Dict with 'files' (list) and 'next_page_token' (str or None)
+        (synchronous, deprecated - use async_list_sheets)
         """
         creds = Credentials(token=access_token)
 
@@ -53,9 +47,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_list_sheets(access_token: str, page_token: Optional[str] = None, page_size: int = 50) -> Dict:
+        """List Google Sheets (async)"""
+        def _list():
+            return GoogleServices.list_sheets(access_token, page_token, page_size)
+        return await asyncio.to_thread(_list)
+
+    @staticmethod
     def search_spreadsheet(access_token: str, keyword: str) -> List[Dict]:
         """
         Search Google Sheets by name (case-insensitive, contains search)
+        (synchronous, deprecated - use async_search_spreadsheet)
         """
         creds = Credentials(token=access_token)
 
@@ -84,17 +86,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_search_spreadsheet(access_token: str, keyword: str) -> List[Dict]:
+        """Search Google Sheets (async)"""
+        def _search():
+            return GoogleServices.search_spreadsheet(access_token, keyword)
+        return await asyncio.to_thread(_search)
+
+    @staticmethod
     def list_pdfs(access_token: str, page_token: Optional[str] = None, page_size: int = 50) -> Dict:
         """
         List PDF files in the user's drive using OAuth access token with pagination support
-
-        Args:
-            access_token: OAuth access token
-            page_token: Optional page token for pagination (from previous response)
-            page_size: Number of files to return per page (default: 50, max: 1000)
-
-        Returns:
-            Dict with 'files' (list) and 'next_page_token' (str or None)
+        (synchronous, deprecated - use async_list_pdfs)
         """
         creds = Credentials(token=access_token)
 
@@ -125,9 +127,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_list_pdfs(access_token: str, page_token: Optional[str] = None, page_size: int = 50) -> Dict:
+        """List PDF files (async)"""
+        def _list():
+            return GoogleServices.list_pdfs(access_token, page_token, page_size)
+        return await asyncio.to_thread(_list)
+
+    @staticmethod
     def search_pdf(access_token: str, keyword: str) -> List[Dict]:
         """
         Search PDF files by name (case-insensitive, contains search)
+        (synchronous, deprecated - use async_search_pdf)
         """
         creds = Credentials(token=access_token)
 
@@ -151,16 +161,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_search_pdf(access_token: str, keyword: str) -> List[Dict]:
+        """Search PDF files (async)"""
+        def _search():
+            return GoogleServices.search_pdf(access_token, keyword)
+        return await asyncio.to_thread(_search)
+
+    @staticmethod
     def get_file_info(access_token: str, file_id: str) -> Dict:
         """
         Get file information from Google Drive
-
-        Args:
-            access_token: OAuth access token
-            file_id: Google Drive file ID
-
-        Returns:
-            Dict with file information (id, name, mimeType, size)
+        (synchronous, deprecated - use async_get_file_info)
         """
         creds = Credentials(token=access_token)
 
@@ -179,17 +190,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_get_file_info(access_token: str, file_id: str) -> Dict:
+        """Get file information (async)"""
+        def _get_info():
+            return GoogleServices.get_file_info(access_token, file_id)
+        return await asyncio.to_thread(_get_info)
+
+    @staticmethod
     def download_file(access_token: str, file_id: str, mime_type: str) -> bytes:
         """
         Download file from Google Drive
-
-        Args:
-            access_token: OAuth access token
-            file_id: Google Drive file ID
-            mime_type: File MIME type
-
-        Returns:
-            File content as bytes
+        (synchronous, deprecated - use async_download_file)
         """
         creds = Credentials(token=access_token)
 
@@ -213,17 +224,17 @@ class GoogleServices:
             raise e
 
     @staticmethod
+    async def async_download_file(access_token: str, file_id: str, mime_type: str) -> bytes:
+        """Download file from Google Drive (async)"""
+        def _download():
+            return GoogleServices.download_file(access_token, file_id, mime_type)
+        return await asyncio.to_thread(_download)
+
+    @staticmethod
     def export_sheet(access_token: str, file_id: str, format: str = 'xlsx') -> bytes:
         """
         Export Google Sheet to specified format
-
-        Args:
-            access_token: OAuth access token
-            file_id: Google Drive file ID
-            format: Export format (xlsx, csv, pdf, etc.)
-
-        Returns:
-            Exported file content as bytes
+        (synchronous, deprecated - use async_export_sheet)
         """
         creds = Credentials(token=access_token)
 
@@ -255,3 +266,10 @@ class GoogleServices:
         except HttpError as e:
             logger.error(f"Google API Error exporting sheet: {e}")
             raise e
+
+    @staticmethod
+    async def async_export_sheet(access_token: str, file_id: str, format: str = 'xlsx') -> bytes:
+        """Export Google Sheet (async)"""
+        def _export():
+            return GoogleServices.export_sheet(access_token, file_id, format)
+        return await asyncio.to_thread(_export)

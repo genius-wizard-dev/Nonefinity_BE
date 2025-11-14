@@ -62,16 +62,16 @@ class ChatSessionCRUD(BaseCRUD[ChatSession, ChatSessionCreate, None]):
         """Delete multiple chat sessions and their messages"""
         # Convert all IDs to ObjectId
         object_ids = [ObjectId(session_id) for session_id in chat_session_ids]
-        
+
         # Delete all chat sessions
         await ChatSession.find({"_id": {"$in": object_ids}}).delete()
         # Delete all messages for these sessions
         await ChatMessage.find({"session_id": {"$in": object_ids}}).delete()
         return True
 
-    async def get_by_name(self, name: str, owner_id: str) -> Optional[ChatSession]:
+    async def get_by_name(self, name: str, owner_id: str, chat_config_id: str) -> Optional[ChatSession]:
         return await self.get_one(
-            filter_={"name": name, "owner_id": owner_id},
+            filter_={"name": name, "owner_id": owner_id, "chat_config_id": chat_config_id},
             include_deleted=False
         )
 
