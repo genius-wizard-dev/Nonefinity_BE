@@ -50,7 +50,7 @@ async def list_sheets(
             )
             access_token = res[0].token
 
-        result = GoogleServices.list_sheets(access_token, page_token=page_token, page_size=page_size)
+        result = await GoogleServices.async_list_sheets(access_token, page_token=page_token, page_size=page_size)
 
         response_data = {
             "files": result["files"],
@@ -74,7 +74,7 @@ async def search_sheets(keyword: str, current_user: dict = Depends(verify_token)
             )
             access_token = res[0].token
 
-        files = GoogleServices.search_spreadsheet(access_token, keyword)
+        files = await GoogleServices.async_search_spreadsheet(access_token, keyword)
         return ok(data=files, message="Search google sheets successfully")
 
     except Exception as e:
@@ -110,7 +110,7 @@ async def list_pdfs(
             )
             access_token = res[0].token
 
-        result = GoogleServices.list_pdfs(access_token, page_token=page_token, page_size=page_size)
+        result = await GoogleServices.async_list_pdfs(access_token, page_token=page_token, page_size=page_size)
 
         response_data = {
             "files": result["files"],
@@ -143,7 +143,7 @@ async def search_pdfs(keyword: str, current_user: dict = Depends(verify_token)):
             )
             access_token = res[0].token
 
-        files = GoogleServices.search_pdf(access_token, keyword)
+        files = await GoogleServices.async_search_pdf(access_token, keyword)
         return ok(data=files, message="Search PDF files successfully")
 
     except Exception as e:

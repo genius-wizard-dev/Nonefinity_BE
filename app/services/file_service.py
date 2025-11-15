@@ -87,7 +87,7 @@ class FileService:
             # Delete file from MinIO
             try:
                 logger.info(f"[FILE_DELETE] Deleting from MinIO - bucket: {user_id}, object: {file.file_path}")
-                main_file_deleted = self._minio_client.delete_file(bucket_name=user_id, file_name=file.file_path)
+                main_file_deleted = await self._minio_client.async_delete_file(bucket_name=user_id, file_name=file.file_path)
                 if main_file_deleted:
                     logger.info(f"[FILE_DELETE] Successfully deleted from MinIO - path: {file.file_path}")
                 else:
@@ -207,7 +207,7 @@ class FileService:
             object_name = f"raw/{unique_filename}{file_ext}"
 
             # Get presigned upload URL
-            upload_url = self._minio_client.get_upload_url(
+            upload_url = await self._minio_client.async_get_upload_url(
                 bucket_name=user_id,
                 object_name=object_name,
                 expires_minutes=10
@@ -289,11 +289,10 @@ class FileService:
 
             # Generate presigned URL from MinIO with proper filename (single use)
             original_filename = f"{file.file_name}{file.file_ext}"
-            download_url = self._minio_client.get_url(
+            download_url = await self._minio_client.async_get_url(
                 bucket_name=user_id,
                 object_name=file.file_path,
                 download_filename=original_filename,
-
                 single_use=True  # URL expires in 1 minute for single use
             )
 
@@ -362,7 +361,7 @@ class FileService:
             logger.info(f"[DRIVE_IMPORT] Starting import - user_id: {user_id}, file_id: {file_id}, file_type: {file_type}, file_name: {file_name}")
 
             # Get file info from Google Drive
-            file_info = GoogleServices.get_file_info(access_token, file_id)
+            file_info = await GoogleServices.async_get_file_info(access_token, file_id)
             drive_file_name = file_info.get("name", file_name)
             drive_mime_type = file_info.get("mimeType", "")
             logger.info(f"[DRIVE_IMPORT] File info retrieved - name: {drive_file_name}, mime_type: {drive_mime_type}")
@@ -380,7 +379,7 @@ class FileService:
                 if is_google_sheet:
                     # Export Google Sheet to Excel format
                     try:
-                        file_content = GoogleServices.export_sheet(access_token, file_id, format='xlsx')
+                        file_content = await GoogleServices.async_export_sheet(access_token, file_id, format='xlsx')
                         file_ext = ".xlsx"
                         mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         # Use original name from Drive, add .xlsx if not present
@@ -389,7 +388,7 @@ class FileService:
                     except Exception as e:
                         logger.error(f"Failed to export Google Sheet, trying direct download: {str(e)}")
                         # Fallback: try to download directly if export fails
-                        file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                        file_content = await GoogleServices.async_download_file(access_token, file_id, drive_mime_type)
                         # Determine extension from original file
                         if drive_file_name.endswith('.xlsx'):
                             file_ext = ".xlsx"
@@ -403,7 +402,7 @@ class FileService:
                             drive_file_name = f"{drive_file_name}.xlsx"
                 elif is_excel_file:
                     # Download Excel file directly (already in Excel format)
-                    file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                    file_content = await GoogleServices.async_download_file(access_token, file_id, drive_mime_type)
                     # Determine extension from original file
                     if drive_file_name.endswith('.xlsx'):
                         file_ext = ".xlsx"
@@ -419,14 +418,14 @@ class FileService:
                 else:
                     # Unknown sheet type, try to export first, then download
                     try:
-                        file_content = GoogleServices.export_sheet(access_token, file_id, format='xlsx')
+                        file_content = await GoogleServices.async_export_sheet(access_token, file_id, format='xlsx')
                         file_ext = ".xlsx"
                         mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         if not drive_file_name.endswith('.xlsx') and not drive_file_name.endswith('.xls'):
                             drive_file_name = f"{drive_file_name}.xlsx"
                     except Exception:
                         # Fallback to direct download
-                        file_content = GoogleServices.download_file(access_token, file_id, drive_mime_type)
+                        file_content = await GoogleServices.async_download_file(access_token, file_id, drive_mime_type)
                         file_ext = ".xlsx"
                         mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         if not drive_file_name.endswith('.xlsx') and not drive_file_name.endswith('.xls'):
@@ -448,7 +447,7 @@ class FileService:
 
             # Upload to MinIO
             file_size = len(file_content)
-            upload_success = self._minio_client.upload_bytes(
+            upload_success = await self._minio_client.async_upload_bytes(
                 bucket_name=user_id,
                 object_name=object_name,
                 data=file_content,

@@ -171,7 +171,7 @@ async def get_dataset_data(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/query")
-@invalidate_cache("datasets")
+# @invalidate_cache("datasets")
 async def query_dataset(
     request: DatasetQueryRequest,
     current_user = Depends(verify_token)

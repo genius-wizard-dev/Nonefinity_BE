@@ -54,7 +54,7 @@ async def list_integrations(current_user: dict = Depends(verify_token)):
     try:
         user_id = await get_user_id(current_user)
         composio_service = ComposioService()
-        auth_configs = composio_service.get_list_auth_configs()
+        auth_configs = await composio_service.async_get_list_auth_configs()
 
         # Get user's connected auth config IDs from MongoDB
         connected_auth_config_ids = await integration_service.get_connected_auth_config_ids(user_id)
@@ -198,7 +198,7 @@ async def connect_account(
             raise AppError(f"Auth config not found: {request.auth_config_id}", status_code=HTTP_400_BAD_REQUEST)
 
         # Create connection request
-        connection_request = composio_service.link_account(
+        connection_request = await composio_service.async_link_account(
             user_id=user_id,
             auth_config_id=request.auth_config_id
         )
@@ -238,7 +238,7 @@ async def get_tools(toolkit_slug: str, current_user: dict = Depends(verify_token
     try:
         user_id = await get_user_id(current_user)
         composio_service = ComposioService()
-        tools = composio_service.get_list_tools_by_toolkit_slug(toolkit_slug=[toolkit_slug])
+        tools = await composio_service.async_get_list_tools_by_toolkit_slug(toolkit_slug=[toolkit_slug])
 
         # Get selected tools from MongoDB for this user and toolkit_slug
         selected_tool_slugs = await integration_service.get_selected_tools_by_toolkit_slug(user_id, toolkit_slug)

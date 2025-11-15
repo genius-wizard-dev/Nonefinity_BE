@@ -5,18 +5,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     APP_NAME: str = "Nonefinity Agent"
     APP_ENV: Literal["dev", "prod"] = "dev"
-    APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8000
-    APP_DEBUG: bool = True
+    APP_DEBUG: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
 
 class CORSSettings(BaseSettings):
-    CORS_ORIGINS: list[str] = ["*", "http://127.0.0.1:5173", "localhost:5173"]
+    CORS_ORIGINS: list[str] = ["https://nonefinity.com", "http://127.0.0.1:5173", "http://localhost:5173"]
     CORS_CREDENTIALS: bool = True
     CORS_METHODS: list[str] = ["*"]
     CORS_HEADERS: list[str] = ["*"]
+    CORS_EXPOSE_HEADERS: list[str] = ["*"]
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CORS_")
 
@@ -126,6 +125,9 @@ class DuckDBSettings(BaseSettings):
     DUCKDB_TEMP_FOLDER: str
     DUCKDB_INSTANCE_TTL: int = 600
     DUCKDB_CLEANUP_INTERVAL: int = 300
+    DUCKDB_CONNECTION_POOL_SIZE: int = 3
+    DUCKDB_QUERY_TIMEOUT: int = 30
+    DUCKDB_THREAD_POOL_SIZE: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="DUCKDB_")
 
@@ -154,7 +156,14 @@ class ComposioSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="COMPOSIO_")
 
-class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings):
+
+class OpenAISettings(BaseSettings):
+    OPENAI_API_KEY: str
+    OPENAI_BASE_URL: str
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="OPENAI_")
+
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings, OpenAISettings):
     RELEASE: str | None = None
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 

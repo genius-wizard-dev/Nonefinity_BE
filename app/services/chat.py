@@ -9,13 +9,14 @@ from app.schemas.chat import (
     ChatMessageCreate, ChatMessageResponse, ChatMessageListResponse,
     SaveChatMessageRequest,
 )
-from datetime import datetime
+import pytz
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
 from app.services.dataset_service import DatasetService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
+from datetime import datetime
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
 from app.services.intergrate_service import integration_service
@@ -28,10 +29,8 @@ from langchain_core.messages import HumanMessage
 from app.services.mcp_service import mcp_service
 from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
-from app.agents.middleware import NonfinityAgentMiddleware
+from app.agents.middleware import NonfinityAgentMiddleware, summary_middleware
 logger = get_logger(__name__)
-
-
 class ChatService:
     """Service for chat operations"""
 
@@ -98,6 +97,14 @@ class ChatService:
         # Convert None to empty list for dataset_ids (model requires List[str], not Optional)
         if create_data.get("dataset_ids") is None:
             create_data["dataset_ids"] = []
+
+        # Convert None to empty list for integration_ids (model requires List[str], not Optional)
+        if create_data.get("integration_ids") is None:
+            create_data["integration_ids"] = []
+
+        # Convert None to empty list for mcp_ids (model requires List[str], not Optional)
+        if create_data.get("mcp_ids") is None:
+            create_data["mcp_ids"] = []
 
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
@@ -191,6 +198,7 @@ class ChatService:
                     id_alias=config.id_alias,
                     is_used=is_used,
                     integration_ids=config.integration_ids if config.integration_ids else None,
+                    mcp_ids=config.mcp_ids if config.mcp_ids else None,
                 )
             )
         return ChatConfigListResponse(
@@ -320,7 +328,7 @@ class ChatService:
     async def create_chat_session(self, owner_id: str, chat_session_data: ChatSessionCreate) -> ChatSessionResponse:
         """Create a new chat session"""
         if chat_session_data.name:
-            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id)
+            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id, chat_config_id=chat_session_data.chat_config_id )
             if existing_chat_session:
                 raise AppError(message="Chat session with this name already exists", status_code=HTTP_400_BAD_REQUEST)
         chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
@@ -504,7 +512,7 @@ class ChatService:
         mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
         if integration_ids:
           integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
-          integration_tools = composio_service.get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+          integration_tools = await composio_service.async_get_list_tools(integration_slugs, user_id=chat_config.owner_id)
           tools += integration_tools
         if mcp_ids:
           mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
@@ -513,7 +521,7 @@ class ChatService:
         return tools
 
 
-    async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str):
+    async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str, timezone: str):
         """Stream agent response as async generator
 
         Creates a new agent instance for each request and loads the last 5 messages as history.
@@ -591,19 +599,32 @@ class ChatService:
                     for f in schema:
                         schema_str_lines.append(render_schema_field(f))
                     schema_str = "\n".join(schema_str_lines)
-                    # After schema, add a note for the AI about using '{{data á}}' for JSON data.
                     datasets_str += (
                         f"- {name}: {ds_desc}\n"
                         f"  Các cột và mô tả:\n"
                         f"{schema_str}\n"
                     )
 
-            system_prompt = SYSTEM_PROMPT.format(datasets=datasets_str, tools=json_tools, instruction_prompt=chat_config.instruction_prompt, current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
+            # Convert timezone string to timezone object
+            tz = pytz.timezone(timezone) if timezone else pytz.UTC
+            now = datetime.now(tz)
+            offset_hours = now.utcoffset().total_seconds() / 3600
+            GMT = f"GMT{offset_hours:+.0f}"
+
+            system_prompt = SYSTEM_PROMPT.format(
+                datasets=datasets_str,
+                tools=json_tools,
+                instruction_prompt=chat_config.instruction_prompt,
+                current_time=now.strftime("%H:%M"),
+                current_date=now.strftime("%Y-%m-%d"),
+                timezone=timezone or "UTC",
+                gmt=GMT
+            )
 
             agent = create_agent(
                 model=llm,
                 tools=tools,
-                middleware=[NonfinityAgentMiddleware()],
+                middleware=[NonfinityAgentMiddleware(), summary_middleware],
                 context_schema=AgentContext,
                 state_schema=AgentState,
                 checkpointer=InMemorySaver(),
@@ -615,12 +636,32 @@ class ChatService:
               HumanMessage(content=message),
             ]}
 
-
             config = RunnableConfig(configurable={"thread_id": chat_session_id})
             async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
+              logger.debug(f"Received chunk: {chunk}")
               for key, value in chunk.items():
-                  msg = value["messages"][0]
+                  logger.debug(f"Processing chunk key: {key}, value type: {type(value)}, value: {value}")
 
+                  # Skip if value is None or doesn't have messages
+                  if value is None:
+                      logger.debug(f"Skipping chunk key '{key}': value is None")
+                      continue
+
+                  if not isinstance(value, dict):
+                      logger.debug(f"Skipping chunk key '{key}': value is not a dict, type: {type(value)}")
+                      continue
+
+                  if "messages" not in value:
+                      logger.debug(f"Skipping chunk key '{key}': value dict doesn't have 'messages' key. Available keys: {list(value.keys())}")
+                      continue
+
+                  messages = value.get("messages", [])
+                  if not messages or len(messages) == 0:
+                      logger.debug(f"Skipping chunk key '{key}': messages list is empty")
+                      continue
+
+                  logger.debug(f"Processing message from chunk key '{key}': {messages[0]}")
+                  msg = messages[0]
                   if "function_call" in msg.additional_kwargs:
                       fc = msg.additional_kwargs["function_call"]
                       yield {

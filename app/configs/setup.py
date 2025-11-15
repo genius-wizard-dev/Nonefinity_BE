@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI):
         try:
             await mongodb.disconnect()
             # Shutdown DuckDB instance manager
-            shutdown_instance_manager()
+            await shutdown_instance_manager()
             # Close Redis connection
             try:
                 from app.services.redis_service import redis_service
@@ -197,8 +197,8 @@ def install_cors_middleware(app: FastAPI) -> None:
         allow_credentials=settings.CORS_CREDENTIALS,
         allow_methods=settings.CORS_METHODS,
         allow_headers=settings.CORS_HEADERS,
+        expose_headers=settings.CORS_EXPOSE_HEADERS,
     )
-    logger.info("CORS middleware installed successfully")
 
 
 def install_exception_handlers(app: FastAPI) -> None:
@@ -228,22 +228,20 @@ def include_routers(app: FastAPI) -> None:
         (google_router, "google"),
         (intergrate_router, "intergrates"),
         (mcp_router, "mcp"),
+        (dataset_router, "datasets"),
+        (credential_router, "credentials"),
+        (provider_router, "providers"),
+        (model_router, "models"),
+        (auth_router, "auth"),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
-          (auth_router, "auth"),
           (duckdb_router, "duckdb"),
-          (dataset_router, "datasets"),
-          (credential_router, "credentials"),
-          (provider_router, "providers"),
-          (model_router, "models")
       ])
       @app.get("/scalar", include_in_schema=False)
       async def scalar_html():
         return get_scalar_api_reference(
-            # Your OpenAPI document
             openapi_url=app.openapi_url,
-            # Avoid CORS issues (optional)
             scalar_proxy_url="https://proxy.scalar.com",
         )
 
@@ -268,6 +266,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
+
     )
 
 
