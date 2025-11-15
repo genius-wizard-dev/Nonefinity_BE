@@ -26,12 +26,12 @@ class DatasetService:
         if dataset:
           raise AppError("Dataset already exists", status_code=HTTP_400_BAD_REQUEST)
 
-        await self.duckdb.async_execute(f"""CREATE TABLE IF NOT EXISTS '{dataset_name}'
+        await self.duckdb.async_execute(f"""CREATE TABLE IF NOT EXISTS {dataset_name}
                             (
                               {', '.join([f'{field.column_name} {field.column_type}' for field in schema])}
                             )
                             """)
-        db_info = await self.duckdb.async_query(f"DESCRIBE '{dataset_name}'")
+        db_info = await self.duckdb.async_query(f"DESCRIBE {dataset_name}")
 
         # Create a mapping of column names to their descriptions from input schema
         schema_desc_map = {field.column_name: field.desc for field in schema if field.desc is not None}
@@ -102,8 +102,8 @@ class DatasetService:
     async def convert_csv_to_dataset(self, user_id: str, file_path: str, dataset_name: str, description: str):
         try:
             # Create table in DuckLake
-            await self.duckdb.async_execute(f"CREATE TABLE '{dataset_name}' AS SELECT * FROM read_csv('s3://{user_id}/{file_path}')")
-            db_info = await self.duckdb.async_query(f"DESCRIBE '{dataset_name}'")
+            await self.duckdb.async_execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_csv('s3://{user_id}/{file_path}')")
+            db_info = await self.duckdb.async_query(f"DESCRIBE {dataset_name}")
             column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
             return column_schemas
         except Exception as e:
@@ -116,8 +116,8 @@ class DatasetService:
     async def convert_excel_to_dataset(self, user_id: str, file_path: str, dataset_name: str, description: str):
         try:
           # Create table in DuckLake
-          await self.duckdb.async_execute(f"CREATE TABLE '{dataset_name}' AS SELECT * FROM read_xlsx('s3://{user_id}/{file_path}')")
-          db_info = await self.duckdb.async_query(f"DESCRIBE '{dataset_name}'")
+          await self.duckdb.async_execute(f"CREATE TABLE {dataset_name} AS SELECT * FROM read_xlsx('s3://{user_id}/{file_path}')")
+          db_info = await self.duckdb.async_query(f"DESCRIBE {dataset_name}")
           column_schemas = db_info[["column_name", "column_type"]].to_dict(orient="records")
           return column_schemas
         except Exception as e:
@@ -515,7 +515,7 @@ class DatasetService:
                 return None
 
             # Get current schema from DuckDB
-            current_columns_info = await self.duckdb.async_query(f"DESCRIBE '{dataset_name}'")
+            current_columns_info = await self.duckdb.async_query(f"DESCRIBE {dataset_name}")
             current_schema_data = current_columns_info[['column_name', 'column_type']].to_dict('records')
 
             # Create current schema fields
@@ -868,7 +868,7 @@ class DatasetService:
 
             # Insert data with mapping
             insert_query = f"""
-                INSERT INTO '{dataset_name}' ({', '.join(dataset_columns)})
+                INSERT INTO {dataset_name} ({', '.join(dataset_columns)})
                 SELECT {', '.join(column_selection)}
                 FROM {temp_table}
             """
