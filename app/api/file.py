@@ -50,9 +50,9 @@ async def get_upload_url(
 ):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -88,9 +88,9 @@ async def save_file_metadata(
 ):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -147,9 +147,9 @@ async def delete_file(
 
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -175,9 +175,9 @@ async def delete_file(
 async def list_files(current_user = Depends(verify_token)):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
     if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -210,9 +210,9 @@ async def list_files(current_user = Depends(verify_token)):
 async def rename_file(file_id: str, new_name: str, current_user = Depends(verify_token)):
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
     file = await file_service.crud.get_by_id(file_id)
@@ -230,10 +230,9 @@ async def get_download_url(file_id: str, current_user = Depends(verify_token)):
     try:
         clerk_id = current_user.get("sub")
         user = await user_service.crud.get_by_clerk_id(clerk_id)
-        user_id = str(user.id)
-
         if not user or not user.minio_secret_key:
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+        user_id = str(user.id)
 
         file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -269,9 +268,9 @@ async def search_files(
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -313,9 +312,9 @@ async def get_file_stats(current_user = Depends(verify_token)):
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -349,9 +348,9 @@ async def get_file_types(current_user = Depends(verify_token)):
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
     if not user:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     # Get distinct file types using aggregation
     pipeline = [
@@ -381,9 +380,9 @@ async def batch_delete_files(
     """
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -397,9 +396,9 @@ async def get_list_allow_convert(current_user = Depends(verify_token)):
     """Get list of files that are allowed to be converted to dataset"""
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
@@ -432,9 +431,9 @@ async def get_list_allow_extract(current_user = Depends(verify_token)):
     """Get list of files that are allowed to be extracted"""
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
-    user_id = str(user.id)
-    if not user:
+    if not user or not user.minio_secret_key:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="User not found")
+    user_id = str(user.id)
 
     file_service = FileService(access_key=user_id, secret_key=user.minio_secret_key)
 
