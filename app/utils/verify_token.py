@@ -8,3 +8,5 @@ async def verify_token(authorization_credentials: HTTPAuthorizationCredentials =
     """Verify JWT token using Clerk's JWKS"""
     token = authorization_credentials.credentials
     return decode_token(token)
+
+

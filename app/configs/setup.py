@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette import status
-
+from scalar_fastapi import get_scalar_api_reference
 from app.schemas.response import ApiError, ErrorDetail
 from app.utils.api_response import JSONResponse
 from app.configs.settings import settings
@@ -15,7 +15,7 @@ from app.middlewares import init_sentry
 from app.databases import mongodb, init_instance_manager, shutdown_instance_manager
 # Removed connection pooling imports as we no longer use them
 from app.models import DOCUMENT_MODELS
-from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router
+from app.api import webhooks_router, auth_router, file_router, duckdb_router, dataset_router, credential_router, provider_router, embedding_router, model_router, tasks_router, knowledge_store, chat_router, google_router, intergrate_router, mcp_router, api_keys_router
 
 logger = get_logger(__name__)
 
@@ -65,6 +65,16 @@ async def _setup_databases() -> None:
         logger.error(f"Failed to initialize MongoDB: {str(e)}")
         raise
 
+    # Initialize Redis connection
+    try:
+        from app.services.redis_service import redis_service
+        await redis_service.get_client()  # Test connection
+        logger.info("Redis connection established successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Redis: {str(e)}")
+        # Don't raise - Redis is optional for basic functionality
+        logger.warning("Redis caching will be disabled")
+
     # Initialize AI providers from YAML
     try:
         from app.services.provider_service import ProviderService
@@ -110,7 +120,14 @@ async def lifespan(app: FastAPI):
         try:
             await mongodb.disconnect()
             # Shutdown DuckDB instance manager
-            shutdown_instance_manager()
+            await shutdown_instance_manager()
+            # Close Redis connection
+            try:
+                from app.services.redis_service import redis_service
+                await redis_service.close()
+                logger.info("Redis connection closed successfully")
+            except Exception as e:
+                logger.error(f"Error closing Redis connection: {str(e)}")
             # No more connection pools to close - connections are created and closed per request
             logger.info("Application shutdown completed successfully")
         except Exception as e:
@@ -131,7 +148,7 @@ async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         success=False,
         message=exc.message,
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -141,7 +158,7 @@ async def _handle_http_exception(request: Request, exc: StarletteHTTPException) 
     body = ApiError(
         success=False,
         message=str(exc.detail)
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(content=body, status_code=exc.status_code)
 
@@ -164,7 +181,7 @@ async def _handle_validation_error(request: Request, exc: RequestValidationError
         success=False,
         message="Validation error",
         errors=[ErrorDetail(**e) for e in errors]
-    ).model_dump(exclude_none=True)
+    ).model_dump(mode="json", exclude_none=True)
 
     return JSONResponse(
         content=body,
@@ -180,8 +197,8 @@ def install_cors_middleware(app: FastAPI) -> None:
         allow_credentials=settings.CORS_CREDENTIALS,
         allow_methods=settings.CORS_METHODS,
         allow_headers=settings.CORS_HEADERS,
+        expose_headers=settings.CORS_EXPOSE_HEADERS,
     )
-    logger.info("CORS middleware installed successfully")
 
 
 def install_exception_handlers(app: FastAPI) -> None:
@@ -201,24 +218,39 @@ def _create_api_prefix(endpoint_name: str) -> str:
 def include_routers(app: FastAPI) -> None:
     """Include all API routers with proper configuration"""
     routers_config = [
-        (webhooks_router, "webhooks", ["Webhooks"]),
-        (file_router, "file", ["File Management"]),
+        (webhooks_router, "webhooks"),
+        (file_router, "file"),
+        (embedding_router, "embedding"),
+        (tasks_router, "tasks"),
+        (knowledge_store.router, "knowledge-stores"),
+        (chat_router, "chats"),
+        (api_keys_router, "api-keys"),
+        (google_router, "google"),
+        (intergrate_router, "intergrates"),
+        (mcp_router, "mcp"),
+        (dataset_router, "datasets"),
+        (credential_router, "credentials"),
+        (provider_router, "providers"),
+        (model_router, "models"),
+        (auth_router, "auth"),
         ]
     if settings.APP_ENV == "dev":
       routers_config.extend([
-          (auth_router, "auth", ["Authentication"]),
-          (duckdb_router, "duckdb", ["DuckDB Management"]),
-          (dataset_router, "datasets", ["Dataset Management"]),
-          (credential_router, "credentials", ["Credential Management"]),
-          (provider_router, "providers", ["AI Provider Management"])
+          (duckdb_router, "duckdb"),
       ])
+      @app.get("/scalar", include_in_schema=False)
+      async def scalar_html():
+        return get_scalar_api_reference(
+            openapi_url=app.openapi_url,
+            scalar_proxy_url="https://proxy.scalar.com",
+        )
 
-    for router, prefix_name, tags in routers_config:
+    for router, prefix_name in routers_config:
         app.include_router(
             router,
-            prefix=_create_api_prefix(prefix_name),
-            tags=tags
+            prefix=_create_api_prefix(prefix_name)
         )
+
 
     logger.info(f"Included {len(routers_config)} API routers successfully")
 
@@ -234,7 +266,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.APP_DEBUG else None,
         redoc_url="/redoc" if settings.APP_DEBUG else None,
+
     )
+
 
     # Install CORS middleware
     install_cors_middleware(app)

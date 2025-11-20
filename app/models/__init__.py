@@ -3,7 +3,15 @@ from app.models.soft_delete_mixin import SoftDeleteMixin
 from app.models.user import User
 from app.models.file import File
 from app.models.dataset import Dataset
-from app.models.credential import Provider, Credential
+from app.models.provider import Provider, ProviderTaskConfig
+from app.models.credential import Credential
+from app.models.model import Model
+from app.models.task import Task
+from app.models.knowledge_store import KnowledgeStore
+from app.models.chat import ChatConfig, ChatSession, ChatMessage
+from app.models.intergrate import Integration
+from app.models.mcp import MCP
+from app.models.api_key import APIKey
 
 # Export all models for easy import
 __all__ = [
@@ -13,7 +21,17 @@ __all__ = [
     "File",
     "Dataset",
     "Provider",
-    "Credential"
+    "ProviderTaskConfig",
+    "Credential",
+    "Model",
+    "KnowledgeStore",
+    "ChatConfig",
+    "ChatSession",
+    "ChatMessage",
+    "Task",
+    "Integration",
+    "MCP",
+    "APIKey"
 ]
 
 # List of all document models for Beanie initialization
@@ -22,5 +40,15 @@ DOCUMENT_MODELS = [
     File,
     Dataset,
     Provider,
-    Credential
+    ProviderTaskConfig,
+    Credential,
+    Model,
+    Task,
+    KnowledgeStore,
+    ChatConfig,
+    ChatSession,
+    ChatMessage,
+    Integration,
+    MCP,
+    APIKey,
 ]

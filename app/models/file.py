@@ -15,7 +15,7 @@ class File(Document, TimeMixin):
     file_ext: Annotated[str, Indexed(str)] = Field(..., description="File extension (e.g., .pdf, .jpg)")
     file_type: Annotated[str, Indexed(str)] = Field(..., description="File MIME type: text/csv, image/jpeg, etc.")
     file_size: Optional[Annotated[int, Indexed(int)]] = Field(None, description="File size (bytes)")
-    url: Optional[str] = Field(None, description="Public URL to access the file")
+    source_file: Annotated[str, Indexed(str)] = Field(default="upload", description="File source: 'upload' or 'drive'")
 
     class Settings:
         name = "files"

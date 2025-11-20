@@ -1,14 +1,85 @@
 providers:
   openai:
     name: "OpenAI"
-    provider_name: "openai"
+    provider: "openai"
+    description: "OpenAI API for LLMs and Embeddings"
+    docs_url: "https://platform.openai.com/docs"
     base_url: "https://api.openai.com/v1"
+    models_url: "https://api.openai.com/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
+    is_active: true
+    support: ["embedding", "chat"]
 
   openrouter:
     name: "OpenRouter"
-    provider_name: "openrouter"
+    provider: "openrouter"
+    description: "Multi-model proxy via OpenRouter"
+    docs_url: "https://openrouter.ai/docs"
     base_url: "https://openrouter.ai/api/v1"
+    models_url: "https://openrouter.ai/api/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]
+
+  huggingface:
+    name: "HuggingFace"
+    provider: "huggingface"
+    description: "Embeddings via HuggingFace Inference API"
+    docs_url: "https://huggingface.co/docs"
+    base_url: "https://router.huggingface.co/v1"
+    models_url: "https://router.huggingface.co/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]
+
+  nvidia:
+    name: "NVIDIA"
+    provider: "nvidia"
+    description: "NVIDIA API for LLMs and Embeddings"
+    docs_url: "https://docs.api.nvidia.com/"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    models_url: "https://integrate.api.nvidia.com/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["embedding", "chat"]
+
+  togetherai:
+    name: "Together AI"
+    provider: "togetherai"
+    description: "Together API for LLMs and Embeddings"
+    docs_url: "https://docs.together.ai/intro"
+    base_url: "https://api.together.xyz/v1"
+    models_url: "https://api.together.xyz/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["embedding", "chat"]
+
+  groq:
+    name: "Groq"
+    provider: "groq"
+    description: "Groq API for LLMs and Embeddings"
+    docs_url: "https://console.groq.com/docs/overview"
+    base_url: "https://api.groq.com/openai/v1"
+    models_url: " https://api.groq.com/openai/v1/models"
+    api_key_header: "Authorization"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]
+
+  google:
+    name: "Google"
+    provider: "google_genai"
+    description: "Google Generative AI API"
+    logo_url: "https://cloud.google.com/vertex-ai/images/logo.png"
+    docs_url: "https://cloud.google.com/vertex-ai/docs"
+    base_url: "https://generativelanguage.googleapis.com/v1beta"
+    models_url: "https://generativelanguage.googleapis.com/v1beta/models"
+    api_key_header: "x-goog-api-key"
+    api_key_prefix: "Bearer"
+    is_active: true
+    support: ["chat"]

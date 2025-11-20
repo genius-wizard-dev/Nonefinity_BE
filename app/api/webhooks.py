@@ -2,7 +2,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 from svix.webhooks import Webhook
-
+from app.utils import get_logger
 from app.consts.user_event_type import UserEventType
 from app.core.exceptions import AppError
 from app.schemas.response import ApiResponse
@@ -11,8 +11,10 @@ from app.services import user_service
 from app.utils.api_response import created, no_content, ok
 from ..configs.settings import settings
 import json
-
-router = APIRouter()
+import base64
+import binascii
+logger = get_logger(__name__)
+router = APIRouter(tags=["Webhooks"])
 
 @router.post("/clerk", response_model=ApiResponse[UserResponse])
 async def create_user(request: Request):
@@ -33,7 +35,6 @@ async def create_user(request: Request):
         messages = json.loads(payload)
         message_type = messages.get("type")
         user_data = messages.get("data", {})
-        # print(user_data)
 
         if message_type == UserEventType.USER_CREATED.value:
             external_accounts = user_data.get("external_accounts") or []
@@ -155,3 +156,87 @@ async def create_user(request: Request):
             return no_content()
     except Exception as e:
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+
+def _process_webhook_secret(webhook_secret: str) -> str:
+    """Process webhook secret key to Svix format (whsec_ prefix).
+
+    Composio provides plain text secret key, need to encode to base64 and add whsec_ prefix.
+    This function handles multiple secret key formats:
+    - Already has whsec_ prefix: use as-is
+    - Plain text: encode to base64 and add whsec_ prefix (most common for Composio)
+    - Hex string: convert to base64 and add whsec_ prefix
+    - Base64 string: add whsec_ prefix
+
+    Args:
+        webhook_secret: Raw webhook secret key from settings
+
+    Returns:
+        Processed secret key in whsec_ format for Svix Webhook class
+    """
+    if webhook_secret.startswith("whsec_"):
+        logger.debug("Using secret with whsec_ prefix")
+        return webhook_secret
+
+    try:
+        # Try plain text -> base64 -> whsec_ (this is the working format for Composio)
+        secret_base64 = base64.b64encode(webhook_secret.encode('utf-8')).decode('utf-8')
+        processed_secret = f"whsec_{secret_base64}"
+        logger.debug("Converted plain text secret to whsec_ format")
+        return processed_secret
+    except Exception as e:
+        logger.warning(f"Failed to process secret key as plain text: {e}")
+        # Fallback: try other formats
+        try:
+            # Try hex string -> base64 -> whsec_
+            secret_bytes = bytes.fromhex(webhook_secret)
+            secret_base64 = base64.b64encode(secret_bytes).decode('utf-8')
+            processed_secret = f"whsec_{secret_base64}"
+            logger.debug("Converted hex secret to whsec_ format")
+            return processed_secret
+        except (ValueError, binascii.Error):
+            # Try base64 string -> whsec_
+            try:
+                base64.b64decode(webhook_secret)
+                processed_secret = f"whsec_{webhook_secret}"
+                logger.debug("Added whsec_ prefix to base64 secret")
+                return processed_secret
+            except Exception:
+                # Use as-is
+                logger.debug("Using secret as-is")
+                return webhook_secret
+
+
+@router.post("/integrate")
+async def integrate(request: Request):
+    webhook_secret = settings.COMPOSIO_WEBHOOK_SECRET
+    if not webhook_secret:
+        raise HTTPException(status_code=500, detail="COMPOSIO_WEBHOOK_SECRET not set")
+
+    body = await request.body()
+    payload_str = body.decode("utf-8")
+    headers = dict(request.headers)
+
+    try:
+
+
+        processed_secret = _process_webhook_secret(webhook_secret)
+
+        wh = Webhook(processed_secret)
+        wh.verify(payload_str, headers)
+
+        payload = json.loads(payload_str)
+        logger.debug(f"Webhook verified successfully. Payload: {payload}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying webhook: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+    return ok(None, message="Webhook received successfully")
+
+

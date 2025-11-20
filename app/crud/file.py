@@ -57,4 +57,4 @@ class FileCRUD(BaseCRUD[File, FileCreate, FileUpdate]):
         return result[0]["total_size"] if result else 0
 
 
-
+file_crud = FileCRUD()

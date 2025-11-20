@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field, validator, ConfigDict
 
 
 class CredentialBase(BaseModel):
     """Base schema for Credential"""
     name: str = Field(..., min_length=1, max_length=100, description="Credential name")
-    provider_name: str = Field(..., description="AI provider identifier")
+    provider_id: str = Field(..., description="AI provider ID")
     api_key: str = Field(..., min_length=1, description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL (overrides provider default)")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -23,6 +23,20 @@ class CredentialBase(BaseModel):
             raise ValueError('API key cannot be empty or whitespace only')
         return v.strip()
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "OpenAI Production Key",
+                "provider_id": "openai",
+                "api_key": "sk-1234567890abcdef",
+                "base_url": "https://api.openai.com/v1",
+                "additional_headers": {
+                    "Organization": "org-123"
+                }
+            }
+        }
+    )
+
 
 class CredentialCreate(CredentialBase):
     """Schema for creating credential"""
@@ -32,6 +46,7 @@ class CredentialCreate(CredentialBase):
 class CredentialUpdate(BaseModel):
     """Schema for updating credential"""
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="Credential name")
+    provider_id: Optional[str] = Field(None, description="AI provider ID")
     api_key: Optional[str] = Field(None, min_length=1, description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL")
     additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
@@ -52,60 +67,94 @@ class CredentialUpdate(BaseModel):
 
 class Credential(BaseModel):
     """Schema for Credential response"""
-    id: str
-    name: str
-    provider_name: str
-    base_url: Optional[str] = None
-    additional_headers: Optional[Dict[str, str]] = None
-    is_active: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    id: str = Field(..., description="Unique credential identifier")
+    name: str = Field(..., description="Credential name")
+    provider_id: str = Field(..., description="AI provider ID")
+    provider: Optional[str] = Field(None, description="Human-readable provider name")
+    provider_name: Optional[str] = Field(None, description="Human-readable provider name")
+    base_url: Optional[str] = Field(None, description="Custom base URL")
+    additional_headers: Optional[Dict[str, str]] = Field(None, description="Additional headers for API calls")
+    is_active: bool = Field(..., description="Whether the credential is active")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "507f1f77bcf86cd799439011",
+                "name": "OpenAI Production Key",
+                "provider_id": "openai",
+                "provider": "openai",
+                "provider_name": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+                "additional_headers": {
+                    "Organization": "org-123"
+                },
+                "is_active": True,
+                "created_at": "2024-01-15T10:30:00Z",
+                "updated_at": "2024-01-15T10:30:00Z"
+            }
+        }
+    )
 
 
 class CredentialDetail(Credential):
     """Detailed credential response with masked API key"""
-    api_key_masked: str
+    api_key: str = Field(..., description="Masked API key for display")
+    usage_count: Optional[int] = Field(None, description="Number of times this credential is used")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "507f1f77bcf86cd799439011",
+                "name": "OpenAI Production Key",
+                "provider_id": "openai",
+                "provider": "openai",
+                "provider_name": "OpenAI",
+                "api_key": "sk-***masked***",
+                "base_url": "https://api.openai.com/v1",
+                "additional_headers": {
+                    "Organization": "org-123"
+                },
+                "is_active": True,
+                "usage_count": 150,
+                "created_at": "2024-01-15T10:30:00Z",
+                "updated_at": "2024-01-15T10:30:00Z"
+            }
+        }
+    )
 
 
 class CredentialList(BaseModel):
     """Schema for credential list response"""
-    credentials: List[Credential]
-    total: int
-    page: int
-    size: int
+    credentials: List[CredentialDetail] = Field(..., description="List of credentials")
+    total: int = Field(..., ge=0, description="Total number of credentials")
+    skip: int = Field(..., ge=0, description="Number of items skipped")
+    limit: int = Field(..., ge=1, description="Number of items per page")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "credentials": [
+                    {
+                        "id": "507f1f77bcf86cd799439011",
+                        "name": "OpenAI Production Key",
+                        "provider_id": "openai",
+                        "api_key": "sk-***masked***",
+                        "is_active": True,
+                        "usage_count": 150
+                    }
+                ],
+                "total": 1,
+                "skip": 0,
+                "limit": 100
+            }
+        }
+    )
 
 
-class ProviderResponse(BaseModel):
-    """Response schema for Provider - simplified"""
-    id: str
-    provider_name: str
-    name: str
-    base_url: str
-    api_key_header: str
-    api_key_prefix: str
-    is_active: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
-
-class ProviderList(BaseModel):
-    """Schema for provider list response"""
-    providers: List[ProviderResponse]
-    total: int
-
-
-class CredentialTestRequest(BaseModel):
-    """Request schema for testing a credential"""
-    credential_id: Optional[str] = Field(None, description="Credential ID to test")
-    provider_name: Optional[str] = Field(None, description="Provider name for ad-hoc testing")
-    api_key: Optional[str] = Field(None, description="API key for ad-hoc testing")
-    base_url: Optional[str] = Field(None, description="Custom base URL for testing")
 
 
 class CredentialTestResponse(BaseModel):
@@ -126,9 +175,24 @@ class EncryptionHealthResponse(BaseModel):
     error: Optional[str] = None
 
 
+class SecureKeyRequest(BaseModel):
+    """Request schema for secure key generation"""
+    length: int = Field(default=32, ge=16, le=128, description="Key length in bytes")
+
 class SecureKeyResponse(BaseModel):
     """Response schema for secure key generation"""
     secure_key: str
     length: int
     timestamp: str
     recommendation: str
+
+
+
+class ModelCredentialResponse(BaseModel):
+    """Response schema for model credential"""
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: Optional[str] = None
+
+
