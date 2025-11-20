@@ -234,16 +234,16 @@ def include_routers(app: FastAPI) -> None:
         (model_router, "models"),
         (auth_router, "auth"),
         ]
+    @app.get("/scalar", include_in_schema=False)
+    async def scalar_html():
+      return get_scalar_api_reference(
+
+          scalar_proxy_url="https://proxy.scalar.com",
+      )
     if settings.APP_ENV == "dev":
       routers_config.extend([
           (duckdb_router, "duckdb"),
       ])
-      @app.get("/scalar", include_in_schema=False)
-      async def scalar_html():
-        return get_scalar_api_reference(
-            openapi_url=app.openapi_url,
-            scalar_proxy_url="https://proxy.scalar.com",
-        )
 
     for router, prefix_name in routers_config:
         app.include_router(
