@@ -1,6 +1,7 @@
 from typing import List
 import json
 import random
+from bson import ObjectId
 from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
 from app.models.chat import ChatMessage
 from app.schemas.chat import (
@@ -31,6 +32,8 @@ from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
 from app.agents.middleware import NonfinityAgentMiddleware, summary_middleware
 logger = get_logger(__name__)
+
+
 class ChatService:
     """Service for chat operations"""
 
@@ -51,7 +54,8 @@ class ChatService:
         # Normalize name: lowercase, replace spaces with hyphens, remove special chars
         normalized_name = name.strip().lower().replace(' ', '-')
         # Remove special characters, keep only alphanumeric and hyphens
-        normalized_name = ''.join(c for c in normalized_name if c.isalnum() or c == '-')
+        normalized_name = ''.join(
+            c for c in normalized_name if c.isalnum() or c == '-')
         # Remove consecutive hyphens
         normalized_name = '-'.join(filter(None, normalized_name.split('-')))
         # Generate 6 random digits
@@ -132,7 +136,6 @@ class ChatService:
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
         )
 
-
     async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
         """Get a specific chat by ID (supports both MongoDB ObjectId and id_alias)"""
         # Try to get by MongoDB ObjectId first
@@ -143,7 +146,8 @@ class ChatService:
             chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
 
         if not chat_config:
-            raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="Chat config not found",
+                           status_code=HTTP_404_NOT_FOUND)
 
         # Ensure id_alias exists (for backward compatibility with old records)
         chat_config = await self._ensure_id_alias(chat_config)
@@ -218,7 +222,8 @@ class ChatService:
             chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
 
         if not chat_config:
-            raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="Chat config not found",
+                           status_code=HTTP_404_NOT_FOUND)
 
         # Ensure id_alias exists (for backward compatibility with old records)
         chat_config = await self._ensure_id_alias(chat_config)
@@ -245,8 +250,10 @@ class ChatService:
 
         # Validate configuration updates
         if "embedding_model_id" in update_dict or "knowledge_store_id" in update_dict:
-            new_embedding_model_id = update_dict.get("embedding_model_id", chat_config.embedding_model_id)
-            new_knowledge_store_id = update_dict.get("knowledge_store_id", chat_config.knowledge_store_id)
+            new_embedding_model_id = update_dict.get(
+                "embedding_model_id", chat_config.embedding_model_id)
+            new_knowledge_store_id = update_dict.get(
+                "knowledge_store_id", chat_config.knowledge_store_id)
 
             if new_embedding_model_id and not new_knowledge_store_id:
                 raise AppError(
@@ -306,7 +313,8 @@ class ChatService:
             chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_config_id, owner_id=owner_id)
 
         if not chat_config:
-            raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="Chat config not found",
+                           status_code=HTTP_404_NOT_FOUND)
 
         # Ensure id_alias exists before deletion (for logging/audit purposes)
         chat_config = await self._ensure_id_alias(chat_config)
@@ -327,19 +335,35 @@ class ChatService:
 
     async def create_chat_session(self, owner_id: str, chat_session_data: ChatSessionCreate) -> ChatSessionResponse:
         """Create a new chat session"""
-        if chat_session_data.name:
-            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id, chat_config_id=chat_session_data.chat_config_id )
-            if existing_chat_session:
-                raise AppError(message="Chat session with this name already exists", status_code=HTTP_400_BAD_REQUEST)
-        chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
+        # Resolve chat config first (supports both ObjectId and id_alias)
+        chat_config = None
+        if ObjectId.is_valid(chat_session_data.chat_config_id):
+            chat_config = await self._chat_config_crud.get_by_id(id=chat_session_data.chat_config_id, owner_id=owner_id)
+
+        # If not found (or invalid ObjectId), try to get by id_alias
         if not chat_config:
-            raise AppError(message="Chat config not found", status_code=HTTP_404_NOT_FOUND)
+            chat_config = await self._chat_config_crud.get_by_id_alias(id_alias=chat_session_data.chat_config_id, owner_id=owner_id)
+
+        if not chat_config:
+            raise AppError(message="Chat config not found",
+                           status_code=HTTP_404_NOT_FOUND)
+
         # Ensure id_alias exists (for backward compatibility with old records)
         chat_config = await self._ensure_id_alias(chat_config)
 
+        # Update chat_config_id to the actual ObjectId string to ensure consistency
+        chat_session_data.chat_config_id = str(chat_config.id)
+
+        if chat_session_data.name:
+            existing_chat_session = await self._chat_session_crud.get_by_name(chat_session_data.name, owner_id, chat_config_id=chat_session_data.chat_config_id)
+            if existing_chat_session:
+                raise AppError(
+                    message="Chat session with this name already exists", status_code=HTTP_400_BAD_REQUEST)
+
         chat_session = await self._chat_session_crud.create(chat_session_data, owner_id=owner_id)
         if not chat_session:
-            raise AppError(message="Failed to create chat session", status_code=HTTP_400_BAD_REQUEST)
+            raise AppError(message="Failed to create chat session",
+                           status_code=HTTP_400_BAD_REQUEST)
 
         return ChatSessionResponse(
             id=str(chat_session.id),
@@ -359,7 +383,8 @@ class ChatService:
         """Get a specific chat session"""
         chat_session = await self._chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
         if not chat_session:
-            raise AppError(message="Chat session not found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="Chat session not found",
+                           status_code=HTTP_404_NOT_FOUND)
         messages = await self._chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id, skip=skip, limit=limit)
         message_responses = []
         for message in messages:
@@ -424,7 +449,8 @@ class ChatService:
         """Delete a chat session"""
         chat_session = await self._chat_session_crud.get_by_id(id=chat_session_id, owner_id=owner_id)
         if not chat_session:
-            raise AppError(message="Chat session not found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="Chat session not found",
+                           status_code=HTTP_404_NOT_FOUND)
         await self._chat_session_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
@@ -437,7 +463,8 @@ class ChatService:
         """Delete all messages for a chat session"""
         messages = await self._chat_message_crud.list(filter_={"session_id": chat_session_id}, owner_id=owner_id)
         if not messages:
-            raise AppError(message="No messages found", status_code=HTTP_404_NOT_FOUND)
+            raise AppError(message="No messages found",
+                           status_code=HTTP_404_NOT_FOUND)
         await self._chat_message_crud.delete_by_chat_session_id(chat_session_id)
         return True
 
@@ -445,7 +472,8 @@ class ChatService:
         """Create a new chat message"""
         # Ensure session_id is set in the data
         if chat_message_data.session_id != chat_session_id:
-            chat_message_data = chat_message_data.model_copy(update={"session_id": chat_session_id})
+            chat_message_data = chat_message_data.model_copy(
+                update={"session_id": chat_session_id})
         chat_message = await self._chat_message_crud.create(chat_message_data, owner_id=owner_id)
         tools_value = chat_message.tools
         if isinstance(tools_value, dict):
@@ -499,7 +527,6 @@ class ChatService:
                 status_code=HTTP_400_BAD_REQUEST
             )
 
-
     async def _get_recent_messages(self, owner_id: str, chat_session_id: str) -> List[ChatMessage]:
         """Get recent messages for a chat session"""
         pass
@@ -511,15 +538,14 @@ class ChatService:
         integration_ids = chat_config.integration_ids if chat_config.integration_ids else []
         mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
         if integration_ids:
-          integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
-          integration_tools = await composio_service.async_get_list_tools(integration_slugs, user_id=chat_config.owner_id)
-          tools += integration_tools
+            integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
+            integration_tools = await composio_service.async_get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+            tools += integration_tools
         if mcp_ids:
-          mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
-          tools += mcp_tools
+            mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
+            tools += mcp_tools
 
         return tools
-
 
     async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str, timezone: str):
         """Stream agent response as async generator
@@ -558,33 +584,34 @@ class ChatService:
             chat_config = await self._ensure_id_alias(chat_config)
 
             llm_config = await LLMConfig.from_model_id(
-              owner_id=owner_id,
-              model_id=chat_config.chat_model_id,
+                owner_id=owner_id,
+                model_id=chat_config.chat_model_id,
             )
             llm = llm_config.get_llm()
             embedding_model = None
             if chat_config.embedding_model_id:
-              embedding_model_config = await EmbeddingModelConfig.from_model_id(
-                owner_id=owner_id,
-                embedding_model_id=chat_config.embedding_model_id,
-              )
-              embedding_model = embedding_model_config.get_embedding_model()
+                embedding_model_config = await EmbeddingModelConfig.from_model_id(
+                    owner_id=owner_id,
+                    embedding_model_id=chat_config.embedding_model_id,
+                )
+                embedding_model = embedding_model_config.get_embedding_model()
 
             tools = await self._setup_tools(chat_config)
-            json_tools = [{"name": tool.name, "description": getattr(tool, "description", "")} for tool in tools]
-            dataset_service = DatasetService(access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
+            json_tools = [{"name": tool.name, "description": getattr(
+                tool, "description", "")} for tool in tools]
+            dataset_service = DatasetService(
+                access_key=owner_id, secret_key=user.minio_secret_key) if chat_config.dataset_ids else None
             datasets = await self._dataset_crud.get_by_owner_and_ids(owner_id, chat_config.dataset_ids) if chat_config.dataset_ids else None
             knowledge_store_collection_name = None
 
             if chat_config.knowledge_store_id and embedding_model:
-              knowledge_store_collection = await self._knowledge_store_crud.get_by_owner_and_id(owner_id, chat_config.knowledge_store_id)
-              if not knowledge_store_collection:
-                raise AppError(
-                  message="Knowledge store not found",
-                  status_code=HTTP_404_NOT_FOUND
-                )
-              knowledge_store_collection_name = knowledge_store_collection.collection_name
-
+                knowledge_store_collection = await self._knowledge_store_crud.get_by_owner_and_id(owner_id, chat_config.knowledge_store_id)
+                if not knowledge_store_collection:
+                    raise AppError(
+                        message="Knowledge store not found",
+                        status_code=HTTP_404_NOT_FOUND
+                    )
+                knowledge_store_collection_name = knowledge_store_collection.collection_name
 
             def render_schema_field(field):
                 return f"""  - {field['column_name']} ({field['column_type']}): {field.get('desc', '')}"""
@@ -630,72 +657,80 @@ class ChatService:
                 checkpointer=InMemorySaver(),
                 system_prompt=system_prompt
             )
-            context = AgentContext(user_id=owner_id, dataset_service=dataset_service, datasets=datasets, knowledge_store_collection_name=knowledge_store_collection_name, embedding_model=embedding_model, session_id=chat_session_id)
+            context = AgentContext(user_id=owner_id, dataset_service=dataset_service, datasets=datasets,
+                                   knowledge_store_collection_name=knowledge_store_collection_name, embedding_model=embedding_model, session_id=chat_session_id)
 
             messages_input = {"messages": [
-              HumanMessage(content=message),
+                HumanMessage(content=message),
             ]}
 
-            config = RunnableConfig(configurable={"thread_id": chat_session_id})
+            config = RunnableConfig(
+                configurable={"thread_id": chat_session_id})
             async for chunk in agent.astream(input=messages_input, stream_mode="updates", config=config, context=context):
-              logger.debug(f"Received chunk: {chunk}")
-              for key, value in chunk.items():
-                  logger.debug(f"Processing chunk key: {key}, value type: {type(value)}, value: {value}")
+                logger.debug(f"Received chunk: {chunk}")
+                for key, value in chunk.items():
+                    logger.debug(
+                        f"Processing chunk key: {key}, value type: {type(value)}, value: {value}")
 
-                  # Skip if value is None or doesn't have messages
-                  if value is None:
-                      logger.debug(f"Skipping chunk key '{key}': value is None")
-                      continue
+                    # Skip if value is None or doesn't have messages
+                    if value is None:
+                        logger.debug(
+                            f"Skipping chunk key '{key}': value is None")
+                        continue
 
-                  if not isinstance(value, dict):
-                      logger.debug(f"Skipping chunk key '{key}': value is not a dict, type: {type(value)}")
-                      continue
+                    if not isinstance(value, dict):
+                        logger.debug(
+                            f"Skipping chunk key '{key}': value is not a dict, type: {type(value)}")
+                        continue
 
-                  if "messages" not in value:
-                      logger.debug(f"Skipping chunk key '{key}': value dict doesn't have 'messages' key. Available keys: {list(value.keys())}")
-                      continue
+                    if "messages" not in value:
+                        logger.debug(
+                            f"Skipping chunk key '{key}': value dict doesn't have 'messages' key. Available keys: {list(value.keys())}")
+                        continue
 
-                  messages = value.get("messages", [])
-                  if not messages or len(messages) == 0:
-                      logger.debug(f"Skipping chunk key '{key}': messages list is empty")
-                      continue
+                    messages = value.get("messages", [])
+                    if not messages or len(messages) == 0:
+                        logger.debug(
+                            f"Skipping chunk key '{key}': messages list is empty")
+                        continue
 
-                  logger.debug(f"Processing message from chunk key '{key}': {messages[0]}")
-                  msg = messages[0]
-                  if "function_call" in msg.additional_kwargs:
-                      fc = msg.additional_kwargs["function_call"]
-                      yield {
-                          "event": "tool_calls",
-                          "data": json.dumps({
-                              "name": fc["name"],
-                              "arguments": json.loads(fc["arguments"]),
-                          })
-                      }
+                    logger.debug(
+                        f"Processing message from chunk key '{key}': {messages[0]}")
+                    msg = messages[0]
+                    if "function_call" in msg.additional_kwargs:
+                        fc = msg.additional_kwargs["function_call"]
+                        yield {
+                            "event": "tool_calls",
+                            "data": json.dumps({
+                                "name": fc["name"],
+                                "arguments": json.loads(fc["arguments"]),
+                            })
+                        }
 
-                  elif key == "tools":
-                      yield {
-                          "event": "tool_results",
-                          "data": json.dumps({
-                              "name": msg.name,
-                              "result": msg.content,
-                          })
-                      }
+                    elif key == "tools":
+                        yield {
+                            "event": "tool_results",
+                            "data": json.dumps({
+                                "name": msg.name,
+                                "result": msg.content,
+                            })
+                        }
 
-                  elif key == "model":
-                      content = msg.content
-                      if isinstance(content, list):
-                          content = "".join(
-                              segment.get("text", "")
-                              for segment in content
-                              if isinstance(segment, dict) and segment.get("type") == "text"
-                          )
-                      yield {
-                          "event": "ai_result",
-                          "data": json.dumps({
-                              "role": "assistant",
-                              "content": content,
-                          })
-                      }
+                    elif key == "model":
+                        content = msg.content
+                        if isinstance(content, list):
+                            content = "".join(
+                                segment.get("text", "")
+                                for segment in content
+                                if isinstance(segment, dict) and segment.get("type") == "text"
+                            )
+                        yield {
+                            "event": "ai_result",
+                            "data": json.dumps({
+                                "role": "assistant",
+                                "content": content,
+                            })
+                        }
 
         except AppError as e:
             logger.error(f"Stream error: {e.message}")
@@ -715,8 +750,6 @@ class ChatService:
                     "message": str(e)
                 }
             }
-
-
 
 
 chat_service = ChatService()

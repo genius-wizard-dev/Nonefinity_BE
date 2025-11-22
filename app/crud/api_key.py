@@ -19,22 +19,21 @@ class APIKeyCRUD:
         key_hash = APIKey.hash_key(actual_key)
         key_prefix = APIKey.get_key_prefix(actual_key)
 
-        # Calculate expiration
-        expires_at = None
-        if data.expires_in_days:
-            from datetime import timedelta
-            expires_at = datetime.utcnow() + timedelta(days=data.expires_in_days)
+        # Calculate expiration (max 30 days, default 30)
+        from datetime import timedelta
+        expires_in_days = data.expires_in_days or 30
+        if expires_in_days > 30:
+            expires_in_days = 30
+        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
 
         # Create the API key document
         api_key = APIKey(
             owner_id=owner_id,
             name=data.name,
-            chat_config_id=data.chat_config_id,
             key_prefix=key_prefix,
             key_hash=key_hash,
             is_active=True,
             expires_at=expires_at,
-            permissions=data.permissions,
         )
 
         await api_key.insert()

@@ -14,7 +14,7 @@ from app.schemas.chat import (
 from app.services.chat import ChatService
 from app.services.user import user_service
 from app.utils.api_response import ok, created
-from app.utils.api_key_auth import verify_api_key_or_token, validate_chat_config_access
+from app.utils.api_key_auth import verify_api_key_or_token
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
 from app.utils import get_logger
@@ -198,9 +198,6 @@ async def create_chat_session(
     try:
         owner_id, chat_service = await get_owner_and_service(current_user)
 
-        # Validate API key has access to this chat config
-        validate_chat_config_access(current_user, request.chat_config_id)
-
         chat_session = await chat_service.create_chat_session(owner_id, request)
         return created(data=chat_session, message="Chat session created successfully")
 
@@ -294,7 +291,8 @@ async def delete_chat_session(
 
 
 class DeleteSessionsRequest(BaseModel):
-    session_ids: list[str] = Field(..., description="List of session IDs to delete")
+    session_ids: list[str] = Field(...,
+                                   description="List of session IDs to delete")
 
 
 @router.delete(
