@@ -11,7 +11,8 @@ class AppSettings(BaseSettings):
 
 
 class CORSSettings(BaseSettings):
-    CORS_ORIGINS: list[str] = ["https://nonefinity.com", "http://127.0.0.1:5173", "http://localhost:5173"]
+    CORS_ORIGINS: list[str] = ["https://nonefinity.com",
+                               "http://127.0.0.1:5173", "http://localhost:5173"]
     CORS_CREDENTIALS: bool = True
     CORS_METHODS: list[str] = ["*"]
     CORS_HEADERS: list[str] = ["*"]
@@ -150,6 +151,7 @@ class CredentialSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="CREDENTIAL_")
 
+
 class ComposioSettings(BaseSettings):
     COMPOSIO_API_KEY: str
     COMPOSIO_WEBHOOK_SECRET: str
@@ -163,8 +165,11 @@ class OpenAISettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="OPENAI_")
 
+
 class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings, OpenAISettings):
     RELEASE: str | None = None
+    app_host: str = "0.0.0.0"
+    app_port: int = 8000
     model_config = SettingsConfigDict(env_file=".env", env_prefix="")
 
 
