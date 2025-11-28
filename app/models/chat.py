@@ -1,4 +1,4 @@
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 from beanie import Document, Indexed
 from pydantic import Field
 from pymongo import IndexModel
@@ -25,8 +25,8 @@ class ChatConfig(TimeMixin, Document):
 
     id_alias: Optional[Annotated[str, Indexed()]] = Field(None, description="ID alias")
 
-    integration_ids: List[str] = Field(default_factory=list, description="List of integration MongoDB IDs")
     mcp_ids: List[str] = Field(default_factory=list, description="List of MCP configuration MongoDB IDs")
+    selected_tools: Dict[str, Any] = Field(default_factory=dict, description="Selected tools per integration: {integration_name: {tools: [tool_slug, ...]}}")
 
     class Settings:
         name = "chat_configs"

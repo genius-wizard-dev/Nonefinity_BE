@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from starlette.status import HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from app.core.exceptions import AppError
 from app.utils.api_response import ok
 from app.services.composio_service import ComposioService
@@ -331,4 +331,112 @@ async def get_list_config_item_by_user_id(current_user: dict = Depends(verify_to
         return ok(data=intergrate, message="Get integrate successfully")
     except Exception as e:
         logger.error(f"Error getting integrate: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+
+@router.get("/available-tools/{integration_id}")
+async def get_available_tools_by_integration(
+    integration_id: str,
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Get all available tools for an integration (for Chat Config tool selection)
+
+    This endpoint returns all tools from a specific integration without is_selected status.
+    Used when configuring tools for a Chat Config.
+
+    **Path Parameters:**
+    - **integration_id**: MongoDB ID of the integration
+
+    **Response:**
+    - **data**: List of available tools with slug, name, description
+    """
+    try:
+        user_id = await get_user_id(current_user)
+
+        # Get integration by MongoDB ID
+        from app.crud.intergrate import integration_crud
+        integration = await integration_crud.get_by_id_and_user(integration_id, user_id)
+
+        if not integration:
+            raise AppError("Integration not found", status_code=HTTP_404_NOT_FOUND)
+
+        if not integration.toolkit_slug:
+            raise AppError("Integration has no toolkit_slug", status_code=HTTP_400_BAD_REQUEST)
+
+        # Get all tools from Composio for this toolkit
+        composio_service = ComposioService()
+        tools = await composio_service.async_get_list_tools_by_toolkit_slug(toolkit_slug=[integration.toolkit_slug])
+
+        return ok(data=tools, message="Get available tools successfully")
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting available tools: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+
+@router.post("/available-tools/batch")
+async def get_available_tools_batch(
+    request: dict,
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Get available tools for multiple integrations in a single request (batch)
+
+    This endpoint accepts a list of integration IDs and returns all tools
+    for each integration in parallel for better performance.
+
+    **Request Body:**
+    - **integration_ids**: List of MongoDB IDs of integrations
+
+    **Response:**
+    - **data**: Dictionary mapping integration_id to list of available tools
+    """
+    try:
+        user_id = await get_user_id(current_user)
+        integration_ids = request.get("integration_ids", [])
+
+        if not integration_ids:
+            return ok(data={}, message="No integration IDs provided")
+
+        # Get integrations by IDs
+        from app.crud.intergrate import integration_crud
+
+        async def fetch_tools_for_integration(integration_id: str) -> tuple[str, list]:
+            """Fetch tools for a single integration, return (id, tools) tuple"""
+            try:
+                integration = await integration_crud.get_by_id_and_user(integration_id, user_id)
+                if not integration or not integration.toolkit_slug:
+                    return (integration_id, [])
+
+                composio_service = ComposioService()
+                tools = await composio_service.async_get_list_tools_by_toolkit_slug(
+                    toolkit_slug=[integration.toolkit_slug]
+                )
+                return (integration_id, tools)
+            except Exception as e:
+                logger.error(f"Error fetching tools for integration {integration_id}: {str(e)}")
+                return (integration_id, [])
+
+        # Fetch all tools in parallel using asyncio.gather
+        results = await asyncio.gather(
+            *[fetch_tools_for_integration(int_id) for int_id in integration_ids],
+            return_exceptions=True
+        )
+
+        # Build response dictionary
+        tools_map = {}
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Exception in batch fetch: {str(result)}")
+                continue
+            integration_id, tools = result
+            tools_map[integration_id] = tools
+
+        return ok(data=tools_map, message="Get available tools batch successfully")
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting available tools batch: {str(e)}")
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
