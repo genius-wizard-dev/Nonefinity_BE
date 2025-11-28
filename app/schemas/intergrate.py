@@ -9,7 +9,6 @@ class IntegrationBase(BaseModel):
     auth_config_name: str = Field(..., description="Auth config name from Composio")
     logo: str = Field(default="", description="Auth config logo from Composio")
     toolkit_slug: Optional[str] = Field(default=None, description="Toolkit slug from Composio")
-    list_tools_slug: List[str] = Field(default_factory=list, description="List of tools from Composio")
 
 
 class IntegrationCreate(IntegrationBase):
@@ -22,7 +21,6 @@ class IntegrationUpdate(BaseModel):
     auth_config_name: Optional[str] = Field(None, description="Auth config name from Composio")
     logo: Optional[str] = Field(None, description="Auth config logo from Composio")
     toolkit_slug: Optional[str] = Field(None, description="Toolkit slug from Composio")
-    list_tools_slug: Optional[List[str]] = Field(None, description="List of tools from Composio")
 
 
 class IntegrationResponse(IntegrationBase):
@@ -37,12 +35,11 @@ class IntegrationResponse(IntegrationBase):
 
 
 class ConfigItemSchema(BaseModel):
-    """Config item schema with id, name, toolkit_slug, logo and tools (for backward compatibility)"""
-    id: str = Field(..., description="Auth config ID from Composio")
+    """Config item schema with id, name, toolkit_slug, logo (for Chat Config integration selection)"""
+    id: str = Field(..., description="Integration MongoDB ID")
     name: str = Field(..., description="Auth config name from Composio")
     logo: str = Field(..., description="Auth config logo from Composio")
     toolkit_slug: Optional[str] = Field(default=None, description="Toolkit slug from Composio")
-    list_tools_slug: List[str] = Field(default_factory=list, description="List of tools from Composio")
 
 
 class IntegrationItemResponse(BaseModel):

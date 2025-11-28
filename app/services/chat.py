@@ -102,13 +102,13 @@ class ChatService:
         if create_data.get("dataset_ids") is None:
             create_data["dataset_ids"] = []
 
-        # Convert None to empty list for integration_ids (model requires List[str], not Optional)
-        if create_data.get("integration_ids") is None:
-            create_data["integration_ids"] = []
-
         # Convert None to empty list for mcp_ids (model requires List[str], not Optional)
         if create_data.get("mcp_ids") is None:
             create_data["mcp_ids"] = []
+
+        # Convert None to empty dict for selected_tools (model requires Dict, not Optional)
+        if create_data.get("selected_tools") is None:
+            create_data["selected_tools"] = {}
 
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
@@ -132,8 +132,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
-            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
+            selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
         )
 
     async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
@@ -170,8 +170,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
-            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
+            selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
         )
 
     async def get_list_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
@@ -201,8 +201,8 @@ class ChatService:
                     updated_at=config.updated_at,
                     id_alias=config.id_alias,
                     is_used=is_used,
-                    integration_ids=config.integration_ids if config.integration_ids else None,
                     mcp_ids=config.mcp_ids if config.mcp_ids else None,
+                    selected_tools=config.selected_tools if config.selected_tools else None,
                 )
             )
         return ChatConfigListResponse(
@@ -242,11 +242,11 @@ class ChatService:
                     status_code=HTTP_400_BAD_REQUEST
                 )
 
-        if 'integration_ids' in update_dict and update_dict['integration_ids'] is None:
-            update_dict['integration_ids'] = []
-
         if 'mcp_ids' in update_dict and update_dict['mcp_ids'] is None:
             update_dict['mcp_ids'] = []
+
+        if 'selected_tools' in update_dict and update_dict['selected_tools'] is None:
+            update_dict['selected_tools'] = {}
 
         # Validate configuration updates
         if "embedding_model_id" in update_dict or "knowledge_store_id" in update_dict:
@@ -299,8 +299,8 @@ class ChatService:
             updated_at=chat_config.updated_at,
             id_alias=chat_config.id_alias,
             is_used=is_used,
-            integration_ids=chat_config.integration_ids if chat_config.integration_ids else None,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
+            selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
         )
 
     async def delete_chat_config(self, owner_id: str, chat_config_id: str) -> bool:
@@ -533,18 +533,26 @@ class ChatService:
 
     async def _setup_tools(self, chat_config: ChatConfig) -> List[BaseTool]:
         """Setup tools for a chat config"""
-        tools = dataset_tools if chat_config.dataset_ids else []
-        tools += knowledge_tools if chat_config.knowledge_store_id else []
-        integration_ids = chat_config.integration_ids if chat_config.integration_ids else []
-        mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
-        if integration_ids:
-            integration_slugs = await integration_service.get_tools_by_integration_ids(chat_config.owner_id, integration_ids)
-            integration_tools = await composio_service.async_get_list_tools(integration_slugs, user_id=chat_config.owner_id)
+        # Use list() to create a copy, avoiding mutation of the original lists
+        tools = list(dataset_tools) if chat_config.dataset_ids else []
+        tools += list(knowledge_tools) if chat_config.knowledge_store_id else []
+
+        # Parse selected_tools from new format: {integration_name: {tools: [tool_slug, ...]}}
+        selected_tools_dict = chat_config.selected_tools if chat_config.selected_tools else {}
+        all_tool_slugs = []
+        print(f"selected_tools_dict: {selected_tools_dict}")
+        for integration_name, tool_data in selected_tools_dict.items():
+            if isinstance(tool_data, dict) and "tools" in tool_data:
+                all_tool_slugs.extend(tool_data.get("tools", []))
+
+        if all_tool_slugs:
+            integration_tools = await composio_service.async_get_list_tools(all_tool_slugs, user_id=chat_config.owner_id)
             tools += integration_tools
+
+        mcp_ids = chat_config.mcp_ids if chat_config.mcp_ids else []
         if mcp_ids:
             mcp_tools = await mcp_service.get_tools_by_mcp_ids(chat_config.owner_id, mcp_ids)
             tools += mcp_tools
-
         return tools
 
     async def stream_agent_response(self, owner_id: str, chat_session_id: str, message: str, timezone: str):
