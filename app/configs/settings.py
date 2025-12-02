@@ -11,8 +11,7 @@ class AppSettings(BaseSettings):
 
 
 class CORSSettings(BaseSettings):
-    CORS_ORIGINS: list[str] = ["https://nonefinity.com",
-                               "http://127.0.0.1:5173", "http://localhost:5173"]
+    CORS_ORIGINS: list[str] = ["*"]
     CORS_CREDENTIALS: bool = True
     CORS_METHODS: list[str] = ["*"]
     CORS_HEADERS: list[str] = ["*"]
