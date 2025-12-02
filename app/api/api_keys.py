@@ -34,7 +34,7 @@ async def get_owner_id(current_user: dict) -> str:
     # API keys already contain owner_id in 'sub'
     if current_user.get("auth_type") == "api_key":
         return current_user.get("sub")
-    
+
     # JWT tokens contain clerk_id in 'sub', need to look up user
     clerk_id = current_user.get("sub")
     user = await user_service.crud.get_by_clerk_id(clerk_id)
@@ -59,35 +59,33 @@ async def create_api_key(
 ):
     """
     Create a new API key
-    
+
     The API key will be returned only once. Store it securely!
     """
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         # Create the API key
         api_key_doc, actual_key = await api_key_crud.create(owner_id, request)
-        
+
         # Prepare response with the actual key
         response_data = APIKeyCreateResponse(
             id=str(api_key_doc.id),
             name=api_key_doc.name,
-            chat_config_id=api_key_doc.chat_config_id,
             key_prefix=api_key_doc.key_prefix,
             is_active=api_key_doc.is_active,
             last_used_at=api_key_doc.last_used_at,
             expires_at=api_key_doc.expires_at,
-            permissions=api_key_doc.permissions,
             created_at=api_key_doc.created_at,
             updated_at=api_key_doc.updated_at,
             api_key=actual_key  # The actual key - only shown once
         )
-        
+
         return created(
             data=response_data,
             message="API key created successfully. Save it securely - it won't be shown again!"
         )
-        
+
     except HTTPException:
         raise
     except AppError as e:
@@ -106,34 +104,33 @@ async def create_api_key(
 async def list_api_keys(
     current_user: dict = Depends(verify_token),
     skip: int = Query(0, ge=0, description="Number of keys to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of keys to return"),
+    limit: int = Query(100, ge=1, le=1000,
+                       description="Number of keys to return"),
     include_inactive: bool = Query(False, description="Include inactive keys")
 ):
     """List all API keys for the current user"""
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         # Get API keys
         api_keys = await api_key_crud.list(owner_id, skip, limit, include_inactive)
         total = await api_key_crud.count(owner_id, include_inactive)
-        
+
         # Convert to response format
         key_responses = [
             APIKeyResponse(
                 id=str(key.id),
                 name=key.name,
-                chat_config_id=key.chat_config_id,
                 key_prefix=key.key_prefix,
                 is_active=key.is_active,
                 last_used_at=key.last_used_at,
                 expires_at=key.expires_at,
-                permissions=key.permissions,
                 created_at=key.created_at,
                 updated_at=key.updated_at
             )
             for key in api_keys
         ]
-        
+
         return ok(
             data=APIKeyListResponse(
                 api_keys=key_responses,
@@ -143,7 +140,7 @@ async def list_api_keys(
             ),
             message="API keys retrieved successfully"
         )
-        
+
     except HTTPException:
         raise
     except AppError as e:
@@ -166,30 +163,28 @@ async def get_api_key(
     """Get a specific API key by ID"""
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         api_key = await api_key_crud.get_by_id(key_id, owner_id)
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="API key not found"
             )
-        
+
         return ok(
             data=APIKeyResponse(
                 id=str(api_key.id),
                 name=api_key.name,
-                chat_config_id=api_key.chat_config_id,
                 key_prefix=api_key.key_prefix,
                 is_active=api_key.is_active,
                 last_used_at=api_key.last_used_at,
                 expires_at=api_key.expires_at,
-                permissions=api_key.permissions,
                 created_at=api_key.created_at,
                 updated_at=api_key.updated_at
             ),
             message="API key retrieved successfully"
         )
-        
+
     except HTTPException:
         raise
     except AppError as e:
@@ -203,7 +198,7 @@ async def get_api_key(
     "/{key_id}",
     response_model=ApiResponse[APIKeyResponse],
     summary="Update API Key",
-    description="Update an API key's name, status, or permissions"
+    description="Update an API key's name or status"
 )
 async def update_api_key(
     request: APIKeyUpdate,
@@ -213,30 +208,28 @@ async def update_api_key(
     """Update an API key"""
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         api_key = await api_key_crud.update(key_id, owner_id, request)
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="API key not found"
             )
-        
+
         return ok(
             data=APIKeyResponse(
                 id=str(api_key.id),
                 name=api_key.name,
-                chat_config_id=api_key.chat_config_id,
                 key_prefix=api_key.key_prefix,
                 is_active=api_key.is_active,
                 last_used_at=api_key.last_used_at,
                 expires_at=api_key.expires_at,
-                permissions=api_key.permissions,
                 created_at=api_key.created_at,
                 updated_at=api_key.updated_at
             ),
             message="API key updated successfully"
         )
-        
+
     except HTTPException:
         raise
     except AppError as e:
@@ -259,30 +252,28 @@ async def revoke_api_key(
     """Revoke an API key"""
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         api_key = await api_key_crud.revoke(key_id, owner_id)
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="API key not found"
             )
-        
+
         return ok(
             data=APIKeyResponse(
                 id=str(api_key.id),
                 name=api_key.name,
-                chat_config_id=api_key.chat_config_id,
                 key_prefix=api_key.key_prefix,
                 is_active=api_key.is_active,
                 last_used_at=api_key.last_used_at,
                 expires_at=api_key.expires_at,
-                permissions=api_key.permissions,
                 created_at=api_key.created_at,
                 updated_at=api_key.updated_at
             ),
             message="API key revoked successfully"
         )
-        
+
     except HTTPException:
         raise
     except AppError as e:
@@ -306,16 +297,16 @@ async def delete_api_key(
     """Delete an API key permanently"""
     try:
         owner_id = await get_owner_id(current_user)
-        
+
         success = await api_key_crud.delete(key_id, owner_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="API key not found"
             )
-        
+
         return ok(data={}, message="API key deleted successfully")
-        
+
     except HTTPException:
         raise
     except AppError as e:
