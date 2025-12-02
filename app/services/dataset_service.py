@@ -299,7 +299,7 @@ class DatasetService:
 
                     # Get row count for new dataset
                     try:
-                        row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM '{table_name}'")
+                        row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM {table_name}")
                         row_count = row_count_df["count"].iloc[0]
                         new_dataset_with_count = await self._add_row_count_to_dataset(new_dataset, row_count)
                         available_datasets.append(new_dataset_with_count)
@@ -348,12 +348,12 @@ class DatasetService:
             for table_name in table_names:
                 try:
                     # Get schema
-                    columns_info = await self.duckdb.async_query(f"DESCRIBE '{table_name}'")
+                    columns_info = await self.duckdb.async_query(f"DESCRIBE {table_name}")
                     schema_data = columns_info[['column_name', 'column_type']].to_dict('records')
                     all_schemas[table_name] = schema_data
 
                     # Get row count
-                    row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM '{table_name}'")
+                    row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM {table_name}")
                     row_count = row_count_df["count"].iloc[0]
                     row_counts[table_name] = row_count
 
@@ -443,7 +443,7 @@ class DatasetService:
             # Fallback: add all datasets without sync but with row counts
             for dataset in datasets:
                 try:
-                    row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM '{dataset.name}'")
+                    row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM {dataset.name}")
                     row_count = row_count_df["count"].iloc[0]
                     dataset_with_count = await self._add_row_count_to_dataset(dataset, row_count)
                     available_datasets.append(dataset_with_count)
@@ -598,7 +598,7 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-          await self.duckdb.async_execute(f"DROP TABLE '{dataset.name}'")
+          await self.duckdb.async_execute(f"DROP TABLE {dataset.name}")
           logger.info(f"Deleted dataset: {dataset.name} for user {user_id}")
       except Exception as e:
         logger.error(f"Error when deleting dataset for user {user_id}: {str(e)}")
@@ -614,7 +614,7 @@ class DatasetService:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
       try:
-          data = await self.duckdb.async_query(f"SELECT * FROM '{dataset.name}' LIMIT {limit} OFFSET {skip}")
+          data = await self.duckdb.async_query(f"SELECT * FROM {dataset.name} LIMIT {limit} OFFSET {skip}")
           if data.empty:
             return {
               "data": [],
@@ -697,7 +697,7 @@ class DatasetService:
 
       # If name is being updated, rename the table in DuckDB
       if 'name' in update_dict and update_dict['name'] != dataset.name:
-        await self.duckdb.async_execute(f"ALTER TABLE '{dataset.name}' RENAME TO '{update_dict['name']}'")
+        await self.duckdb.async_execute(f"ALTER TABLE {dataset.name} RENAME TO {update_dict['name']}")
 
       updated_dataset = await self.crud.update(dataset, update_dict)
       return updated_dataset
@@ -855,7 +855,7 @@ class DatasetService:
                 await self.duckdb.async_execute(f"CREATE TEMP TABLE {temp_table} AS SELECT * FROM read_excel('{s3_path}', header=true)")
 
             # Get count of rows to insert
-            result = await self.duckdb.async_execute(f"SELECT COUNT(*) FROM '{temp_table}'")
+            result = await self.duckdb.async_execute(f"SELECT COUNT(*) FROM {temp_table}")
             row_count = result.fetchone()[0]
 
             # Build INSERT query with column mapping
@@ -876,7 +876,7 @@ class DatasetService:
             await self.duckdb.async_execute(insert_query)
 
             # Clean up temporary table
-            await self.duckdb.async_execute(f"DROP TABLE '{temp_table}'")
+            await self.duckdb.async_execute(f"DROP TABLE {temp_table}")
 
             return {"rows_inserted": row_count}
 
