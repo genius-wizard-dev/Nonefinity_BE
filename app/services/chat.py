@@ -1,6 +1,10 @@
 from typing import List
 import json
 import random
+import csv
+import io
+import uuid
+import os
 from bson import ObjectId
 from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
 from app.models.chat import ChatMessage
@@ -14,6 +18,7 @@ import pytz
 from langchain_core.tools.base import BaseTool
 from app.models.chat import ChatConfig
 from app.services.dataset_service import DatasetService
+from app.services.file_service import FileService
 from app.core.exceptions import AppError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 from app.utils import get_logger
@@ -758,6 +763,175 @@ class ChatService:
                     "message": str(e)
                 }
             }
+
+    async def export_chat_history(
+        self,
+        owner_id: str,
+        session_id: str,
+        format: str = "csv",
+        user_minio_secret_key: str = None
+    ) -> dict:
+        """Export chat history to CSV or JSON and upload to S3/MinIO
+
+        Args:
+            owner_id: User ID
+            session_id: Chat session ID
+            format: Export format ('csv' or 'json')
+            user_minio_secret_key: User's MinIO secret key
+
+        Returns:
+            Dict with file_id, file_name, download_url
+        """
+        try:
+            # Get chat session
+            chat_session = await self._chat_session_crud.get_by_id(id=session_id, owner_id=owner_id)
+            if not chat_session:
+                raise AppError(
+                    message="Chat session not found",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+
+            # Get all messages for the session
+            messages = await self._chat_message_crud.list(
+                filter_={"session_id": session_id},
+                owner_id=owner_id,
+                skip=0,
+                limit=10000  # Large limit to get all messages
+            )
+
+            if not messages:
+                raise AppError(
+                    message="No messages found in this session",
+                    status_code=HTTP_404_NOT_FOUND
+                )
+
+            # Sort messages by created_at
+            messages = sorted(messages, key=lambda m: m.created_at)
+
+            # Format messages as Q&A pairs
+            qa_pairs = []
+            current_question = None
+            current_answer = None
+
+            for msg in messages:
+                if msg.role == "user":
+                    # If we have a previous Q&A pair, save it
+                    if current_question and current_answer:
+                        qa_pairs.append({
+                            "question": current_question,
+                            "answer": current_answer
+                        })
+                    current_question = msg.content
+                    current_answer = None
+                elif msg.role == "assistant":
+                    if current_answer:
+                        current_answer += "\n\n" + msg.content
+                    else:
+                        current_answer = msg.content
+
+            # Save the last Q&A pair if exists
+            if current_question and current_answer:
+                qa_pairs.append({
+                    "question": current_question,
+                    "answer": current_answer
+                })
+
+            if not qa_pairs:
+                raise AppError(
+                    message="No Q&A pairs found in chat history",
+                    status_code=HTTP_400_BAD_REQUEST
+                )
+
+            # Generate file content based on format
+            session_name = chat_session.name or f"session-{session_id[:8]}"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            if format.lower() == "csv":
+                # Generate CSV content
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["Question", "Answer"])
+                for pair in qa_pairs:
+                    writer.writerow([pair["question"], pair["answer"]])
+                file_content = output.getvalue().encode('utf-8')
+                file_ext = ".csv"
+                file_type = "text/csv"
+                file_name = f"{session_name}_export_{timestamp}.csv"
+            elif format.lower() == "json":
+                # Generate JSON content
+                file_content = json.dumps(qa_pairs, ensure_ascii=False, indent=2).encode('utf-8')
+                file_ext = ".json"
+                file_type = "application/json"
+                file_name = f"{session_name}_export_{timestamp}.json"
+            else:
+                raise AppError(
+                    message=f"Unsupported format: {format}. Supported formats: csv, json",
+                    status_code=HTTP_400_BAD_REQUEST
+                )
+
+            # Upload to MinIO using FileService
+            if not user_minio_secret_key:
+                # Get user to retrieve minio_secret_key
+                user = await self._user_crud.get_by_id(owner_id)
+                if not user or not user.minio_secret_key:
+                    raise AppError(
+                        message="User not found or MinIO credentials not configured",
+                        status_code=HTTP_404_NOT_FOUND
+                    )
+                user_minio_secret_key = user.minio_secret_key
+
+            file_service = FileService(access_key=owner_id, secret_key=user_minio_secret_key)
+
+            # Generate unique object name (same pattern as file uploads)
+            unique_filename, _ = file_service._generate_unique_filename(file_name)
+            object_name = f"raw/{unique_filename}{file_ext}"
+
+            # Upload to MinIO
+            upload_success = await file_service._minio_client.async_upload_bytes(
+                bucket_name=owner_id,
+                object_name=object_name,
+                data=file_content,
+                content_type=file_type
+            )
+
+            if not upload_success:
+                raise AppError(
+                    message="Failed to upload export file to MinIO",
+                    status_code=HTTP_400_BAD_REQUEST
+                )
+
+            # Save file metadata to database
+            file_metadata = await file_service.save_file_metadata(
+                user_id=owner_id,
+                object_name=object_name,
+                file_name=file_name,
+                file_type=file_type,
+                file_size=len(file_content),
+                source_file="export"
+            )
+
+            # Get download URL
+            download_url = await file_service.get_download_url(owner_id, str(file_metadata.id))
+
+            logger.info(f"Chat history exported successfully - session_id: {session_id}, file_id: {file_metadata.id}, format: {format}")
+
+            return {
+                "file_id": str(file_metadata.id),
+                "file_name": f"{file_metadata.file_name}{file_metadata.file_ext}",
+                "download_url": download_url,
+                "format": format,
+                "qa_pairs_count": len(qa_pairs)
+            }
+
+        except AppError:
+            raise
+        except Exception as e:
+            logger.error(f"Export chat history failed: {str(e)}")
+            logger.exception(e)
+            raise AppError(
+                message=f"Failed to export chat history: {str(e)}",
+                status_code=HTTP_400_BAD_REQUEST
+            )
 
 
 chat_service = ChatService()
