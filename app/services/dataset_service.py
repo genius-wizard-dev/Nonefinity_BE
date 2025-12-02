@@ -1,8 +1,8 @@
 from app.utils import get_logger
-from app.databases.duckdb import DuckDB
+from app.databases.duckdb import DuckDB, DuckDBLockError
 from app.schemas.dataset import DatasetCreate, DataSchemaField, DatasetUpdate
 from app.core.exceptions import AppError
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST, HTTP_503_SERVICE_UNAVAILABLE
 from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql, is_schema_modifying_query, extract_table_names_from_query
 from typing import List, Dict
 from app.crud import file_crud, dataset_crud
@@ -677,6 +677,13 @@ class DatasetService:
 
         except AppError:
             raise
+        except DuckDBLockError as e:
+            # Handle DuckDB lock conflicts with a more user-friendly message
+            logger.error(f"DuckDB lock conflict when querying dataset for user {user_id}: {str(e)}")
+            raise AppError(
+                "Database is currently busy processing another query. Please try again in a moment.",
+                status_code=HTTP_503_SERVICE_UNAVAILABLE
+            )
         except Exception as e:
             logger.error(f"Error when querying dataset for user {user_id}: {str(e)}")
             # Remove "Catalog Error:" prefix from error message
