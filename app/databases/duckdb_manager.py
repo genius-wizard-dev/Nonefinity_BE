@@ -150,7 +150,9 @@ class DuckDBInstanceManager:
 
     async def get_instance(self, user_id: str, access_key: str, secret_key: str) -> DuckDBInstance:
         """
-        Get or create DuckDB instance from connection pool for user
+        Get or create DuckDB instance from connection pool for user.
+        IMPORTANT: DuckDB only allows ONE connection per database file.
+        Therefore, we ensure only ONE instance per user_id to avoid lock conflicts.
 
         Args:
             user_id: ID of user
@@ -158,7 +160,7 @@ class DuckDBInstanceManager:
             secret_key: MinIO secret key
 
         Returns:
-            DuckDBInstance: Instance from pool or newly created
+            DuckDBInstance: Single instance for user (reused if exists and not expired)
         """
         async with self.lock:
             # Initialize pool for user if not exists
@@ -169,30 +171,31 @@ class DuckDBInstanceManager:
             pool = self.connection_pools[user_id]
             all_instances = self.all_instances[user_id]
 
-            # Try to get available instance from pool
-            while pool:
-                instance = pool.popleft()
+            # DuckDB only allows ONE connection per database file
+            # So we only keep ONE instance per user_id
+            if pool:
+                instance = pool[0]  # Get the single instance (don't remove it)
 
                 # Check if instance has expired
                 if instance.is_expired(self.instance_ttl):
-                    logger.debug(f"Instance expired for user: {user_id}, removing from pool")
+                    logger.debug(f"Instance expired for user: {user_id}, closing and creating new one")
                     try:
                         instance.close()
                     except Exception as e:
                         logger.error(f"Error closing expired instance: {e}")
-                    all_instances.remove(instance)
-                    continue
+                    all_instances.clear()
+                    pool.clear()
+                else:
+                    # Instance is valid, use it
+                    instance.update_last_used()
+                    instance.use_count += 1
+                    logger.debug(f"Reusing existing instance for user: {user_id}")
+                    return instance
 
-                # Instance is valid, use it
-                instance.update_last_used()
-                instance.use_count += 1
-                pool.append(instance)  # Put back at end (round-robin)
-                logger.debug(f"Using pooled instance for user: {user_id} (pool size: {len(pool)})")
-                return instance
-
-            # No available instance in pool, create new one if under limit
-            if len(all_instances) < self.pool_size:
-                logger.info(f"Creating new DuckDB instance for user: {user_id} (pool: {len(all_instances)}/{self.pool_size})")
+            # No valid instance exists, create new one
+            # Ensure we only have ONE instance per user
+            if len(all_instances) == 0:
+                logger.info(f"Creating new DuckDB instance for user: {user_id}")
                 instance = DuckDBInstance(user_id, access_key, secret_key)
                 instance.update_last_used()
                 instance.use_count = 1
@@ -200,12 +203,11 @@ class DuckDBInstanceManager:
                 pool.append(instance)
                 return instance
             else:
-                # Pool is full, reuse least recently used instance
-                logger.debug(f"Pool full for user: {user_id}, reusing LRU instance")
-                instance = pool.popleft()
+                # This should not happen, but handle it gracefully
+                logger.warning(f"Unexpected: multiple instances found for user {user_id}, using first one")
+                instance = all_instances[0]
                 instance.update_last_used()
                 instance.use_count += 1
-                pool.append(instance)
                 return instance
 
     async def _cleanup_instance(self, user_id: str):
