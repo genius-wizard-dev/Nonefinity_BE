@@ -470,3 +470,52 @@ async def save_conversation(
     except Exception as e:
         logger.error(f"Save conversation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+class ExportChatHistoryRequest(BaseModel):
+    format: str = Field(default="csv", description="Export format: 'csv' or 'json'")
+
+
+@router.post(
+    "/sessions/{session_id}/export",
+    response_model=ApiResponse[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Export Chat History",
+    description="Export chat history as CSV or JSON and upload to S3/MinIO storage"
+)
+async def export_chat_history(
+    request: ExportChatHistoryRequest,
+    session_id: str = Path(..., description="Chat Session ID"),
+    current_user: dict = Depends(verify_api_key_or_token)
+):
+    """Export chat history to CSV or JSON format and upload to S3/MinIO"""
+    try:
+        owner_id, chat_service = await get_owner_and_service(current_user)
+
+        # Get user to retrieve minio_secret_key
+        user = await user_service.crud.get_by_id(owner_id)
+        if not user or not user.minio_secret_key:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="User not found or MinIO credentials not configured"
+            )
+
+        export_result = await chat_service.export_chat_history(
+            owner_id=owner_id,
+            session_id=session_id,
+            format=request.format,
+            user_minio_secret_key=user.minio_secret_key
+        )
+
+        return ok(
+            data=export_result,
+            message=f"Chat history exported successfully as {request.format.upper()}"
+        )
+
+    except HTTPException:
+        raise
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Export chat history failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
