@@ -707,7 +707,19 @@ class DatasetService:
         await self.duckdb.async_execute(f"ALTER TABLE {dataset.name} RENAME TO {update_dict['name']}")
 
       updated_dataset = await self.crud.update(dataset, update_dict)
-      return updated_dataset
+
+      # Get row count and add it to the response (similar to get_list_dataset)
+      try:
+        # Use the updated name if it was changed, otherwise use original name
+        table_name = update_dict.get('name', dataset.name)
+        row_count_df = await self.duckdb.async_query(f"SELECT COUNT(*) as count FROM {table_name}")
+        row_count = row_count_df["count"].iloc[0]
+        updated_dataset_with_count = await self._add_row_count_to_dataset(updated_dataset, row_count)
+        return updated_dataset_with_count
+      except Exception as e:
+        logger.error(f"Error getting row count for dataset {dataset_id}: {str(e)}")
+        # Return dataset without row_count if there's an error
+        return updated_dataset
 
     async def update_dataset_schema(self, user_id: str, dataset_id: str, descriptions: Dict[str, str]):
         """Update dataset schema descriptions in MongoDB only"""
