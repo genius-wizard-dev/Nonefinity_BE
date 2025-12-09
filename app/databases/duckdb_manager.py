@@ -2,6 +2,7 @@ import time
 import asyncio
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional, List
 from collections import deque
 import duckdb
@@ -9,6 +10,20 @@ from app.configs.settings import settings
 from app.utils import get_logger
 
 logger = get_logger(__name__)
+
+# Thread pool for blocking DuckDB initialization
+_init_thread_pool: Optional[ThreadPoolExecutor] = None
+
+
+def get_init_thread_pool() -> ThreadPoolExecutor:
+    """Get or create thread pool for DuckDB initialization"""
+    global _init_thread_pool
+    if _init_thread_pool is None:
+        _init_thread_pool = ThreadPoolExecutor(
+            max_workers=4,  # Allow parallel initialization for different users
+            thread_name_prefix="duckdb_init"
+        )
+    return _init_thread_pool
 
 
 class DuckDBInstance:
@@ -139,6 +154,8 @@ class DuckDBInstanceManager:
         self.connection_pools: Dict[str, deque] = {}
         # All instances for cleanup tracking
         self.all_instances: Dict[str, List[DuckDBInstance]] = {}
+        # Track ongoing initialization per user to avoid duplicate init
+        self._pending_init: Dict[str, asyncio.Event] = {}
         self.lock = asyncio.Lock()
         self.instance_ttl = instance_ttl  # 10 minutes
         self.cleanup_interval = cleanup_interval  # 5 minutes
@@ -154,6 +171,12 @@ class DuckDBInstanceManager:
         IMPORTANT: DuckDB only allows ONE connection per database file.
         Therefore, we ensure only ONE instance per user_id to avoid lock conflicts.
 
+        This method is now non-blocking - initialization runs in a thread pool
+        to prevent blocking other async operations.
+
+        If multiple requests for the same user come in simultaneously, only the
+        first one creates the instance while others wait for it to complete.
+
         Args:
             user_id: ID of user
             access_key: MinIO access key
@@ -162,53 +185,95 @@ class DuckDBInstanceManager:
         Returns:
             DuckDBInstance: Single instance for user (reused if exists and not expired)
         """
-        async with self.lock:
-            # Initialize pool for user if not exists
-            if user_id not in self.connection_pools:
-                self.connection_pools[user_id] = deque()
-                self.all_instances[user_id] = []
+        while True:
+            # Check if instance already exists or if initialization is pending
+            async with self.lock:
+                # Initialize pool for user if not exists
+                if user_id not in self.connection_pools:
+                    self.connection_pools[user_id] = deque()
+                    self.all_instances[user_id] = []
 
-            pool = self.connection_pools[user_id]
-            all_instances = self.all_instances[user_id]
+                pool = self.connection_pools[user_id]
+                all_instances = self.all_instances[user_id]
 
-            # DuckDB only allows ONE connection per database file
-            # So we only keep ONE instance per user_id
-            if pool:
-                instance = pool[0]  # Get the single instance (don't remove it)
+                # DuckDB only allows ONE connection per database file
+                # So we only keep ONE instance per user_id
+                if pool:
+                    instance = pool[0]  # Get the single instance (don't remove it)
 
-                # Check if instance has expired
-                if instance.is_expired(self.instance_ttl):
-                    logger.debug(f"Instance expired for user: {user_id}, closing and creating new one")
-                    try:
-                        instance.close()
-                    except Exception as e:
-                        logger.error(f"Error closing expired instance: {e}")
-                    all_instances.clear()
-                    pool.clear()
+                    # Check if instance has expired
+                    if instance.is_expired(self.instance_ttl):
+                        logger.debug(f"Instance expired for user: {user_id}, closing and creating new one")
+                        try:
+                            instance.close()
+                        except Exception as e:
+                            logger.error(f"Error closing expired instance: {e}")
+                        all_instances.clear()
+                        pool.clear()
+                    else:
+                        # Instance is valid, use it
+                        instance.update_last_used()
+                        instance.use_count += 1
+                        logger.debug(f"Reusing existing instance for user: {user_id}")
+                        return instance
+
+                # Check if another task is already initializing for this user
+                if user_id in self._pending_init:
+                    logger.debug(f"Waiting for ongoing initialization for user: {user_id}")
+                    pending_event = self._pending_init[user_id]
+                    # Release lock and wait for the other task to finish
                 else:
-                    # Instance is valid, use it
-                    instance.update_last_used()
-                    instance.use_count += 1
-                    logger.debug(f"Reusing existing instance for user: {user_id}")
-                    return instance
+                    # We are the first to initialize - create pending event
+                    self._pending_init[user_id] = asyncio.Event()
+                    pending_event = None
+                    break  # Exit the while loop to create instance
 
-            # No valid instance exists, create new one
-            # Ensure we only have ONE instance per user
-            if len(all_instances) == 0:
-                logger.info(f"Creating new DuckDB instance for user: {user_id}")
-                instance = DuckDBInstance(user_id, access_key, secret_key)
+            # Wait for the other task to complete initialization
+            if pending_event:
+                await pending_event.wait()
+                # Loop back to get the newly created instance
+                continue
+
+        # No valid instance exists, create new one OUTSIDE the lock
+        # This prevents blocking other users while one user's instance is being initialized
+        logger.info(f"Creating new DuckDB instance for user: {user_id}")
+
+        try:
+            # Run blocking initialization in thread pool to not block event loop
+            loop = asyncio.get_event_loop()
+            executor = get_init_thread_pool()
+
+            def _create_instance():
+                """Create DuckDBInstance in thread pool"""
+                return DuckDBInstance(user_id, access_key, secret_key)
+
+            instance = await loop.run_in_executor(executor, _create_instance)
+
+            # Now acquire lock to add to pool
+            async with self.lock:
+                # Clear any old instances
+                if user_id in self.connection_pools:
+                    self.connection_pools[user_id].clear()
+                if user_id in self.all_instances:
+                    self.all_instances[user_id].clear()
+
+                # Re-initialize pool if needed (could have been deleted during long init)
+                if user_id not in self.connection_pools:
+                    self.connection_pools[user_id] = deque()
+                if user_id not in self.all_instances:
+                    self.all_instances[user_id] = []
+
                 instance.update_last_used()
                 instance.use_count = 1
-                all_instances.append(instance)
-                pool.append(instance)
+                self.all_instances[user_id].append(instance)
+                self.connection_pools[user_id].append(instance)
                 return instance
-            else:
-                # This should not happen, but handle it gracefully
-                logger.warning(f"Unexpected: multiple instances found for user {user_id}, using first one")
-                instance = all_instances[0]
-                instance.update_last_used()
-                instance.use_count += 1
-                return instance
+        finally:
+            # Always signal completion and clean up pending event
+            async with self.lock:
+                if user_id in self._pending_init:
+                    self._pending_init[user_id].set()  # Signal waiting tasks
+                    del self._pending_init[user_id]
 
     async def _cleanup_instance(self, user_id: str):
         """Cleanup a specific instance (called with lock)"""

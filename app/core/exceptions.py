@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from starlette import status
 
 class AppError(Exception):
@@ -10,6 +10,7 @@ class AppError(Exception):
         code: str = "bad_request",
         field: Optional[str] = None,
         errors: Optional[List[dict]] = None,  # [{'code':..., 'message':..., 'field':...}]
+        details: Optional[Dict[str, Any]] = None,  # Additional details for the error
     ):
         super().__init__(message)
         self.message = message
@@ -17,3 +18,4 @@ class AppError(Exception):
         self.code = code
         self.field = field
         self.errors = errors
+        self.details = details

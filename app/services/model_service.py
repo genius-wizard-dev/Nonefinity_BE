@@ -6,6 +6,8 @@ from app.schemas.model import ModelCreate, ModelResponse, ModelStats, ModelUpdat
 from app.core.exceptions import AppError
 from app.utils.logging import get_logger
 from app.services.credential_service import credential_service
+from app.models.chat import ChatConfig
+from starlette.status import HTTP_409_CONFLICT
 from langchain_openai import OpenAIEmbeddings
 from openai import NotFoundError, UnprocessableEntityError, BadRequestError
 logger = get_logger(__name__)
@@ -109,7 +111,17 @@ class ModelService:
                 active_only=active_only
             )
 
-            model_responses = [self._to_response(model) for model in models]
+            # Get all chat configs for this user to check usage
+            # This avoids N+1 query problem by fetching all usage info once
+            user_chat_configs = await ChatConfig.find({"owner_id": owner_id}).to_list()
+            used_model_ids = set()
+            for chat in user_chat_configs:
+                if chat.chat_model_id:
+                    used_model_ids.add(chat.chat_model_id)
+                if chat.embedding_model_id:
+                    used_model_ids.add(chat.embedding_model_id)
+
+            model_responses = [self._to_response(model, is_used=(str(model.id) in used_model_ids)) for model in models]
 
             return {
                 "models": model_responses,
@@ -131,7 +143,18 @@ class ModelService:
             if not model:
                 return None
 
-            return self._to_response(model)
+            # Check usage for single model
+            is_used = False
+            used_in_chats = await ChatConfig.find({
+                "$or": [
+                    {"chat_model_id": model_id},
+                    {"embedding_model_id": model_id}
+                ]
+            }).to_list()
+            if used_in_chats:
+                is_used = True
+
+            return self._to_response(model, is_used=is_used)
 
         except Exception as e:
             raise AppError(
@@ -176,6 +199,21 @@ class ModelService:
             if not model:
                 return False
 
+            # Check for dependencies in ChatConfig
+            used_in_chats = await ChatConfig.find({
+                "$or": [
+                    {"chat_model_id": model_id},
+                    {"embedding_model_id": model_id}
+                ]
+            }).to_list()
+
+            if used_in_chats:
+                chat_names = [chat.name for chat in used_in_chats]
+                raise AppError(
+                    message=f"Cannot delete model because it is used in the following chats: {', '.join(chat_names)}",
+                    status_code=HTTP_409_CONFLICT
+                )
+
             await self.crud.delete(model)
             return True
 
@@ -198,7 +236,7 @@ class ModelService:
                 status_code=500
             )
 
-    def _to_response(self, model: Model) -> ModelResponse:
+    def _to_response(self, model: Model, is_used: bool = False) -> ModelResponse:
         """Convert model to response format"""
         if model.type == ModelType.EMBEDDING:
             return ModelResponse(
@@ -210,6 +248,7 @@ class ModelService:
                 type=model.type,
                 description=model.description,
                 is_active=model.is_active,
+                is_used=is_used,
                 created_at=model.created_at,
                 updated_at=model.updated_at,
                 dimension=model.dimension
@@ -224,6 +263,7 @@ class ModelService:
                 type=model.type,
                 description=model.description,
                 is_active=model.is_active,
+                is_used=is_used,
                 created_at=model.created_at,
                 updated_at=model.updated_at
             )

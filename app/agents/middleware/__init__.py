@@ -13,6 +13,7 @@ from app.utils import get_logger
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain.chat_models import init_chat_model
 from app.configs.settings import settings
+from langchain.chat_models.base import BaseChatModel
 
 logger = get_logger(__name__)
 class NonfinityAgentMiddleware(AgentMiddleware):
@@ -106,11 +107,24 @@ class NonfinityAgentMiddleware(AgentMiddleware):
 
 
 
-summary_middleware = SummarizationMiddleware(
-  model=init_chat_model(model="openai/gpt-oss-20b:free", model_provider="openai", api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL),
-  max_tokens_before_summary=4000,
-  messages_to_keep=10,
-  summary_prompt="You are a helpful assistant that summarizes the conversation history into a concise summary.",
-)
+
+
+def create_summary_middleware(llm: BaseChatModel, config: dict) -> SummarizationMiddleware:
+    """
+    Create summarization middleware with dynamic config.
+    config should be the dictionary under the 'summary' key, e.g. {"model_id": ..., "prompt": ...}
+    """
+    # Defaults
+    max_tokens = int(config.get("max_tokens_before_summary", 4000))
+    messages_to_keep = int(config.get("max_message_to_keep", 10))
+    prompt = config.get("prompt", "You are a helpful assistant that summarizes the conversation history into a concise summary.")
+
+    return SummarizationMiddleware(
+        model=llm,
+        max_tokens_before_summary=max_tokens,
+        messages_to_keep=messages_to_keep,
+        summary_prompt=prompt,
+    )
+
 
 

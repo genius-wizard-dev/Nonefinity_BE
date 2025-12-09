@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from starlette.status import HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_409_CONFLICT
 from app.core.exceptions import AppError
 from app.utils.api_response import ok
 from app.services.mcp_service import mcp_service
@@ -83,6 +83,37 @@ async def upsert_mcp_config(
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
     except Exception as e:
         logger.error(f"Error upserting MCP config: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        logger.error(f"Error upserting MCP config: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+
+
+@router.put("/{mcp_id}", response_model=MCPResponse)
+async def update_mcp_config(
+    mcp_id: str,
+    request: MCPCreateRequest,
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Update an MCP configuration
+
+    **Request Body:**
+    - **config**: MCP server configuration (same as create)
+
+    **Response:**
+    - Updated MCP configuration
+    """
+    try:
+        user_id = await get_user_id(current_user)
+        mcp = await mcp_service.update_mcp_config(mcp_id, user_id, request)
+        return ok(data=mcp, message="MCP config updated successfully")
+    except ValueError as e:
+        logger.error(f"Validation error updating MCP config: {str(e)}")
+        raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Error updating MCP config: {str(e)}")
         raise AppError(str(e), status_code=HTTP_400_BAD_REQUEST)
 
 
@@ -196,11 +227,21 @@ async def delete_mcp_config(
     Delete an MCP configuration
 
     **Response:**
-    - Success message
+    - Success message if deleted
+    - 409 Conflict with dependencies list if MCP is in use
     """
     try:
         user_id = await get_user_id(current_user)
-        deleted = await mcp_service.delete_mcp_config(mcp_id, user_id)
+        deleted, used_by = await mcp_service.delete_mcp_config(mcp_id, user_id)
+
+        if used_by is not None:
+            # MCP is in use, return 409 Conflict with dependencies
+            raise AppError(
+                "Cannot delete MCP configuration because it is being used by chat configurations",
+                status_code=HTTP_409_CONFLICT,
+                details={"dependencies": used_by}
+            )
+
         if not deleted:
             raise AppError("MCP config not found", status_code=HTTP_400_BAD_REQUEST)
         return ok(data=None, message="MCP config deleted successfully")

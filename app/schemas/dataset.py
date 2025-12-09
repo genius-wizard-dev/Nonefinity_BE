@@ -93,6 +93,7 @@ class Dataset(DatasetBase):
     owner_id: str = Field(..., description="Owner user ID")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    is_used: bool = Field(False, description="Whether the dataset is used in any chat config")
 
     model_config = ConfigDict(
         from_attributes=True,
