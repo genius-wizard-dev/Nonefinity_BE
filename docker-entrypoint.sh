@@ -10,5 +10,5 @@ sleep 2
 
 # Start Uvicorn in foreground (this keeps the container alive)
 echo "Starting Uvicorn server..."
-exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
