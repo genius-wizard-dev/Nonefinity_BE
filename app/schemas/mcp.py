@@ -111,4 +111,6 @@ class MCPListItemResponse(BaseModel):
     tools_count: int = Field(..., description="Number of tools available")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    is_used: bool = Field(default=False, description="Whether the MCP is being used by any chat configurations")
+    used_by: List[Dict[str, str]] = Field(default_factory=list, description="List of chat configurations using this MCP")
 

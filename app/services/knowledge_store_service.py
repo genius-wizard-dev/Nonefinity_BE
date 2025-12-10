@@ -4,6 +4,7 @@ from app.schemas.knowledge_store import KnowledgeStoreCreateRequest, KnowledgeSt
 from qdrant_client.models import Distance
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
+from app.core.exceptions import AppError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 from app.utils import get_logger
 from app.services import model_service, credential_service, provider_service
@@ -255,10 +256,11 @@ class KnowledgeStoreService:
         # INSERT_YOUR_CODE
         # Check if this knowledge_store is used in any chat config
         chat_config_in_use = await self._chat_config_crud.get_by_knowledge_store_id(knowledge_store_id=knowledge_store_id, owner_id=owner_id)
-        if len(chat_config_in_use) > 0:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete: This knowledge store is currently used in {len(chat_config_in_use)} chat configs"
+        if chat_config_in_use:
+            chat_names = [chat.name for chat in chat_config_in_use]
+            raise AppError(
+                message=f"Cannot delete knowledge store because it is used in the following chats: {', '.join(chat_names)}",
+                status_code=HTTP_409_CONFLICT
             )
 
         # Delete all related tasks from MongoDB

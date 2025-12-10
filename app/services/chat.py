@@ -7,6 +7,7 @@ import uuid
 import os
 from bson import ObjectId
 from app.crud import chat_config_crud, chat_session_crud, chat_message_crud, model_crud, credential_crud, user_crud, dataset_crud, knowledge_store_crud
+from app.crud.mcp import mcp_crud
 from app.models.chat import ChatMessage
 from app.schemas.chat import (
     ChatConfigCreate, ChatConfigUpdate, ChatConfigResponse, ChatConfigListResponse,
@@ -35,7 +36,7 @@ from langchain_core.messages import HumanMessage
 from app.services.mcp_service import mcp_service
 from langchain_core.runnables.config import RunnableConfig
 from app.services import provider_service, credential_service
-from app.agents.middleware import NonfinityAgentMiddleware, summary_middleware
+from app.agents.middleware import NonfinityAgentMiddleware, create_summary_middleware
 logger = get_logger(__name__)
 
 
@@ -67,12 +68,128 @@ class ChatService:
         random_part = random.randint(100000, 999999)
         return f"{normalized_name}-{random_part}"
 
-    async def _ensure_id_alias(self, chat_config: ChatConfig) -> ChatConfig:
-        """Ensure chat config has id_alias, generate if missing (for backward compatibility)"""
+    async def _validate_config_datasets(self, chat_config: ChatConfig) -> bool:
+        """Check if referenced datasets exist, remove if not. Returns True if modified."""
+        if not chat_config.dataset_ids:
+            return False
+
+        # Get existing datasets
+        existing_datasets = await self._dataset_crud.get_by_owner_and_ids(
+            chat_config.owner_id, chat_config.dataset_ids
+        )
+        existing_ids = {str(d.id) for d in existing_datasets}
+
+        # Filter valid IDs
+        valid_ids = [did for did in chat_config.dataset_ids if did in existing_ids]
+
+        if len(valid_ids) != len(chat_config.dataset_ids):
+            logger.warning(f"Removing deleted datasets from chat config {chat_config.id}. Original: {chat_config.dataset_ids}, New: {valid_ids}")
+            chat_config.dataset_ids = valid_ids
+            return True
+
+        return False
+
+    async def _validate_config_mcp_ids(self, chat_config: ChatConfig) -> bool:
+        """Check if referenced MCP configs exist, remove if not. Returns True if modified."""
+        if not chat_config.mcp_ids:
+            return False
+
+        # Validate each MCP ID exists
+        valid_ids = []
+        for mcp_id in chat_config.mcp_ids:
+            mcp = await mcp_crud.get_by_id_and_user(mcp_id, chat_config.owner_id)
+            if mcp:
+                valid_ids.append(mcp_id)
+
+        if len(valid_ids) != len(chat_config.mcp_ids):
+            logger.warning(f"Removing deleted MCP configs from chat config {chat_config.id}. Original: {chat_config.mcp_ids}, New: {valid_ids}")
+            chat_config.mcp_ids = valid_ids
+            return True
+
+        return False
+
+    async def _ensure_consistency(self, chat_config: ChatConfig) -> ChatConfig:
+        """Ensure chat config is consistent (id_alias exists, datasets valid, mcp_ids valid)"""
+        modified = False
+
+        # Check id_alias
         if not chat_config.id_alias:
             chat_config.id_alias = self._create_id_alias(chat_config.name)
+            modified = True
+
+        # Check datasets
+        if await self._validate_config_datasets(chat_config):
+            modified = True
+
+        # Check mcp_ids
+        if await self._validate_config_mcp_ids(chat_config):
+            modified = True
+
+        if modified:
             await chat_config.save()
+
         return chat_config
+
+    async def _ensure_consistency_batch(self, chat_configs: List[ChatConfig]) -> List[ChatConfig]:
+        """Ensure consistency for a list of configs (optimized)"""
+        if not chat_configs:
+            return []
+
+        owner_id = chat_configs[0].owner_id
+
+        # 1. Collect all dataset IDs and MCP IDs
+        all_dataset_ids = set()
+        all_mcp_ids = set()
+
+        for config in chat_configs:
+            if config.dataset_ids:
+                all_dataset_ids.update(config.dataset_ids)
+            if config.mcp_ids:
+                all_mcp_ids.update(config.mcp_ids)
+
+        # 2. Fetch all valid datasets in one query
+        existing_dataset_ids = set()
+        if all_dataset_ids:
+            existing_datasets = await self._dataset_crud.get_by_owner_and_ids(
+                owner_id, list(all_dataset_ids)
+            )
+            existing_dataset_ids = {str(d.id) for d in existing_datasets}
+
+        # 3. Fetch all valid MCP configs
+        existing_mcp_ids = set()
+        if all_mcp_ids:
+            for mcp_id in all_mcp_ids:
+                mcp = await mcp_crud.get_by_id_and_user(mcp_id, owner_id)
+                if mcp:
+                    existing_mcp_ids.add(mcp_id)
+
+        # 4. Validate and Update
+        for config in chat_configs:
+            modified = False
+
+            # id_alias check
+            if not config.id_alias:
+                config.id_alias = self._create_id_alias(config.name)
+                modified = True
+
+            # Dataset check
+            if config.dataset_ids:
+                valid_ids = [did for did in config.dataset_ids if did in existing_dataset_ids]
+                if len(valid_ids) != len(config.dataset_ids):
+                    config.dataset_ids = valid_ids
+                    modified = True
+
+            # MCP check
+            if config.mcp_ids:
+                valid_mcp_ids = [mid for mid in config.mcp_ids if mid in existing_mcp_ids]
+                if len(valid_mcp_ids) != len(config.mcp_ids):
+                    config.mcp_ids = valid_mcp_ids
+                    modified = True
+
+            if modified:
+                await config.save()
+
+        return chat_configs
 
     async def create_chat_config(self, owner_id: str, chat_config_data: ChatConfigCreate) -> ChatConfigResponse:
         """Create a new chat configuration  """
@@ -117,8 +234,9 @@ class ChatService:
 
         # Create chat
         chat_config = await self._chat_config_crud.create(create_data, owner_id=owner_id)
-        # Ensure id_alias exists (should always exist for new records)
-        chat_config = await self._ensure_id_alias(chat_config)
+        # Ensure consistency (should always be consistent ideally, but verifies datasets match)
+        chat_config = await self._ensure_consistency(chat_config)
+
         # Check if config is being used by any sessions
         session_count = await self._chat_session_crud.count_sessions_by_config_id(
             str(chat_config.id), owner_id
@@ -139,6 +257,7 @@ class ChatService:
             is_used=is_used,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
             selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
+            middleware=chat_config.middleware if chat_config.middleware else None,
         )
 
     async def get_chat_config_by_id(self, owner_id: str, chat_config_id: str) -> ChatConfigResponse:
@@ -154,8 +273,8 @@ class ChatService:
             raise AppError(message="Chat config not found",
                            status_code=HTTP_404_NOT_FOUND)
 
-        # Ensure id_alias exists (for backward compatibility with old records)
-        chat_config = await self._ensure_id_alias(chat_config)
+        # Ensure consistency (for backward compatibility and dataset validation)
+        chat_config = await self._ensure_consistency(chat_config)
 
         # Check if config is being used by any sessions
         session_count = await self._chat_session_crud.count_sessions_by_config_id(
@@ -177,16 +296,17 @@ class ChatService:
             is_used=is_used,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
             selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
+            middleware=chat_config.middleware if chat_config.middleware else None,
         )
 
     async def get_list_chat_configs(self, owner_id: str, skip: int = 0, limit: int = 100) -> ChatConfigListResponse:
         """Get all chats for a user"""
         chat_configs = await self._chat_config_crud.list(owner_id=owner_id, skip=skip, limit=limit)
+        # Ensure consistency for all configs (optimized batch operation)
+        chat_configs = await self._ensure_consistency_batch(chat_configs)
+
         config_responses = []
         for config in chat_configs:
-            # Ensure id_alias exists (for backward compatibility with old records)
-            config = await self._ensure_id_alias(config)
-
             # Check if config is being used by any sessions
             session_count = await self._chat_session_crud.count_sessions_by_config_id(
                 str(config.id), owner_id
@@ -208,6 +328,7 @@ class ChatService:
                     is_used=is_used,
                     mcp_ids=config.mcp_ids if config.mcp_ids else None,
                     selected_tools=config.selected_tools if config.selected_tools else None,
+                    middleware=config.middleware if config.middleware else None,
                 )
             )
         return ChatConfigListResponse(
@@ -231,7 +352,8 @@ class ChatService:
                            status_code=HTTP_404_NOT_FOUND)
 
         # Ensure id_alias exists (for backward compatibility with old records)
-        chat_config = await self._ensure_id_alias(chat_config)
+        # Ensure consistency (for backward compatibility and dataset validation)
+        chat_config = await self._ensure_consistency(chat_config)
 
         update_dict = chat_config_data.model_dump(exclude_unset=True)
 
@@ -306,6 +428,7 @@ class ChatService:
             is_used=is_used,
             mcp_ids=chat_config.mcp_ids if chat_config.mcp_ids else None,
             selected_tools=chat_config.selected_tools if chat_config.selected_tools else None,
+            middleware=chat_config.middleware if chat_config.middleware else None,
         )
 
     async def delete_chat_config(self, owner_id: str, chat_config_id: str) -> bool:
@@ -321,8 +444,8 @@ class ChatService:
             raise AppError(message="Chat config not found",
                            status_code=HTTP_404_NOT_FOUND)
 
-        # Ensure id_alias exists before deletion (for logging/audit purposes)
-        chat_config = await self._ensure_id_alias(chat_config)
+        # Ensure consistency (for audit purposes and validation)
+        chat_config = await self._ensure_consistency(chat_config)
 
         # Check if config is being used by any sessions
         session_count = await self._chat_session_crud.count_sessions_by_config_id(
@@ -354,7 +477,8 @@ class ChatService:
                            status_code=HTTP_404_NOT_FOUND)
 
         # Ensure id_alias exists (for backward compatibility with old records)
-        chat_config = await self._ensure_id_alias(chat_config)
+        # Ensure consistency (for backward compatibility and dataset validation)
+        chat_config = await self._ensure_consistency(chat_config)
 
         # Update chat_config_id to the actual ObjectId string to ensure consistency
         chat_session_data.chat_config_id = str(chat_config.id)
@@ -593,8 +717,8 @@ class ChatService:
                     message="Chat config not found",
                     status_code=HTTP_404_NOT_FOUND
                 )
-             # Ensure id_alias exists (for backward compatibility with old records)
-            chat_config = await self._ensure_id_alias(chat_config)
+             # Ensure consistency (for backward compatibility and dataset validation)
+            chat_config = await self._ensure_consistency(chat_config)
 
             llm_config = await LLMConfig.from_model_id(
                 owner_id=owner_id,
@@ -661,10 +785,35 @@ class ChatService:
                 gmt=GMT
             )
 
+            middlewares = [NonfinityAgentMiddleware()]
+
+            # Process dynamic middleware from config
+            has_summary = False
+            if chat_config.middleware:
+                for mw_config in chat_config.middleware:
+                    if "summary" in mw_config:
+                        has_summary = True
+                        summary_settings = mw_config["summary"]
+                        summary_model_id = summary_settings.get("model_id")
+
+                        summary_llm = llm  # Default to chat model
+                        if summary_model_id:
+                            summary_llm_config = await LLMConfig.from_model_id(
+                                owner_id=owner_id,
+                                model_id=summary_model_id,
+                            )
+                            summary_llm = summary_llm_config.get_llm()
+
+                        middlewares.append(create_summary_middleware(summary_llm, summary_settings))
+
+            # Default fallback if no summary configured (maintain existing behavior)
+            if not has_summary:
+                middlewares.append(create_summary_middleware(llm, {}))
+
             agent = create_agent(
                 model=llm,
                 tools=tools,
-                middleware=[NonfinityAgentMiddleware(), summary_middleware],
+                middleware=middlewares,
                 context_schema=AgentContext,
                 state_schema=AgentState,
                 checkpointer=InMemorySaver(),
