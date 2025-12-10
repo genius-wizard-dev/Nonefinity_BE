@@ -10,7 +10,7 @@ from app.models.time_mixin import TimeMixin
 
 class Task(TimeMixin, Document):
     task_id: str = Field(..., description="Celery task identifier")
-    task_type: Literal["embedding", "search", "text_embedding"] = Field(..., description="Type of task")
+    task_type: Literal["embedding", "search", "text_embedding", "export_chat_history"] = Field(..., description="Type of task")
     user_id: str = Field(..., description="Owner user id")
     file_id: Optional[str] = Field(default=None, description="Related file id if any")
     knowledge_store_id: Optional[str] = Field(default=None, description="Knowledge store id if any")

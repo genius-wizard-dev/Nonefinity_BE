@@ -1,22 +1,16 @@
 """
-Celery tasks module for embedding operations
+Celery tasks module for chat operations
 """
 
 from celery.signals import task_success, task_failure, task_retry, task_revoked
-from app.configs.settings import settings
 from app.tasks import celery_app
-from app.tasks.embed import run_embedding, run_text_embedding, search_similar
+from app.tasks.chat import export_chat_history
 from app.utils import get_logger
 
 logger = get_logger(__name__)
 
+celery_app.task(name='tasks.chat.export_history')(export_chat_history)
 
-celery_app.task(name='tasks.embedding.run_embedding')(run_embedding)
-celery_app.task(name='tasks.embedding.run_text_embedding')(run_text_embedding)
-celery_app.task(name='tasks.embedding.search_similar')(search_similar)
-
-
-# Celery signals for updating task status in MongoDB
 @task_success.connect
 def task_success_handler(sender=None, result=None, **kwargs):
     """Update task status to SUCCESS in MongoDB when task completes successfully"""
@@ -182,4 +176,4 @@ def task_revoked_handler(sender=None, request=None, **kwargs):
         logger.error(f"Failed to update task status on revoke for {task_id}: {e}", exc_info=True)
 
 
-__all__ = ["celery_app"]
+__all__ = ["celery_app", "export_chat_history"]

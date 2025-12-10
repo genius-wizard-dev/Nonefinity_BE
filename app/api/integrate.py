@@ -4,11 +4,11 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from app.core.exceptions import AppError
 from app.utils.api_response import ok
 from app.services.composio_service import ComposioService
-from app.services.intergrate_service import integration_service
+from app.services.integrate_service import integration_service
 from app.services import user_service
 from app.schemas.response import ApiError
 from app.utils import get_logger
-from app.schemas.intergrate import AddToolsRequest, ConnectAccountRequest
+from app.schemas.integrate import AddToolsRequest, ConnectAccountRequest
 from app.utils.verify_token import verify_token
 import asyncio
 
@@ -355,7 +355,7 @@ async def get_available_tools_by_integration(
         user_id = await get_user_id(current_user)
 
         # Get integration by MongoDB ID
-        from app.crud.intergrate import integration_crud
+        from app.crud.integrate import integration_crud
         integration = await integration_crud.get_by_id_and_user(integration_id, user_id)
 
         if not integration:
@@ -401,7 +401,7 @@ async def get_available_tools_batch(
             return ok(data={}, message="No integration IDs provided")
 
         # Get integrations by IDs
-        from app.crud.intergrate import integration_crud
+        from app.crud.integrate import integration_crud
 
         async def fetch_tools_for_integration(integration_id: str) -> tuple[str, list]:
             """Fetch tools for a single integration, return (id, tools) tuple"""

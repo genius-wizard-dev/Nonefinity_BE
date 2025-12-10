@@ -1,6 +1,6 @@
 from typing import List, Optional
-from app.crud.intergrate import integration_crud
-from app.schemas.intergrate import IntegrationResponse, ConfigItemSchema
+from app.crud.integrate import integration_crud
+from app.schemas.integrate import IntegrationResponse, ConfigItemSchema
 from app.utils import get_logger
 
 logger = get_logger(__name__)

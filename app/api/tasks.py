@@ -110,7 +110,12 @@ async def list_tasks(
         crud = TaskCRUD()
         filter_ = {"user_id": owner_id}
         if task_status:
-            filter_["status"] = task_status
+            # Support comma-separated statuses for multi-status filtering
+            if "," in task_status:
+                status_list = [s.strip() for s in task_status.split(",")]
+                filter_["status"] = {"$in": status_list}
+            else:
+                filter_["status"] = task_status
         if task_type:
             filter_["task_type"] = task_type
 
@@ -134,6 +139,130 @@ async def list_tasks(
         from app.utils import get_logger
         logger = get_logger(__name__)
         logger.error(f"Error listing tasks: {e}")
+        raise
+
+
+@router.get("/{task_id}",
+    response_model=ApiResponse[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Get Task Status",
+    description="Get the status and details of a specific task by ID",
+    responses={
+        200: {"description": "Task retrieved successfully"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Task not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_task_status(
+    task_id: str,
+    current_user: dict = Depends(verify_token),
+):
+    """
+    Get task status by ID - useful for frontend polling
+
+    **Path Parameters:**
+    - **task_id**: MongoDB document ID of the task
+
+    **Returns:**
+    Task object with:
+    - id: MongoDB document ID
+    - task_id: Celery task ID (if available)
+    - status: Current status (PENDING, STARTED, PROGRESS, SUCCESS, FAILURE, ERROR, REVOKED)
+    - task_type: Type of task (embedding, export_chat_history, etc.)
+    - metadata: Task-specific metadata including results
+    - error: Error message if task failed
+    - created_at, updated_at: Timestamps
+
+    **Status Values:**
+    - PENDING: Task is queued, waiting to be processed
+    - STARTED: Task has started processing
+    - PROGRESS: Task is in progress (check metadata for details)
+    - SUCCESS: Task completed successfully (check metadata.result)
+    - FAILURE/ERROR: Task failed (check error field)
+    - REVOKED: Task was cancelled
+
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "data": {
+            "id": "507f1f77bcf86cd799439011",
+            "status": "SUCCESS",
+            "task_type": "export_chat_history",
+            "metadata": {
+                "config_id": "abc123",
+                "format": "json",
+                "file_id": "xyz789",
+                "file_name": "chat_export_abc123_20241210.json",
+                "session_count": 15
+            },
+            "error": null,
+            "created_at": "2024-12-10T10:30:00Z",
+            "updated_at": "2024-12-10T10:35:00Z"
+        }
+    }
+    ```
+    """
+    try:
+        from fastapi import HTTPException
+        from app.utils.celery_client import task_client
+
+        owner_id = await _get_owner_id(current_user)
+        crud = TaskCRUD()
+
+        # Try to find by MongoDB _id first
+        task = None
+        try:
+            task = await crud.get_one({"_id": ObjectId(task_id), "user_id": owner_id})
+        except Exception:
+            pass
+
+        # If not found, try by task_id field (Celery task ID)
+        if not task:
+            task = await crud.get_one({"task_id": task_id, "user_id": owner_id})
+
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task not found"
+            )
+
+        # Optionally sync with Celery status if task has a celery task_id
+        celery_status = None
+        if hasattr(task, 'task_id') and task.task_id:
+            try:
+                celery_status = task_client.get_task_status(task.task_id)
+                # Update MongoDB if status differs
+                if celery_status.get("status") and celery_status["status"] != task.status:
+                    if celery_status["status"] in ["SUCCESS", "FAILURE", "REVOKED"]:
+                        update_data = {"status": celery_status["status"]}
+                        if celery_status.get("result"):
+                            current_meta = task.metadata or {}
+                            current_meta["result"] = celery_status["result"]
+                            update_data["metadata"] = current_meta
+                        if celery_status.get("error"):
+                            update_data["error"] = celery_status["error"]
+                        await crud.update(task, update_data)
+                        # Refresh task data
+                        task = await crud.get_one({"_id": task.id})
+            except Exception as e:
+                from app.utils import get_logger
+                logger = get_logger(__name__)
+                logger.warning(f"Could not sync Celery status: {e}")
+
+        task_data = jsonable_encoder(task, custom_encoder={PydanticObjectId: str})
+
+        # Add celery_status if available
+        if celery_status:
+            task_data["celery_status"] = celery_status
+
+        return ok(data=task_data, message="Task retrieved successfully")
+
+    except Exception as e:
+        from app.utils import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error getting task {task_id}: {e}")
         raise
 
 

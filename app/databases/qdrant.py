@@ -15,14 +15,20 @@ class QdrantDB:
     """Qdrant service using LangChain integration for vector operations."""
 
     def __init__(self):
-        self.client = QdrantClient(
-            host=settings.QDRANT_HOST,
-            port=settings.QDRANT_PORT,
-            api_key=settings.QDRANT_API_KEY,
-            https=False,
-        )
+        self._client = None
         self._embeddings = None
         self._vector_store = None
+
+    @property
+    def client(self) -> QdrantClient:
+        if self._client is None:
+            self._client = QdrantClient(
+                host=settings.QDRANT_HOST,
+                port=settings.QDRANT_PORT,
+                api_key=settings.QDRANT_API_KEY,
+                https=False,
+            )
+        return self._client
 
     @property
     def embeddings(self) -> Embeddings:
@@ -47,6 +53,8 @@ class QdrantDB:
 
     def ensure_collection(self, collection_name: str, vector_size: int, distance: Distance = Distance.COSINE):
         """Ensure the collection exists with the correct configuration."""
+        if not collection_name:
+            raise ValueError("Collection name cannot be empty")
         try:
             exists = self.client.collection_exists(collection_name)
             if exists:

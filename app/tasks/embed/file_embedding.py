@@ -1,22 +1,12 @@
-
 from typing import Dict, Any
 from uuid import uuid4
 import tempfile
 import os
-from langchain_classic.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    UnstructuredWordDocumentLoader,
-    CSVLoader,
-    UnstructuredExcelLoader,
-)
 
 from app.tasks import celery_app
 from app.services.minio_client_service import MinIOClientService
-from app.databases.qdrant import qdrant
 from app.utils import get_logger
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.embeddings import init_embeddings
+
 logger = get_logger(__name__)
 
 
@@ -39,6 +29,18 @@ def run_embedding(
     # Detect file type from object name
     file_extension = os.path.splitext(object_name)[1].lower()
 
+    # Local imports to avoid fork safety issues
+    from app.databases.qdrant import qdrant
+    from langchain_classic.document_loaders import (
+        PyPDFLoader,
+        TextLoader,
+        UnstructuredWordDocumentLoader,
+        CSVLoader,
+        UnstructuredExcelLoader,
+    )
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain.embeddings import init_embeddings
+
     # Save to temporary file since document loaders require a file path
     temp_file_path = None
     try:
@@ -49,6 +51,7 @@ def run_embedding(
 
         # Load document based on file type
         try:
+            logger.info(f"Loading file {object_name} with extension {file_extension}")
             if file_extension == '.pdf':
                 loader = PyPDFLoader(temp_file_path)
             elif file_extension in ['.txt', '.md', '.markdown']:
@@ -78,20 +81,33 @@ def run_embedding(
         chunks = text_splitter.split_documents(docs)
 
         if not chunks:
+            logger.warning("No content to embed after splitting")
             return {"message": "No content to embed", "total_chunks": 0}
 
-        # Create embeddings
+        logger.info(f"Split document into {len(chunks)} chunks")
 
+        # Create embeddings
+        try:
             # Use OpenAI-compatible API for all other providers
-        embeddings = init_embeddings(
-            provider=provider,
-            model=model_id,
-            api_key=credential.get("api_key"),
-            base_url=credential.get("base_url")
-        )
-        qdrant.embeddings = embeddings
-        uuids = [str(uuid4()) for _ in range(len(chunks))]
-        qdrant.add_documents(documents=chunks, collection_name=collection_name, ids=uuids)
+            embeddings = init_embeddings(
+                provider=provider,
+                model=model_id,
+                api_key=credential.get("api_key"),
+                base_url=credential.get("base_url")
+            )
+            qdrant.embeddings = embeddings
+            uuids = [str(uuid4()) for _ in range(len(chunks))]
+
+            if collection_name:
+                logger.info("Adding documents to Qdrant...")
+                qdrant.add_documents(documents=chunks, collection_name=collection_name, ids=uuids)
+                logger.info("Successfully added documents to Qdrant")
+            else:
+                logger.warning("No collection_name provided. Skipping Qdrant storage.")
+        except Exception as e:
+            logger.error(f"Error interacting with Qdrant: {e}")
+            raise e
+
         return {
             "user_id": user_id,
             "file_id": file_id,

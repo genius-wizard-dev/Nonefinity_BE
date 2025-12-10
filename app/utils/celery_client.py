@@ -1,5 +1,8 @@
 """
-Celery client utility for connecting to external AI Tasks System
+Celery client utility for connecting to external AI Tasks System.
+
+This client is designed to be decoupled from the Celery worker,
+allowing the backend API to send tasks to a separate Celery server.
 """
 
 from typing import Dict, Any, Optional
@@ -12,228 +15,114 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-class AITasksClient:
-    """Client for interacting with external AI Tasks System"""
+# =============================================================================
+# Task Names - Must match the names registered in the worker
+# =============================================================================
+class TaskNames:
+    """Task name constants - keep in sync with worker task registrations"""
+    # Embedding tasks (queue: embeddings)
+    EMBEDDING_RUN = "tasks.embedding.run_embedding"
+    EMBEDDING_TEXT = "tasks.embedding.run_text_embedding"
+    EMBEDDING_SEARCH = "tasks.embedding.search_similar"
 
-    def __init__(self, app_name: str = "ai_tasks_client"):
-        """
-        Initialize AI tasks client
+    # Chat tasks (queue: chats)
+    CHAT_EXPORT_HISTORY = "tasks.chat.export_history"
 
-        Args:
-            app_name: Name of the client application
-        """
+
+# =============================================================================
+# Queue Names
+# =============================================================================
+class QueueNames:
+    """Queue name constants"""
+    EMBEDDINGS = "embeddings"
+    CHATS = "chats"
+
+
+# =============================================================================
+# Celery Client
+# =============================================================================
+class CeleryTaskClient:
+    """
+    Client for sending tasks to Celery workers.
+
+    Designed to work with a remote Celery server - only needs Redis connection,
+    does not need to import any task modules.
+    """
+
+    def __init__(self, app_name: str = "celery_client"):
         self.app_name = app_name
-        self._celery_app = None
+        self._celery_app: Optional[Celery] = None
         self._initialize_client()
-
-        logger.info(f"Initialized AI Tasks Client: {app_name}")
+        logger.info(f"Initialized Celery Client: {app_name}")
 
     def _initialize_client(self):
         """Initialize the Celery client connection"""
         try:
-            # Create Celery client
             self._celery_app = Celery(
                 self.app_name,
                 broker=settings.get_broker_url,
                 backend=settings.get_result_backend,
             )
 
-            # Configure client to match external system
             self._celery_app.conf.update(
                 task_serializer=settings.CELERY_TASK_SERIALIZER,
                 accept_content=settings.CELERY_ACCEPT_CONTENT,
                 result_serializer=settings.CELERY_RESULT_SERIALIZER,
                 timezone=settings.CELERY_TIMEZONE,
                 enable_utc=settings.CELERY_ENABLE_UTC,
-                result_expires=3600,  # Results expire after 1 hour
+                result_expires=3600,
                 task_ignore_result=False,
                 task_track_started=True,
             )
 
         except Exception as e:
-            logger.error(f"Failed to initialize AI Tasks client: {e}")
+            logger.error(f"Failed to initialize Celery client: {e}")
             raise
-
-    # Avoid async DB calls in this sync client; persistence is handled at service layer
 
     @property
     def celery_app(self) -> Celery:
-        """Get the Celery app instance (lazy loading)"""
+        """Get the Celery app instance"""
         if self._celery_app is None:
             self._initialize_client()
         return self._celery_app
 
-    def create_embedding_task(
+    # =========================================================================
+    # Generic Task Methods
+    # =========================================================================
+    def send_task(
         self,
-        user_id: str,
-        object_name: str,
-        provider: str = "huggingface",
-        model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
-        credential: Dict[str, Any] = None,
-        file_id: str = None,
-        knowledge_store_id: str = None,
-        collection_name: str = None,
+        task_name: str,
+        queue: str,
+        kwargs: Dict[str, Any] = None,
+        args: tuple = None,
     ) -> str:
         """
-        Create an embedding task
+        Send a task to the Celery worker.
 
         Args:
-            user_id: User identifier
-            object_name: Object name in MinIO storage
-            provider: Embedding provider (openai, huggingface)
-            model_id: Model identifier
-            credential: Dictionary containing API keys
-            file_id: File identifier
-            knowledge_store_id: Knowledge store identifier
-            collection_name: Qdrant collection name
+            task_name: The registered task name
+            queue: Target queue name
+            kwargs: Task keyword arguments
+            args: Task positional arguments
 
         Returns:
             Task ID
         """
         try:
-            logger.info(
-                f"Creating embedding task for user {user_id}, provider {provider}, "
-                f"model {model_id}, object: {object_name}"
-            )
-
-            # Send task to queue
             result = self.celery_app.send_task(
-                'tasks.embedding.run_embedding',
-                kwargs={
-                    'user_id': user_id,
-                    'object_name': object_name,
-                    'provider': provider,
-                    'model_id': model_id,
-                    'credential': credential or {},
-                    'file_id': file_id,
-                    'knowledge_store_id': knowledge_store_id,
-                    'collection_name': collection_name,
-                },
-                queue='embeddings'
+                task_name,
+                args=args or (),
+                kwargs=kwargs or {},
+                queue=queue
             )
-
+            logger.info(f"Task sent: {task_name} -> {queue} (ID: {result.id})")
             return result.id
-
         except Exception as e:
-            logger.error(f"Error creating embedding task: {e}")
-            raise
-
-    def create_text_embedding_task(
-        self,
-        user_id: str,
-        text: str,
-        provider: str = "huggingface",
-        model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
-        credential: Dict[str, Any] = None,
-        knowledge_store_id: str = None,
-        collection_name: str = None,
-    ) -> str:
-        """
-        Create a text embedding task for direct text input
-
-        Args:
-            user_id: User identifier
-            text: Text to embed directly
-            provider: Embedding provider (openai, huggingface, google)
-            model_id: Model identifier
-            credential: Dictionary containing API keys
-            knowledge_store_id: Knowledge store identifier
-            collection_name: Qdrant collection name
-
-        Returns:
-            Task ID
-        """
-        try:
-            logger.info(
-                f"Creating text embedding task for user {user_id}, provider {provider}, "
-                f"model {model_id}, text length: {len(text)}"
-            )
-
-            # Send task to queue
-            result = self.celery_app.send_task(
-                'tasks.embedding.run_text_embedding',
-                kwargs={
-                    'user_id': user_id,
-                    'text': text,
-                    'provider': provider,
-                    'model_id': model_id,
-                    'credential': credential or {},
-                    'knowledge_store_id': knowledge_store_id,
-                    'collection_name': collection_name,
-                },
-                queue='embeddings'
-            )
-
-            logger.info(f"Text embedding task created with ID: {result.id}")
-            return result.id
-
-        except Exception as e:
-            logger.error(f"Error creating text embedding task: {e}")
-            raise
-
-    def search_embeddings(
-        self,
-        query_text: str,
-        provider: str,
-        model_id: str,
-        credential: Dict[str, Any],
-        user_id: str = None,
-        file_id: str = None,
-        limit: int = 5
-    ) -> str:
-        """
-        Search for similar embeddings
-
-        Args:
-            query_text: Text to search for
-            provider: Embedding provider
-            model_id: Model identifier
-            credential: Dictionary containing API keys
-            user_id: Optional filter by user
-            file_id: Optional filter by file
-            limit: Number of results to return
-
-        Returns:
-            Task ID
-        """
-        try:
-            logger.info(
-                f"Creating search task for query length {len(query_text)}, "
-                f"provider {provider}, model {model_id}, limit {limit}"
-            )
-
-            result = self.celery_app.send_task(
-                'ai.embeddings.tasks.search_similar',
-                kwargs={
-                    'query_text': query_text,
-                    'provider': provider,
-                    'model_id': model_id,
-                    'credential': credential,
-                    'user_id': user_id,
-                    'file_id': file_id,
-                    'limit': limit
-                },
-                queue='embeddings'
-            )
-
-            logger.info(f"Search task created with ID: {result.id}")
-            return result.id
-
-        except Exception as e:
-            logger.error(f"Error creating search task: {e}")
+            logger.error(f"Error sending task {task_name}: {e}")
             raise
 
     def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        """
-        Get the status of a task by task ID
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing task status and information
-        """
-
+        """Get the status of a task"""
         try:
             result = AsyncResult(task_id, app=self.celery_app)
 
@@ -248,7 +137,6 @@ class AITasksClient:
                 "meta": None
             }
 
-            # Get additional information based on state
             if result.state == 'PENDING':
                 response["meta"] = "Task is waiting to be processed"
             elif result.state == 'STARTED':
@@ -284,16 +172,7 @@ class AITasksClient:
             }
 
     def get_task_result(self, task_id: str) -> Dict[str, Any]:
-        """
-        Get the result of a completed task
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing task result or error information
-        """
-
+        """Get the result of a completed task"""
         try:
             result = AsyncResult(task_id, app=self.celery_app)
 
@@ -329,24 +208,10 @@ class AITasksClient:
             }
 
     def wait_for_result(self, task_id: str, timeout: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Wait for a task to complete and return the result
-
-        Args:
-            task_id: Task identifier
-            timeout: Timeout in seconds (None = wait forever)
-
-        Returns:
-            Dict containing final result
-        """
-
+        """Wait for a task to complete and return the result"""
         try:
-            logger.info(
-                f"Waiting for task {task_id} to complete (timeout: {timeout}s)")
-
+            logger.info(f"Waiting for task {task_id} (timeout: {timeout}s)")
             result = AsyncResult(task_id, app=self.celery_app)
-
-            # Wait for completion
             final_result = result.get(timeout=timeout)
 
             return {
@@ -372,19 +237,9 @@ class AITasksClient:
             }
 
     def cancel_task(self, task_id: str) -> Dict[str, Any]:
-        """
-        Cancel a running task
-
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            Dict containing cancellation status
-        """
-
+        """Cancel a running task"""
         try:
             logger.info(f"Cancelling task: {task_id}")
-
             result = AsyncResult(task_id, app=self.celery_app)
             result.revoke(terminate=True)
 
@@ -402,45 +257,134 @@ class AITasksClient:
                 "error": f"Failed to cancel task: {str(e)}"
             }
 
-    # def get_active_tasks(self) -> Dict[str, Any]:
-    #     """
-    #     Get information about currently active tasks
+    # =========================================================================
+    # Embedding Tasks
+    # =========================================================================
+    def create_embedding_task(
+        self,
+        user_id: str,
+        object_name: str,
+        provider: str,
+        model_id: str,
+        credential: Dict[str, Any],
+        file_id: str = None,
+        knowledge_store_id: str = None,
+        collection_name: str = None,
+    ) -> str:
+        """Create a file embedding task"""
+        logger.info(f"Creating embedding task: user={user_id}, object={object_name}")
 
-    #     Returns:
-    #         Dict containing active task information
-    #     """
+        return self.send_task(
+            task_name=TaskNames.EMBEDDING_RUN,
+            queue=QueueNames.EMBEDDINGS,
+            kwargs={
+                'user_id': user_id,
+                'object_name': object_name,
+                'provider': provider,
+                'model_id': model_id,
+                'credential': credential or {},
+                'file_id': file_id,
+                'knowledge_store_id': knowledge_store_id,
+                'collection_name': collection_name,
+            }
+        )
 
-    #     try:
-    #         logger.debug("Getting active tasks information")
+    def create_text_embedding_task(
+        self,
+        user_id: str,
+        text: str,
+        provider: str,
+        model_id: str,
+        credential: Dict[str, Any],
+        knowledge_store_id: str = None,
+        collection_name: str = None,
+    ) -> str:
+        """Create a text embedding task"""
+        logger.info(f"Creating text embedding task: user={user_id}, text_len={len(text)}")
 
-    #         # Get active tasks from Celery
-    #         inspect = self.celery_app.control.inspect()
-    #         active_tasks = inspect.active()
+        return self.send_task(
+            task_name=TaskNames.EMBEDDING_TEXT,
+            queue=QueueNames.EMBEDDINGS,
+            kwargs={
+                'user_id': user_id,
+                'text': text,
+                'provider': provider,
+                'model_id': model_id,
+                'credential': credential or {},
+                'knowledge_store_id': knowledge_store_id,
+                'collection_name': collection_name,
+            }
+        )
 
-    #         if not active_tasks:
-    #             return {
-    #                 "active_tasks": {},
-    #                 "total_active": 0,
-    #                 "message": "No active tasks found"
-    #             }
+    def search_embeddings(
+        self,
+        query_text: str,
+        provider: str,
+        model_id: str,
+        credential: Dict[str, Any],
+        user_id: str = None,
+        file_id: str = None,
+        limit: int = 5
+    ) -> str:
+        """Create a similarity search task"""
+        logger.info(f"Creating search task: query_len={len(query_text)}")
 
-    #         total_active = sum(len(tasks) for tasks in active_tasks.values())
+        return self.send_task(
+            task_name=TaskNames.EMBEDDING_SEARCH,
+            queue=QueueNames.EMBEDDINGS,
+            kwargs={
+                'query_text': query_text,
+                'provider': provider,
+                'model_id': model_id,
+                'credential': credential,
+                'user_id': user_id,
+                'file_id': file_id,
+                'limit': limit
+            }
+        )
 
-    #         return {
-    #             "active_tasks": active_tasks,
-    #             "total_active": total_active,
-    #             "workers": list(active_tasks.keys())
-    #         }
+    # =========================================================================
+    # Chat Tasks
+    # =========================================================================
+    def export_chat_history(
+        self,
+        task_id: str,
+        config_id: str,
+        owner_id: str,
+        format: str = "json"
+    ) -> str:
+        """
+        Create a chat history export task.
 
-    #     except Exception as e:
-    #         logger.error(f"Error getting active tasks: {e}")
-    #         return {
-    #             "active_tasks": {},
-    #             "total_active": 0,
-    #             "error": str(e)
-    #         }
+        Args:
+            task_id: Task ID for tracking (created by service layer)
+            config_id: Chat config ID to export
+            owner_id: Owner user ID
+            format: Export format ('json' or 'csv')
+
+        Returns:
+            Celery task ID
+        """
+        logger.info(f"Creating chat export task: config={config_id}, format={format}")
+
+        return self.send_task(
+            task_name=TaskNames.CHAT_EXPORT_HISTORY,
+            queue=QueueNames.CHATS,
+            kwargs={
+                'task_id': task_id,
+                'config_id': config_id,
+                'owner_id': owner_id,
+                'format': format
+            }
+        )
 
 
-# Singleton instances for common use cases
-embedding_client = AITasksClient("embedding_client")
-default_client = AITasksClient("default_client")
+# =============================================================================
+# Singleton Instances
+# =============================================================================
+# Main client instance - use this for all task operations
+task_client = CeleryTaskClient("nonefinity_client")
+
+# Backward compatibility aliases
+embedding_client = task_client
+default_client = task_client

@@ -49,16 +49,16 @@ class CredentialService:
             fernet_key = base64.urlsafe_b64encode(derived_key)
             self._cipher_suite = Fernet(fernet_key)
 
-            logger.info("✅ Credential encryption system initialized successfully")
+            logger.info("Credential encryption system initialized successfully")
 
         except AttributeError as e:
-            logger.error(f"❌ Missing credential environment variable: {e}")
+            logger.error(f"Missing credential environment variable: {e}")
             raise AppError(
                 message="Missing required credential encryption environment variables. Check your .env file.",
                 status_code=500
             )
         except Exception as e:
-            logger.error(f"❌ Failed to initialize credential encryption: {e}")
+            logger.error(f"Failed to initialize credential encryption: {e}")
             raise AppError(
                 message=f"Failed to initialize credential encryption system: {str(e)}",
                 status_code=500

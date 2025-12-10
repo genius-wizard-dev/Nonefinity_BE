@@ -26,6 +26,14 @@ class TaskCRUD(BaseCRUD[Task, Task, Task]):
         ).delete()
         return result.deleted_count if result else 0
 
+    async def update_status(self, task_id: str, update_data: dict) -> bool:
+        """Update task status by MongoDB ObjectId"""
+        task = await self.get_by_id(task_id)
+        if not task:
+            return False
+        await task.set(update_data)
+        return True
+
 
 task_crud = TaskCRUD()
 

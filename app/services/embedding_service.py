@@ -428,11 +428,11 @@ class EmbeddingService:
                 return enhanced_status
             else:
                 # Task not found in MongoDB, return Celery data only
-                logger.warning(f"⚠️ Task {task_id} not found in MongoDB, returning Celery data only")
+                logger.warning(f"Task {task_id} not found in MongoDB, returning Celery data only")
                 return celery_status
 
         except Exception as e:
-            logger.error(f"❌ Error getting enhanced status for {task_id}: {e}")
+            logger.error(f"Error getting enhanced status for {task_id}: {e}")
             return embedding_client.get_task_status(task_id)
 
 
@@ -460,12 +460,12 @@ class EmbeddingService:
                 })
                 logger.info(f"🔄 Updated task {task_id} status to {mongodb_status} in MongoDB")
             else:
-                logger.warning(f"⚠️ Task {task_id} not found in MongoDB during cancellation")
+                logger.warning(f"Task {task_id} not found in MongoDB during cancellation")
 
             return celery_result
 
         except Exception as e:
-            logger.error(f"❌ Error cancelling embedding task {task_id}: {e}")
+            logger.error(f"Error cancelling embedding task {task_id}: {e}")
             return {
                 "task_id": task_id,
                 "status": "ERROR",

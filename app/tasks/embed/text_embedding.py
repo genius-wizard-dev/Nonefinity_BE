@@ -7,7 +7,6 @@ from uuid import uuid4
 from qdrant_client.http import models as qm
 
 from app.tasks import celery_app
-from app.databases.qdrant import qdrant
 from app.utils import get_logger
 from .utils import simple_text_split, create_embeddings
 
@@ -69,6 +68,7 @@ def run_text_embedding(
     target_collection = collection_name or f"user_{user_id}_embeddings"
     vector_dimension = dimension or len(vectors[0]) if vectors else 384
 
+    from app.databases.qdrant import qdrant
     # Ensure collection exists
     qdrant.ensure_collection(vector_size=vector_dimension, collection_name=target_collection)
 
@@ -84,7 +84,7 @@ def run_text_embedding(
                 "knowledge_store_id": knowledge_store_id,
                 "chunk_index": idx,
                 "text": chunks[idx],
-                
+
             },
         )
         points.append(point)

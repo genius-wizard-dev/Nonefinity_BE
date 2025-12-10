@@ -52,4 +52,5 @@ dependencies = [
     "composio>=0.9.1",
     "composio-langchain>=0.9.1",
     "nuitka>=2.8.4",
+    "flower>=2.0.1",
 ]

@@ -158,14 +158,10 @@ class ComposioSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="COMPOSIO_")
 
 
-class OpenAISettings(BaseSettings):
-    OPENAI_API_KEY: str
-    OPENAI_BASE_URL: str
-
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="OPENAI_")
 
 
-class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings, OpenAISettings):
+
+class Settings(AppSettings, CORSSettings, MongoSettings, RedisSettings, CelerySettings, SentrySettings, QdrantSettings, ClerkSettings, MinioSettings, DuckDBSettings, PostgresSettings, CredentialSettings, ComposioSettings):
     RELEASE: str | None = None
     app_host: str = "0.0.0.0"
     app_port: int = 8000

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Start Celery worker in background
-echo "Starting Celery worker..."
-uv run celery -A app.tasks.embedding_tasks:celery_app worker -Q embeddings -l info --pool=prefork &
+# Start Unified Celery Worker (Queues: chats, embeddings)
+echo "Starting Unified Celery Worker (Queues: chats, embeddings)..."
+uv run celery -A app.tasks:celery_app worker -Q chats,embeddings -l info --pool=prefork --include app.tasks.chat_tasks,app.tasks.embedding_tasks &
 
 # Wait a moment for Celery to start
 sleep 2
