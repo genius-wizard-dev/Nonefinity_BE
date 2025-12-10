@@ -26,7 +26,7 @@ from app.utils import get_logger
 from datetime import datetime
 from langchain.agents import create_agent, AgentState
 from langgraph.checkpoint.memory import InMemorySaver
-from app.services.intergrate_service import integration_service
+from app.services.integrate_service import integration_service
 from app.agents.types import AgentContext
 from app.services.composio_service import composio_service
 from app.agents.prompts import SYSTEM_PROMPT

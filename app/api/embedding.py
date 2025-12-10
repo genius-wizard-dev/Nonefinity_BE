@@ -363,7 +363,7 @@ async def cancel_task(
         logger.info(f"Cancelling task: {task_id}")
 
         # Cancel task via service (use async version for better MongoDB integration)
-        cancel_data = await embedding_service.cancel_task_async(task_id)
+        cancel_data = await embedding_service.cancel_task(task_id)
 
         response_data = TaskCancelResponse(**cancel_data)
 

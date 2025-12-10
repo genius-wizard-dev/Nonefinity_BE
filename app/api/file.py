@@ -304,7 +304,6 @@ async def search_files(
     return ok(data=file_responses, message="Search completed successfully")
 
 @router.get("/stats", response_model=ApiResponse[dict])
-@cache_list("files", ttl=300)
 async def get_file_stats(current_user = Depends(verify_token)):
     """Get file statistics for raw/ folder
 
@@ -324,11 +323,30 @@ async def get_file_stats(current_user = Depends(verify_token)):
     total_files = len(all_files)
     total_size = sum(f.file_size or 0 for f in all_files)
 
-    # Group by file type
-    file_types = {}
+    # Group by file type (structured vs unstructured)
+    file_types = {
+        "structured": 0,
+        "unstructured": 0
+    }
+
+    structured_mime_types = [
+        "text/csv",
+        "application/csv",
+        "text/x-csv",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel.sheet.macroEnabled.12",
+        "application/json",
+        "application/xml",
+        "text/xml"
+    ]
+
     for file in all_files:
-        file_type = file.file_type.split('/')[0] if file.file_type else 'unknown'
-        file_types[file_type] = file_types.get(file_type, 0) + 1
+        ft = file.file_type.lower() if file.file_type else ""
+        if any(mime in ft for mime in structured_mime_types):
+             file_types["structured"] += 1
+        else:
+             file_types["unstructured"] += 1
 
     stats = {
         "total_files": total_files,
