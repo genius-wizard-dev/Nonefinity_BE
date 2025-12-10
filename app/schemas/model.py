@@ -57,6 +57,7 @@ class ModelResponse(BaseModel):
     type: ModelType = Field(..., description="Model type")
     description: Optional[str] = Field(None, description="Model description")
     is_active: bool = Field(..., description="Whether the model is active")
+    is_used: bool = Field(False, description="Whether the model is used in any chat config")
     dimension: Optional[int] = Field(None, description="Embedding dimension (only present if type is embedding)")
     # Timestamps
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -143,7 +144,7 @@ class ModelCreateRequest(BaseModel):
     type: ModelType = Field(..., description="Model type (chat or embedding)")
     description: Optional[str] = Field(None, max_length=500, description="Model description")
     is_active: bool = Field(default=True, description="Whether the model is active")
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

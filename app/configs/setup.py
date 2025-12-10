@@ -150,6 +150,10 @@ async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         errors=[ErrorDetail(**e) for e in errors]
     ).model_dump(mode="json", exclude_none=True)
 
+    # Include details if present (e.g., for 409 Conflict with dependencies)
+    if exc.details:
+        body["details"] = exc.details
+
     return JSONResponse(content=body, status_code=exc.status_code)
 
 

@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Dict, List, Optional
 from beanie import Document, Indexed
-from pydantic import Field
+from pydantic import Field, field_validator
 from pymongo import IndexModel
 
 from app.models.time_mixin import TimeMixin
@@ -27,6 +27,15 @@ class ChatConfig(TimeMixin, Document):
 
     mcp_ids: List[str] = Field(default_factory=list, description="List of MCP configuration MongoDB IDs")
     selected_tools: Dict[str, Any] = Field(default_factory=dict, description="Selected tools per integration: {integration_name: {tools: [tool_slug, ...]}}")
+    middleware: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of middleware configurations, e.g. [{'summary': {'model_id': '...', ...}}]")
+
+    @field_validator('middleware', mode='before')
+    @classmethod
+    def convert_none_to_empty_list(cls, v):
+        """Convert None to empty list for middleware"""
+        if v is None:
+            return []
+        return v
 
     class Settings:
         name = "chat_configs"

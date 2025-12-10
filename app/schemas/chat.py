@@ -11,6 +11,7 @@ class ChatConfigCreate(BaseModel):
     instruction_prompt: str = Field("", description="Custom instruction prompt")
     mcp_ids: Optional[List[str]] = Field(None, description="List of MCP configuration MongoDB IDs")
     selected_tools: Optional[Dict[str, Any]] = Field(None, description="Selected tools per integration: {integration_name: {tools: [tool_slug, ...]}}")
+    middleware: Optional[List[Dict[str, Any]]] = Field(None, description="List of middleware configurations")
 
 class ChatConfigUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="Name of the chat session")
@@ -21,6 +22,7 @@ class ChatConfigUpdate(BaseModel):
     instruction_prompt: Optional[str] = Field(None, description="Custom instruction prompt")
     mcp_ids: Optional[List[str]] = Field(None, description="List of MCP configuration MongoDB IDs")
     selected_tools: Optional[Dict[str, Any]] = Field(None, description="Selected tools per integration: {integration_name: {tools: [tool_slug, ...]}}")
+    middleware: Optional[List[Dict[str, Any]]] = Field(None, description="List of middleware configurations")
 
 class ChatConfigResponse(BaseModel):
     id: str = Field(..., description="Chat config ID")
@@ -36,6 +38,7 @@ class ChatConfigResponse(BaseModel):
     is_used: bool = Field(False, description="Whether this config is being used by at least one session (computed field)")
     mcp_ids: Optional[List[str]] = Field(None, description="List of MCP configuration MongoDB IDs")
     selected_tools: Optional[Dict[str, Any]] = Field(None, description="Selected tools per integration: {integration_name: {tools: [tool_slug, ...]}}")
+    middleware: Optional[List[Dict[str, Any]]] = Field(None, description="List of middleware configurations")
 class ChatConfigListResponse(BaseModel):
     chat_configs: List[ChatConfigResponse] = Field(..., description="List of chat configs")
     total: int = Field(..., ge=0, description="Total number of chat configs")

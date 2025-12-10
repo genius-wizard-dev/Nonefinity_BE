@@ -6,6 +6,8 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST, HTTP_503_
 from app.utils.preprocess_sql import check_sql_syntax, add_limit_sql, is_schema_modifying_query, extract_table_names_from_query
 from typing import List, Dict
 from app.crud import file_crud, dataset_crud
+from app.models.chat import ChatConfig
+from starlette.status import HTTP_409_CONFLICT
 logger = get_logger(__name__)
 
 
@@ -133,8 +135,9 @@ class DatasetService:
         available_datasets = []
 
         # Get all table names in DuckDB (single query)
-        result = await self.duckdb.async_execute("SHOW TABLES")
-        duckdb_tables = set(row[0] for row in result.fetchall())
+        # Get all table names in DuckDB (single query)
+        df_tables = await self.duckdb.async_query("SHOW TABLES")
+        duckdb_tables = set(df_tables["name"].tolist()) if not df_tables.empty else set()
 
         # Early return if no datasets and no tables
         if not datasets and not duckdb_tables:
@@ -143,7 +146,30 @@ class DatasetService:
         # Sync datasets: create missing ones and update existing ones
         await self._sync_datasets_with_duckdb(user_id, datasets, duckdb_tables, available_datasets)
 
-        return available_datasets
+        # Calculate usage map
+        user_chat_configs = await ChatConfig.find({"owner_id": user_id}).to_list()
+        used_dataset_ids = set()
+        for chat in user_chat_configs:
+            for ds_id in chat.dataset_ids:
+                used_dataset_ids.add(ds_id)
+
+        # Update available_datasets with is_used flag
+        final_datasets = []
+        for ds in available_datasets:
+            # ds can be a Dict or a Pydantic model
+            if isinstance(ds, dict):
+                ds['is_used'] = str(ds.get('id', '')) in used_dataset_ids
+                final_datasets.append(ds)
+            else:
+                # It's a Pydantic model
+                ds_dict = ds.model_dump()
+                # Convert ObjectId if needed
+                if 'id' in ds_dict and not isinstance(ds_dict['id'], str):
+                     ds_dict['id'] = str(ds_dict['id'])
+                ds_dict['is_used'] = str(ds.id) in used_dataset_ids
+                final_datasets.append(ds_dict)
+
+        return final_datasets
 
     def _schemas_different(self, mongodb_schema: List[DataSchemaField], duckdb_schema: List[DataSchemaField]) -> bool:
         """Compare two schemas to check if they are different (ignoring desc field)"""
@@ -484,8 +510,8 @@ class DatasetService:
 
                 # Verify table exists in DuckDB before syncing
                 try:
-                    result = await self.duckdb.async_execute("SHOW TABLES")
-                    duckdb_tables = set(row[0] for row in result.fetchall())
+                    df_tables = await self.duckdb.async_query("SHOW TABLES")
+                    duckdb_tables = set(df_tables["name"].tolist()) if not df_tables.empty else set()
                     if table_name not in duckdb_tables:
                         logger.warning(f"Table {table_name} not found in DuckDB, skipping sync")
                         continue
@@ -585,17 +611,39 @@ class DatasetService:
       if not dataset:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
 
-      result = await self.duckdb.async_execute("SHOW TABLES")
-      duckdb_tables = set(row[0] for row in result.fetchall())
+      df_tables = await self.duckdb.async_query("SHOW TABLES")
+      duckdb_tables = set(df_tables["name"].tolist()) if not df_tables.empty else set()
       if dataset.name not in duckdb_tables:
         await self.crud.delete(dataset)
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
-      return dataset
+
+      # Check usage
+      is_used = False
+      used_in_chats = await ChatConfig.find({"dataset_ids": str(dataset.id)}).to_list()
+      if used_in_chats:
+          is_used = True
+
+      # Convert to dict and add is_used
+      dataset_dict = dataset.model_dump()
+      dataset_dict['id'] = str(dataset.id)
+      dataset_dict['is_used'] = is_used
+
+      return dataset_dict
 
     async def delete_dataset(self, user_id: str, dataset_id: str):
       dataset = await self.crud.get_by_owner_and_id(user_id, dataset_id)
       if not dataset:
         raise AppError("Dataset not found", status_code=HTTP_404_NOT_FOUND)
+
+      # Check for dependencies in ChatConfig
+      used_in_chats = await ChatConfig.find({"dataset_ids": str(dataset.id)}).to_list()
+
+      if used_in_chats:
+          chat_names = [chat.name for chat in used_in_chats]
+          raise AppError(
+              message=f"Cannot delete dataset because it is used in the following chats: {', '.join(chat_names)}",
+              status_code=HTTP_409_CONFLICT
+          )
 
       try:
           await self.duckdb.async_execute(f"DROP TABLE {dataset.name}")
