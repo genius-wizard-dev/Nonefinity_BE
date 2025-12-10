@@ -1,8 +1,8 @@
 from typing import Optional, List
 from bson import ObjectId
 from app.crud.base import BaseCRUD
-from app.models.intergrate import Integration
-from app.schemas.intergrate import IntegrationCreate, IntegrationUpdate
+from app.models.integrate import Integration
+from app.schemas.integrate import IntegrationCreate, IntegrationUpdate
 from app.utils import get_logger
 
 logger = get_logger(__name__)

@@ -18,6 +18,7 @@ from app.utils.api_key_auth import verify_api_key_or_token
 from app.schemas.response import ApiResponse, ApiError
 from app.core.exceptions import AppError
 from app.utils import get_logger
+from app.utils.celery_client import task_client
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -519,3 +520,61 @@ async def export_chat_history(
     except Exception as e:
         logger.error(f"Export chat history failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/configs/{config_id}/export",
+    response_model=ApiResponse[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Export Chat History (Background)",
+    description="Trigger a background task to export all chat history for a configuration to CSV or JSON"
+)
+async def export_chat_history_background(
+    request: ExportChatHistoryRequest,
+    config_id: str = Path(..., description="Chat Config ID"),
+    current_user: dict = Depends(verify_api_key_or_token)
+):
+    """Trigger background job to export chat history"""
+    try:
+        owner_id, _ = await get_owner_and_service(current_user)
+
+        # Create Task document with placeholder task_id (Beanie requires model instance)
+        from app.models.task import Task
+        task = Task(
+            task_id="pending",  # Placeholder, will be updated with real Celery ID
+            user_id=owner_id,
+            task_type="export_chat_history",
+            status="PENDING",
+            metadata={
+                "config_id": config_id,
+                "format": request.format
+            }
+        )
+        await task.insert()
+        task_id = str(task.id)
+
+        # Send task to Celery worker via client
+        celery_task_id = task_client.export_chat_history(
+            task_id=task_id,
+            config_id=config_id,
+            owner_id=owner_id,
+            format=request.format
+        )
+
+        # Update Task with actual Celery task ID for tracking
+        task.task_id = celery_task_id
+        await task.save()
+
+        logger.info(f"Export task queued: task_id={task_id}, celery_id={celery_task_id}")
+
+        return ok(
+            data={"task_id": task_id, "celery_task_id": celery_task_id, "status": "PENDING"},
+            message="Export task started. You can track progress in the Tasks section."
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Export trigger failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+

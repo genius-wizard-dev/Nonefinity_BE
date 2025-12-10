@@ -9,7 +9,7 @@ from app.models.model import Model
 from app.models.task import Task
 from app.models.knowledge_store import KnowledgeStore
 from app.models.chat import ChatConfig, ChatSession, ChatMessage
-from app.models.intergrate import Integration
+from app.models.integrate import Integration
 from app.models.mcp import MCP
 from app.models.api_key import APIKey
 

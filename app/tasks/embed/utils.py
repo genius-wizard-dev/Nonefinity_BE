@@ -2,9 +2,6 @@
 Embedding utilities for text processing and vector generation
 """
 from typing import List, Dict, Any
-from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.utils import get_logger
 
 
@@ -25,6 +22,8 @@ def simple_text_split(text: str, chunk_size: int = 1000, chunk_overlap: int = 20
     """
     if not text or not text.strip():
         return []
+
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -56,11 +55,13 @@ def langchain_embed(provider: str, model: str, texts: List[str], credential: Dic
     try:
         p = provider.lower()
         if p == "google_genai" or p == "google":
+            from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
             embeddings = GoogleGenerativeAIEmbeddings(
                 model=model,
                 google_api_key=credential.get("api_key")
             )
         else:
+            from langchain_openai.embeddings import OpenAIEmbeddings
             # Use OpenAI-compatible API for all other providers
             embeddings = OpenAIEmbeddings(
                 model=model,
