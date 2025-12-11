@@ -303,17 +303,15 @@ class CredentialService:
             test_base_url = update_dict.get('base_url', db_credential.base_url or provider.base_url)
 
             # Test the API key before updating the credential
-            test_result = await self.verify_credential(
+            success, error_message = await self._verify_and_get_model_credential(
                 provider=provider.provider,
                 api_key=test_api_key,
                 base_url=test_base_url
             )
 
-            if not test_result.get('is_valid', False):
-                error_msg = test_result.get('message', 'Invalid API key')
-                error_details = test_result.get('error_details', '')
-                full_error = f"{error_msg}. {error_details}" if error_details else error_msg
-                raise ValueError(f"API key validation failed: {full_error}")
+            if not success:
+                error_msg = error_message or 'Invalid API key'
+                raise ValueError(f"API key validation failed: {error_msg}")
 
         # Encrypt API key if being updated
         if 'api_key' in update_dict:
