@@ -669,7 +669,6 @@ class ChatService:
         # Parse selected_tools from new format: {integration_name: {tools: [tool_slug, ...]}}
         selected_tools_dict = chat_config.selected_tools if chat_config.selected_tools else {}
         all_tool_slugs = []
-        print(f"selected_tools_dict: {selected_tools_dict}")
         for integration_name, tool_data in selected_tools_dict.items():
             if isinstance(tool_data, dict) and "tools" in tool_data:
                 all_tool_slugs.extend(tool_data.get("tools", []))

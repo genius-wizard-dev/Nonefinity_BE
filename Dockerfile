@@ -2,9 +2,11 @@ FROM python:3.12-slim as base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+  build-essential \
+  curl \
+  nodejs \
+  npm \
+  && rm -rf /var/lib/apt/lists/*
 
 # Install UV
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
