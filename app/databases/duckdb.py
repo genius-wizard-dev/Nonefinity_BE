@@ -85,11 +85,6 @@ class DuckDB:
             raise DuckDBLockError(f"Failed to {operation_name} after retries. Error: {last_error}") from last_error
         raise RuntimeError(f"Unexpected error in {operation_name}")
 
-    def query(self, sql: str):
-        """Synchronous query (Deprecated: use async_query)"""
-        logger.warning("Using synchronous query() method. Consider using async_query() instead.")
-
-        raise NotImplementedError("Synchronous query is not supported in this refactor. Use async_query()")
 
     async def async_query(self, sql: str):
         """Execute query asynchronously with retry mechanism"""
@@ -100,10 +95,6 @@ class DuckDB:
 
         return await self._exec_with_retry(_run_query, "query")
 
-    def execute(self, sql: str):
-        """Synchronous execute (Deprecated: use async_execute)"""
-        logger.warning("Using synchronous execute() method. Consider using async_execute() instead.")
-        raise NotImplementedError("Synchronous execute is not supported in this refactor. Use async_execute()")
 
     async def async_execute(self, sql: str):
         """Execute SQL command asynchronously with retry mechanism"""
