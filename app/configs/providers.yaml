@@ -20,7 +20,7 @@ providers:
     models_url: "https://openrouter.ai/api/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
-    is_active: true
+    is_active: false
     support: ["chat"]
 
   huggingface:
@@ -32,7 +32,7 @@ providers:
     models_url: "https://router.huggingface.co/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
-    is_active: true
+    is_active: false
     support: ["chat"]
 
   nvidia:
@@ -44,7 +44,7 @@ providers:
     models_url: "https://integrate.api.nvidia.com/v1/models"
     api_key_header: "Authorization"
     api_key_prefix: "Bearer"
-    is_active: true
+    is_active: false
     support: ["embedding", "chat"]
 
   togetherai:
