@@ -70,6 +70,26 @@ class DuckDBInstance:
               );
           """)
 
+          # --- Prepare User Schema for Isolation ---
+          # Sanitize user_id to be a valid schema name (alphanumeric + underscore)
+          # ObjectId is usually safe, but we prefix for clarity and safety.
+          valid_user_id = self.user_id.replace("-", "_")
+          self.metadata_schema = f"user_{valid_user_id}"
+
+          # Create schema if it doesn't exist.
+          # We attach Postgres temporarily to run the CREATE SCHEMA command.
+          # Note: We rely on the secret created above or pass connection string explicitly if needed.
+          try:
+              pg_conn_str = f"dbname={settings.POSTGRES_DB} user={settings.POSTGRES_USER} host={settings.POSTGRES_HOST} password={settings.POSTGRES_PASSWORD} port={settings.POSTGRES_PORT}"
+              # Attach as a temporary catalog 'pg_init'
+              self.con.execute(f"ATTACH '{pg_conn_str}' AS pg_init (TYPE POSTGRES, READ_ONLY FALSE);")
+              self.con.execute(f"CREATE SCHEMA IF NOT EXISTS pg_init.{self.metadata_schema};")
+              self.con.execute("DETACH pg_init;")
+              logger.debug(f"Ensured schema exists: {self.metadata_schema}")
+          except Exception as e:
+              logger.warning(f"Failed to ensure schema {self.metadata_schema} exists (might already exist or permission error): {e}")
+              # We continue, hoping it exists or DuckLake can handle it (though DuckLake usually expects it to exist or defaults to main)
+
           # --- Attach DuckLake catalog riêng cho user ---
           self.catalog_name = f"catalog_{self.user_id}"
           self.data_path = f"s3://{self.user_id}/data/"
@@ -83,7 +103,9 @@ class DuckDBInstance:
 
           self.con.execute(f"""
               ATTACH 'ducklake:postgres:' AS "{self.catalog_name}" (
-                DATA_PATH '{self.data_path}'
+                DATA_PATH '{self.data_path}',
+                METADATA_SCHEMA '{self.metadata_schema}',
+                OVERRIDE_DATA_PATH true
               );
           """)
           self.con.execute(f"""
@@ -278,6 +300,51 @@ class DuckDBInstanceManager:
                 if user_id in self.active_instances:
                     await self._close_and_remove_instance(user_id, self.active_instances[user_id])
         logger.info("Cleaned up all DuckDB instances")
+
+    async def cleanup_user(self, user_id: str):
+        """Cleanup user resources: instance, local DB file, and Postgres schema"""
+        logger.info(f"Cleaning up DuckDB resources for user {user_id}")
+
+        # 1. Close active instance if any
+        async with self.lock:
+            if user_id in self.active_instances:
+                instance = self.active_instances[user_id]
+                await self._close_and_remove_instance(user_id, instance)
+
+        # 2. Delete local DB file (best effort)
+        # Note: We don't track the exact PID of the file if the instance is not active.
+        # But we can try to find files matching the pattern.
+        temp_folder = settings.DUCKDB_TEMP_FOLDER
+        try:
+             import glob
+             files = glob.glob(os.path.join(temp_folder, f"{user_id}_*.nonefinity"))
+             for f in files:
+                 try:
+                     os.remove(f)
+                     logger.info(f"Deleted local DB file: {f}")
+                 except Exception as e:
+                     logger.warning(f"Failed to delete local DB file {f}: {e}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up local DB files for user {user_id}: {e}")
+
+        # 3. Drop Postgres Schema
+        try:
+             # Create a transient ephemeral DuckDB connection just for this op
+            con = duckdb.connect(database=":memory:")
+            con.execute("INSTALL postgres; LOAD postgres;")
+
+            pg_conn_str = f"dbname={settings.POSTGRES_DB} user={settings.POSTGRES_USER} host={settings.POSTGRES_HOST} password={settings.POSTGRES_PASSWORD} port={settings.POSTGRES_PORT}"
+
+            # Attach with read_write access
+            con.execute(f"ATTACH '{pg_conn_str}' AS pg_cleanup (TYPE POSTGRES, READ_ONLY FALSE);")
+            valid_user_id = user_id.replace("-", "_")
+            schema_name = f"user_{valid_user_id}"
+
+            con.execute(f"DROP SCHEMA IF EXISTS pg_cleanup.{schema_name} CASCADE;")
+            con.close()
+            logger.info(f"Dropped schema {schema_name} for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to drop schema for user {user_id}: {e}")
 
     async def get_stats(self) -> dict:
         """Get statistics about current instances"""
