@@ -193,7 +193,21 @@ class CredentialService:
         try:
             db_credential = await self.crud.create_with_owner(owner_id, encrypted_data)
             if db_credential:
-                return db_credential
+                # Return CredentialDetail with provider info
+                return CredentialDetail(
+                    id=str(db_credential.id),
+                    name=db_credential.name,
+                    provider_id=db_credential.provider_id,
+                    provider_name=provider.name,
+                    provider=provider.provider,
+                    base_url=db_credential.base_url,
+                    additional_headers=db_credential.additional_headers,
+                    is_active=db_credential.is_active,
+                    created_at=db_credential.created_at,
+                    updated_at=db_credential.updated_at,
+                    api_key=credential_data.api_key, # Return the original api key (decrypted) as it was just set
+                    usage_count=0
+                )
             else:
                 return None
         except Exception as e:
@@ -211,7 +225,7 @@ class CredentialService:
         """Get owner credentials"""
         credentials = await self.crud.get_by_owner_id(owner_id, skip, limit, active)
         provider_ids = [cred.provider_id for cred in credentials]
-        providers = await ProviderService.get_providers_by_ids(provider_ids)
+        providers = await ProviderService.get_providers_by_ids(provider_ids, active_only=False)
         provider_map = {str(provider.id): provider for provider in providers}
 
         credential_list = []
@@ -257,7 +271,7 @@ class CredentialService:
             )
 
         # Get provider information
-        provider = await ProviderService.get_provider_by_id(db_credential.provider_id)
+        provider = await ProviderService.get_provider_by_id(db_credential.provider_id, active_only=False)
         usage_count = await self.model_crud.count_credential_usage(db_credential.id)
         # Decrypt and mask the API key
         decrypted_key = self._decrypt_api_key(db_credential.api_key)
@@ -321,7 +335,32 @@ class CredentialService:
         if not updated_credential:
             return None
 
-        return updated_credential
+        # Fetch provider info if not already fetched (e.g. if we didn't enter the validation block)
+        provider = await ProviderService.get_provider_by_id(updated_credential.provider_id, active_only=False)
+
+        # We need usage count for the detail response
+        usage_count = await self.model_crud.count_credential_usage(updated_credential.id)
+
+        # Get the API key (if we updated it, we have it in update_dict decrypted, otherwise decrypt from DB)
+        # Note: update_dict['api_key'] is encrypted at this point if it was present
+
+        # It's safer to decrypt from the updated db object to be sure
+        decrypted_key = self._decrypt_api_key(updated_credential.api_key)
+
+        return CredentialDetail(
+            id=str(updated_credential.id),
+            name=updated_credential.name,
+            provider_id=updated_credential.provider_id,
+            provider_name=provider.name if provider else None,
+            provider=provider.provider if provider else None,
+            base_url=updated_credential.base_url,
+            additional_headers=updated_credential.additional_headers,
+            is_active=updated_credential.is_active,
+            created_at=updated_credential.created_at,
+            updated_at=updated_credential.updated_at,
+            api_key=decrypted_key,
+            usage_count=usage_count
+        )
 
     async def delete_credential(self, owner_id: str, credential_id: str):
         """Delete credential (soft delete)"""
